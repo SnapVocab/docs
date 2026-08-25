@@ -183,7 +183,6 @@ Sau khi lọc theo ngữ cảnh:
 | `CLIMB_PERSONAL_LEADERBOARD` | Nhích Lên Một Bậc | Tăng ít nhất 1 bậc trên leaderboard cá nhân | 1 | 20 Coin, 40 XP |
 | `USE_XP_BOOSTER` | Tăng Tốc Học Tập | Dùng 1 booster XP | 1 | 5 Coin, 10 XP |
 | `BUY_SHOP_ITEM` | Ghé Thăm Cửa Hàng | Mua 1 vật phẩm trong shop cá nhân | 1 | 5 Coin, 10 XP |
-| `CLAIM_ALL_DAILY_MISSIONS` | Rương Thưởng Ngày | Claim đủ 5 Daily Missions bắt buộc | 5 | 50 Coin, 1 XP Booster 30 phút |
 
 ---
 
@@ -252,7 +251,7 @@ Với mission liên quan Review Queue:
 | Field | Kiểu | Mô tả |
 | :--- | :--- | :--- |
 | `id` | UUID | Khóa chính |
-| `userId` | UUID | Learner nhận mission |
+| `userId` | Long | Learner nhận mission |
 | `missionTemplateId` | UUID | Template được cấp |
 | `missionDate` | Date | Ngày nhiệm vụ theo GMT+7 |
 | `slot` | Number | Vị trí 1-5, bonus dùng slot 6 |
@@ -278,7 +277,7 @@ Ràng buộc dữ liệu:
 | :--- | :--- | :--- |
 | `id` | UUID | Khóa chính |
 | `userDailyMissionId` | UUID | Mission được claim |
-| `userId` | UUID | Learner nhận thưởng |
+| `userId` | Long | Learner nhận thưởng |
 | `idempotencyKey` | String | Khóa chống claim trùng |
 | `rewardCoin` | Number | Coin đã cộng |
 | `rewardXp` | Number | XP đã cộng |
@@ -291,7 +290,7 @@ Ràng buộc dữ liệu:
 | Field | Kiểu | Mô tả |
 | :--- | :--- | :--- |
 | `id` | UUID | Khóa chính |
-| `userId` | UUID | Learner sở hữu milestone |
+| `userId` | Long | Learner sở hữu milestone |
 | `weekStartDate` | Date | Thứ 2 đầu tuần theo GMT+7 |
 | `weekEndDate` | Date | Chủ Nhật cuối tuần theo GMT+7 |
 | `activityStampCount` | Number | Số ngày đã claim Daily Chest trong tuần |

@@ -2,6 +2,33 @@
 
 Tài liệu này mô tả kiến trúc cơ sở dữ liệu của hệ thống SnapVocab, được tổng hợp từ Domain (Backend), schema `crawler.db` và các thiết kế mới trong thư mục `decisions` (`custom_card.md`, `daily_mission.md`).
 
+## Quy chuẩn thiết kế (Conventions)
+
+Để đảm bảo tính đồng nhất trên mọi môi trường và công cụ ORM (Hibernate), dự án áp dụng các quy ước cơ sở dữ liệu sau:
+
+### 1. Encoding & Collation
+- **Charset:** `utf8mb4` (hỗ trợ đầy đủ Unicode, emoji, đa ngôn ngữ).
+- **Collation:** `utf8mb4_0900_ai_ci` hoặc `utf8mb4_unicode_ci` cho tất cả các bảng.
+
+### 2. Naming Convention
+- **Vật lý (RDBMS):** Bắt buộc sử dụng `snake_case` số nhiều cho tên bảng (ví dụ: `users`, `card_templates`) và `snake_case` cho tên cột (`card_id`, `created_at`). 
+- **Tài liệu:** Tài liệu bên dưới sử dụng tên Entity (PascalCase/camelCase) hoặc tên bảng có sẵn để dễ ánh xạ với Class trong Spring Boot, nhưng khi DDL/Migration phải tuân thủ nghiêm ngặt chuẩn `snake_case`.
+
+### 3. Data Types & Length
+- `String`: Mặc định hiểu là `VARCHAR(255)`. Các cột mã định danh, enum dùng `VARCHAR(50)`. Nội dung dài (mô tả, JSON payload) dùng `TEXT` hoặc `JSON`.
+- `Number`: Được hiểu là kiểu số tùy ngữ cảnh (ví dụ `DECIMAL` cho tài sản, `INT` cho đếm số lượng).
+
+### 4. Primary Key (PK) Strategy
+- Các bảng thuộc **Core Domain, Topic, Flashcard, SRS, Recognition** dùng kiểu `Long` (Auto Increment hoặc Snowflake) tối ưu hiệu năng join.
+- Các bảng thuộc **Gamification, Mission, Quiz, Notification** dùng kiểu `UUID` (lưu dạng `VARCHAR(36)` hoặc `BINARY(16)`) vì bản chất log/event sinh ra nhiều, tần suất phân tán cao và có thể scale sang NoSQL sau này.
+
+### 5. Database Migration
+- Công cụ quản lý version: **Flyway**.
+- Format file script: `V{Milestone}_{Version}__{Description}.sql` (ví dụ: `V1_01__init_auth.sql`, `V3_05__add_quiz_tables.sql`).
+- Quy định: Cấm sửa đổi file migration cũ đã apply. Mọi thay đổi schema đều phải tạo file migration mới (append-only).
+
+---
+
 ## 1. Core Domain (Authentication & Dictionary)
 
 Quản lý người dùng và hệ thống từ điển nền tảng.
@@ -21,8 +48,11 @@ Quản lý người dùng và hệ thống từ điển nền tảng.
 | `coin` | Long | Default 0 | Tiền tệ trong game |
 | `streak_days` | Integer| Default 0 | Chuỗi ngày học liên tục |
 | `last_studied_at`| Instant| | Lần học gần nhất |
-| `activated` | Boolean| Not Null, Default false| Trạng thái kích hoạt |
+| `activated` | Boolean| Not Null, Default false| Trạng thái xác thực Email |
+| `status` | Enum | ACTIVE, LOCKED, BANNED | Trạng thái tài khoản |
 | `bio` | String | | Tiểu sử |
+| `createdAt` | Instant| | Thời điểm tạo |
+| `updatedAt` | Instant| | Thời điểm cập nhật |
 
 ### Bảng `Authority`
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
@@ -37,6 +67,8 @@ Quản lý người dùng và hệ thống từ điển nền tảng.
 | `id` | Long | Khóa chính (PK) | ID từ vựng |
 | `word` | String | Not Null | Nội dung từ vựng |
 | `langCode` | String | Not Null | Mã ngôn ngữ (VD: en, vi) |
+| `isDeleted` | Boolean| Default false | Cờ xóa mềm (soft-delete) |
+| `deletedAt` | Instant| Nullable | Thời điểm xóa |
 
 ### Bảng `Definition`
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
@@ -82,8 +114,9 @@ Quản lý người dùng và hệ thống từ điển nền tảng.
 
 ### Ràng buộc & Indexes (Core Domain)
 - `User`: Unique index trên `email`.
-- `Word`: Index trên `word` để tìm kiếm từ vựng hiệu quả.
+- `Word`: Unique constraint ghép trên `(word, langCode)` để tránh trùng lặp khi import dữ liệu lớn (357k từ). Kèm theo Index độc lập trên `word` (Partial Index `WHERE isDeleted = false`) để tìm kiếm.
 - `user_authority`: Khóa chính ghép `(user_id, authority_name)`.
+- `WordDefinition`: Unique constraint ghép trên `(word_id, definition_id)` để tránh duplicate liên kết.
 - Các FK (`word_id`, `definition_id`) cần có index để tối ưu truy vấn join.
 
 ## 2. Crawler & Topic Domain
@@ -131,6 +164,7 @@ Cấu trúc thu thập và tổ chức dữ liệu từ vựng theo chủ đề.
 | :--- | :--- | :--- | :--- |
 | `id` | Long | Khóa chính (PK) | ID item (thường là 1 từ) trong chủ đề |
 | `topic_id` | Long | FK -> `topics(id)` | Item thuộc chủ đề nào |
+| `word_id` | Long | FK -> `Word(id)`, Nullable | Nối trực tiếp với bảng Word gốc để hỗ trợ đẩy nhanh vào Deck |
 
 ### Bảng `topic_item_attribute_groups`
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
@@ -151,6 +185,7 @@ Cấu trúc thu thập và tổ chức dữ liệu từ vựng theo chủ đề.
 ### Ràng buộc & Indexes (Crawler & Topic Domain)
 - `collections`: Unique index trên `name`.
 - `topics`: Index trên `collection_id` và `parent_id`.
+- `topic_items`: Index trên `(topic_id, word_id)` để lọc item và query join sang bảng `Word` cực nhanh.
 - FK indexes cho `topic_attributes(group_id)`, `topic_items(topic_id)`.
 
 ## 3. Flashcard & Spaced Repetition (SRS)
@@ -188,9 +223,10 @@ Hỗ trợ hệ thống Card Template mới (`custom_card.md`). 1 Note chỉ có
 | :--- | :--- | :--- | :--- |
 | `id` | Long | Khóa chính (PK) | ID Bộ thẻ |
 | `userId` | Long | FK -> `User(id)` | Người sở hữu bộ thẻ |
-| `cardTemplateId` | Long | FK -> `CardTemplate(id)` | Template hiển thị mặc định của bộ thẻ |
+| `cardTemplateId` | Long | FK -> `CardTemplate(id)`, Not Null | Template hiển thị mặc định của bộ thẻ |
 | `name` | String | | Tên bộ thẻ |
 | `description` | String | | Mô tả |
+| `status` | Enum | ACTIVE, ARCHIVED, DELETED | Trạng thái Deck |
 | `createdAt` | Instant| | Thời điểm tạo |
 | `updatedAt` | Instant| | Thời điểm cập nhật |
 
@@ -199,7 +235,12 @@ Hỗ trợ hệ thống Card Template mới (`custom_card.md`). 1 Note chỉ có
 | :--- | :--- | :--- | :--- |
 | `id` | Long | Khóa chính (PK) | ID Note dữ liệu gốc |
 | `deckId` | Long | FK -> `Deck(id)` | Note thuộc bộ thẻ nào |
+| `wordId` | Long | FK -> `Word(id)`, Nullable | Liên kết về từ điển gốc (nếu có) |
 | `word` | String | | Từ vựng |
+| `imageObjectKey`| String | Nullable | Ảnh crop từ scan hoặc ảnh custom |
+| `audioUrl` | String | Nullable | Link audio phát âm |
+| `audioSource` | Enum | DICTIONARY/TTS/CUSTOM | Nguồn audio (từ điển, AI đọc, upload) |
+| `status` | Enum | ACTIVE, ARCHIVED, DELETED | Trạng thái Note (Archive Note -> Card khỏi queue) |
 | `createdAt` | Instant| | Thời điểm tạo |
 | `updatedAt` | Instant| | Thời điểm cập nhật |
 
@@ -224,6 +265,7 @@ Hỗ trợ hệ thống Card Template mới (`custom_card.md`). 1 Note chỉ có
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
 | `id` | Long | Khóa chính (PK) | ID Thẻ học (Dữ liệu SRS) |
+| `userId` | Long | FK -> `User(id)` | Chuẩn hóa ngược (Denormalize) để query nóng |
 | `noteId` | Long | FK -> `Note(id)`, Unique| Tương ứng với đúng 1 Note |
 | `cardState` | Enum | | Trạng thái SRS |
 | `dueAt` | Instant| | Thời điểm đến hạn ôn tập |
@@ -235,11 +277,26 @@ Hỗ trợ hệ thống Card Template mới (`custom_card.md`). 1 Note chỉ có
 | `createdAt` | Instant| | Thời điểm tạo |
 | `updatedAt` | Instant| | Thời điểm cập nhật |
 
+### Bảng `ReviewLog`
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | Long | Khóa chính (PK) | ID lượt ôn tập |
+| `cardId` | Long | FK -> `Card(id)`, Index | Thẻ được ôn tập |
+| `rating` | Enum | AGAIN/HARD/GOOD/EASY | Đánh giá của người dùng |
+| `stateBefore` | Enum | Nullable | Trạng thái thẻ trước khi review (tùy chọn) |
+| `stateAfter` | Enum | Nullable | Trạng thái thẻ sau khi review (tùy chọn) |
+| `scheduledDays`| Integer| | Số ngày lên lịch tiếp theo |
+| `elapsedDays` | Integer| | Số ngày trôi qua kể từ lần review trước |
+| `durationMs` | Long | | Thời gian review (milliseconds) |
+| `reviewedAt` | Instant| | Thời điểm review |
+
 ### Ràng buộc & Indexes (Flashcard & SRS)
 - `CardTemplate`: Unique index trên `code`.
 - `CardTemplateField`: Unique constraint ghép `(cardTemplateId, fieldCode, side)`.
-- `Card`: Unique constraint trên `noteId`. Thêm Index trên `dueAt` và `cardState` để lấy danh sách review nhanh.
-- Các FK (`userId`, `deckId`, `cardTemplateId`, `noteId`) cần có index.
+- `Note`: Unique constraint ghép trên `(deckId, word)` để tránh lưu trùng lặp cùng một từ vựng trong cùng một Deck (chống spam progress).
+- `Card`: Unique constraint trên `noteId`. Index ghép trên `(userId, dueAt, cardState)` để lấy danh sách review nhanh cho từng User cụ thể.
+- `ReviewLog`: Bảng append-only (chỉ thêm mới), là nguồn dữ liệu để rebuild progress. Index ghép trên `(cardId, reviewedAt)`.
+- Các FK (`userId`, `deckId`, `cardTemplateId`, `noteId`, `cardId`, `wordId`) cần có index.
 
 ## 4. Daily Mission & Gamification
 
@@ -286,7 +343,7 @@ Thiết kế từ `daily_mission.md` nhằm thúc đẩy duy trì thói quen h�
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
 | `id` | UUID | Khóa chính (PK) | ID Log nhận thưởng |
-| `userDailyMissionId`| UUID | FK -> `UserDailyMission(id)`| Nhận thưởng từ nhiệm vụ nào |
+| `userDailyMissionId`| UUID | FK -> `UserDailyMission(id)`, Unique | Nhận thưởng từ nhiệm vụ nào |
 | `userId` | Long | FK -> `User(id)` | Người nhận thưởng |
 | `idempotencyKey`| String | Unique | Key chống nhận thưởng nhiều lần |
 | `rewardCoin` | Number | | Số xu thực tế được cộng |
@@ -295,6 +352,16 @@ Thiết kế từ `daily_mission.md` nhằm thúc đẩy duy trì thói quen h�
 | `claimedBy` | Enum | | Ghi nhận người claim (USER) |
 | `createdAt` | DateTime| | Thời điểm claim |
 
+### Bảng `UserDailyChest`
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | UUID | Khóa chính (PK) | ID Rương ngày |
+| `userId` | Long | FK -> `User(id)` | Người nhận rương |
+| `chestDate` | Date | | Ngày của rương |
+| `status` | Enum | LOCKED, UNLOCKED, CLAIMED | Trạng thái rương |
+| `claimedAt` | DateTime| Nullable | Thời điểm nhận thưởng |
+| `createdAt` | DateTime| | Thời điểm tạo |
+| `updatedAt` | DateTime| | Thời điểm cập nhật |
 ### Bảng `UserWeeklyMilestone`
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
@@ -308,8 +375,204 @@ Thiết kế từ `daily_mission.md` nhằm thúc đẩy duy trì thói quen h�
 | `goldStatus` | Enum | | Rương Vàng |
 | `updatedAt` | DateTime| | Thời điểm cập nhật |
 
-### Ràng buộc & Indexes (Daily Mission)
+### Bảng `ExperienceLog`
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | UUID | Khóa chính (PK) | ID log nhận XP |
+| `userId` | Long | FK -> `User(id)` | Người nhận XP |
+| `amount` | Number | Not Null | Số lượng XP nhận được |
+| `sourceType` | Enum | | Nguồn nhận (MISSION, QUIZ, SCAN, REVIEW...) |
+| `eventKey` | String | Unique | Khóa chống cộng trùng XP từ 1 event |
+| `createdAt` | DateTime| | Thời điểm nhận |
+
+### Bảng `CoinTransaction`
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | UUID | Khóa chính (PK) | ID giao dịch Coin |
+| `userId` | Long | FK -> `User(id)` | Người nhận/tiêu Coin |
+| `amount` | Number | Not Null | Số lượng Coin (dương = nhận, âm = tiêu) |
+| `sourceType` | Enum | | Nguồn (MISSION, WEEKLY_CHEST, SHOP_BUY...) |
+| `eventKey` | String | Unique | Khóa chống giao dịch trùng từ 1 event |
+| `createdAt` | DateTime| | Thời điểm giao dịch |
+
+### Bảng `Badge`
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | Long | Khóa chính (PK) | ID Huy hiệu |
+| `code` | String | Unique, Not Null | Mã huy hiệu (VD: NEWBIE, STREAK_7) |
+| `name` | String | | Tên hiển thị |
+| `description` | String | | Mô tả điều kiện đạt được |
+| `iconUrl` | String | | Link ảnh huy hiệu |
+| `isActive` | Boolean| | Trạng thái hiển thị |
+
+### Bảng `UserBadge`
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | Long | Khóa chính (PK) | ID User nhận huy hiệu |
+| `userId` | Long | FK -> `User(id)` | Người nhận |
+| `badgeId` | Long | FK -> `Badge(id)` | Huy hiệu được nhận |
+| `awardedAt` | DateTime| | Thời điểm nhận |
+
+### Bảng `ShopItem`
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | Long | Khóa chính (PK) | ID Vật phẩm |
+| `code` | String | Unique, Not Null | Mã vật phẩm (VD: XP_BOOSTER_1H) |
+| `name` | String | | Tên hiển thị |
+| `description` | String | | Mô tả vật phẩm |
+| `type` | Enum | | BOOSTER, AVATAR_FRAME, THEME... |
+| `price` | Number | | Giá tiền (Coin) |
+| `isActive` | Boolean| | Trạng thái bày bán |
+
+### Bảng `UserItem`
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | Long | Khóa chính (PK) | ID kho đồ user |
+| `userId` | Long | FK -> `User(id)` | Người sở hữu |
+| `itemCode` | String | FK -> `ShopItem(code)` | Mã vật phẩm |
+| `quantity` | Integer| | Số lượng sở hữu |
+| `expiresAt` | DateTime| Nullable | Thời điểm hết hạn (nếu có) |
+| `updatedAt` | DateTime| | Thời điểm cập nhật lần cuối |
+
+### Ràng buộc & Indexes (Daily Mission & Gamification)
 - `UserDailyMission`: Unique constraint ghép `(userId, missionDate, slot)` và `(userId, missionDate, missionTemplateId)`. Ràng buộc `currentProgress <= targetValue`.
-- `UserDailyMissionClaimLog`: Unique index trên `idempotencyKey`.
+- `UserDailyMissionClaimLog`: Unique index trên `idempotencyKey` và Unique constraint trên `userDailyMissionId` (chặn triệt để race condition claim double ở cấp độ DB). Khi xử lý cần update có điều kiện `UPDATE UserDailyMission SET status='CLAIMED' WHERE id=? AND status='COMPLETED'` (chỉ cộng reward khi affected rows = 1).
 - `UserWeeklyMilestone`: Unique constraint ghép `(userId, weekStartDate)`.
+- `UserDailyChest`: Unique constraint ghép `(userId, chestDate)`.
 - Ràng buộc: `activityStampCount` nằm trong khoảng 0-7.
+- `ExperienceLog` & `CoinTransaction`: Unique index trên `eventKey` để đảm bảo tính idempotency, chống cộng trùng tài sản từ các luồng khác. Ledger này là nguồn để rebuild lại tổng XP/Coin trên bảng `User`.
+- `UserBadge`: Unique constraint ghép `(userId, badgeId)`.
+- `ShopItem`: Unique index trên `code`.
+- `UserItem`: Unique constraint ghép `(userId, itemCode)`.
+- **Leaderboard**: Quản lý bằng Redis Sorted Set, nguồn dữ liệu tham chiếu & rebuild là bảng `ExperienceLog`.
+
+## 5. Recognition & Storage
+
+Quản lý dữ liệu lưu trữ media và tiến trình nhận diện hình ảnh (Scan-to-Vocabulary).
+
+### Bảng `MediaObject`
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | Long | Khóa chính (PK) | ID Media |
+| `objectKey` | String | Unique, Not Null | Khóa object trên hệ thống Storage (S3/R2) |
+| `ownerId` | Long | FK -> `User(id)` | Người tải lên (nếu có) |
+| `mimeType` | String | | Định dạng file (VD: image/jpeg) |
+| `sizeBytes` | Long | | Kích thước file |
+| `purpose` | String | | Mục đích (SCAN, AVATAR...) |
+| `createdAt` | Instant| | Thời điểm tạo |
+
+### Bảng `ScanRequest`
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | Long | Khóa chính (PK) | ID lượt quét |
+| `userId` | Long | FK -> `User(id)` | Người thực hiện quét |
+| `mediaObjectId`| Long | FK -> `MediaObject(id)`| Ảnh gốc để quét |
+| `status` | Enum | | PENDING, PROCESSING, SUCCESS, FAILED |
+| `aiLatencyMs` | Long | | Độ trễ xử lý của AI |
+| `createdAt` | Instant| | Thời điểm tạo request |
+
+### Bảng `DetectedObject`
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | Long | Khóa chính (PK) | ID đối tượng nhận diện |
+| `scanRequestId`| Long | FK -> `ScanRequest(id)`| Thuộc lượt quét nào |
+| `label` | String | | Tên vật thể (nhãn AI trả về) |
+| `confidence` | Double | | Độ tin cậy (0-1) |
+| `bbox` | JSON | | Tọa độ bounding box |
+| `cropObjectKey`| String | | Object key của ảnh đã crop |
+| `wordId` | Long | FK -> `Word(id)` | ID từ vựng map với label (nullable) |
+
+### Bảng `ObjectWordMapping`
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | Long | Khóa chính (PK) | ID mapping |
+| `label` | String | Unique, Not Null | Nhãn AI trả về |
+| `wordId` | Long | FK -> `Word(id)` | ID từ vựng map chuẩn |
+
+### Ràng buộc & Indexes (Recognition & Storage)
+- `MediaObject`: Unique index trên `objectKey`.
+- `ObjectWordMapping`: Unique index trên `label`.
+- `DetectedObject`: Các FK (`scanRequestId`, `wordId`) cần index.
+- `ScanRequest`: FK (`userId`, `mediaObjectId`) cần index. Index thêm trên `userId` và `status` để load lịch sử scan nhanh.
+
+## 6. Quiz & Assessment
+
+Lưu trữ kết quả kiểm tra định kỳ và quiz ngắn để đánh giá tiến độ học (hỗ trợ các Gamification Mission liên quan đến Quiz).
+
+### Bảng `QuizAttempt`
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | UUID | Khóa chính (PK) | ID lượt làm bài |
+| `userId` | Long | FK -> `User(id)` | Người làm bài |
+| `quizType` | Enum | | Loại quiz (QUICK_TEST, MINI_GAME...) |
+| `score` | Double | | Điểm số đạt được (0-100) |
+| `accuracy` | Double | | Tỷ lệ chính xác (0-1) |
+| `totalQuestions`| Integer| | Tổng số câu hỏi |
+| `correctCount` | Integer| | Số câu đúng |
+| `timeSpentMs` | Long | | Thời gian làm bài |
+| `createdAt` | DateTime| | Thời điểm bắt đầu |
+| `completedAt` | DateTime| | Thời điểm nộp bài |
+
+### Bảng `QuizAttemptAnswer`
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | UUID | Khóa chính (PK) | ID câu trả lời |
+| `quizAttemptId` | UUID | FK -> `QuizAttempt(id)` | Thuộc lượt làm bài nào |
+| `cardId` | Long | FK -> `Card(id)`, Nullable | Thẻ được hỏi (nếu có) |
+| `isCorrect` | Boolean| | Trả lời đúng hay sai |
+| `userAnswer` | String | | Nội dung user trả lời |
+| `timeSpentMs` | Long | | Thời gian trả lời câu này |
+
+## 7. Notification & Device
+
+Quản lý thông báo In-app và Push notification để giữ chân người dùng.
+
+### Bảng `DeviceToken`
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | Long | Khóa chính (PK) | ID thiết bị |
+| `userId` | Long | FK -> `User(id)` | Chủ thiết bị |
+| `token` | String | Unique, Not Null | FCM / APNs Token |
+| `platform` | Enum | iOS, Android, Web | Nền tảng |
+| `isActive` | Boolean| | Cờ token còn hợp lệ không |
+| `lastActiveAt`| DateTime| | Lần cuối hoạt động |
+
+### Bảng `Notification`
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | UUID | Khóa chính (PK) | ID thông báo |
+| `userId` | Long | FK -> `User(id)` | Người nhận thông báo |
+| `type` | Enum | | SYSTEM, REMINDER, PROMO, SOCIAL |
+| `title` | String | | Tiêu đề |
+| `body` | String | | Nội dung |
+| `payload` | JSON | | Dữ liệu đính kèm (deeplink, action) |
+| `readAt` | DateTime| Nullable | Thời điểm đọc (null = chưa đọc) |
+| `createdAt` | DateTime| | Thời điểm gửi |
+
+### Ràng buộc & Indexes (Quiz, Notification & Progress)
+- `QuizAttempt`: Index trên `(userId, quizType, completedAt)` để query nhanh lịch sử và hỗ trợ đánh giá `IMPROVE_QUIZ_SCORE`.
+- `QuizAttemptAnswer`: Index trên `quizAttemptId`.
+- `DeviceToken`: Unique index trên `token`.
+- `Notification`: Index ghép trên `(userId, createdAt)` để sort danh sách thông báo theo user.
+- **Progress & Streak**: Không dùng bảng LearningEvent riêng. Chiến lược aggregate: Tính toán và rebuild streak/progress dựa trên thao tác append-only của 2 bảng `ReviewLog` (khi review thẻ SRS) và `QuizAttempt` (khi làm bài quiz).
+
+## 8. Hot Queries & Optimization
+
+Các truy vấn nóng (chạy liên tục, tần suất cao) đã được thiết kế và tối ưu bằng Index/Denormalization:
+
+1. **Lấy danh sách Card đến hạn ôn tập của User X:**
+   - **Thách thức:** Cấu trúc gốc `Card -> Note -> Deck -> User` bắt buộc phải JOIN 3 bảng để lọc được theo `userId`.
+   - **Giải pháp:** Chuẩn hóa ngược (Denormalize) trường `userId` thẳng vào bảng `Card`.
+   - **Query:** `SELECT * FROM Card WHERE userId = ? AND dueAt <= ? AND cardState IN (?, ?)`
+   - **Index phục vụ:** Index ghép `(userId, dueAt, cardState)` trên bảng `Card` để lấy dữ liệu O(1) hoặc quét range hẹp, tránh table scan.
+
+2. **Lấy lịch sử claim rương/nhiệm vụ (Gamification):**
+   - **Index phục vụ:** Unique constraint `(userId, chestDate)` trên `UserDailyChest` và `(userId, missionDate, missionTemplateId)` trên `UserDailyMission`.
+
+3. **Ghi log EXP/Coin an toàn (Idempotent):**
+   - **Thách thức:** Tránh bùng nổ tài sản do gọi API 2 lần (lỗi client hoặc network).
+   - **Index phục vụ:** Unique Index `eventKey` trên `ExperienceLog` và `CoinTransaction`. Mọi lỗi `ConstraintViolation` đều được xử lý êm (return existing data).
+
+4. **Lookup Dictionary khi nhận diện hình ảnh (M2):**
+   - **Thách thức:** Cần map cực nhanh từ nhãn AI trả về sang từ vựng hệ thống.
+   - **Index phục vụ:** Unique Index `label` trên `ObjectWordMapping`. Lỗi import từ vựng (chạy job 2 lần) được chặn bằng Unique Constraint `(word, langCode)` trên `Word`.

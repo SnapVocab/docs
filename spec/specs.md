@@ -663,7 +663,7 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | Phân rã tính năng     | [phan_ra_tinh_nang.md](./phan_ra_tinh_nang.md)               | F — sub-feature + AC theo FR |
 | Phân rã màn hình      | [phan_ra_man_hinh.md](./phan_ra_man_hinh.md)                 | MH — UI map                  |
 | API Spec              | [../API_SPEC.md](../API_SPEC.md)                             | Contract endpoint (cần viết) |
-| Database Spec         | [../db/DATABASE.md](../db/DATABASE.md)                       | Entity/index canonical       |
+| Database Spec         | [../db/database.md](../db/database.md)                       | Entity/index canonical       |
 | Thiết kế UI/UX        | [../design.md](../design.md)                                 | Figma/tokens (cần bổ sung)   |
 | System Architecture   | [../sa/sa.md](../sa/sa.md)                                   | Kiến trúc tổng thể           |
 | Tech Stack            | [../sa/techstack.md](../sa/techstack.md)                     | Công nghệ theo lớp           |

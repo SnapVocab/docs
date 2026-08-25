@@ -71,7 +71,7 @@ docs/
 
 ### 3. Database
 
-- [db/database.md](./db/database.md): schema dữ liệu cho Identity, Dictionary, Topic, Flashcard/SRS, Daily Mission, Gamification, Storage và các ràng buộc/index quan trọng.
+- [db/database.md](./db/database.md): schema dữ liệu cho Identity, Dictionary, Topic, Flashcard/SRS, Daily Mission, Gamification, Recognition, Storage và các ràng buộc/index quan trọng.
 
 ### 4. Decision records
 

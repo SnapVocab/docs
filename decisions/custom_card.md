@@ -650,7 +650,7 @@ VALUES ('CLASSIC', 'Từ → Nghĩa', 'Xem từ tiếng Anh, lật để xem ngh
 ### Giai đoạn 1: Backward-compatible
 
 1. Tạo các bảng mới: `card_template`, `card_template_field`.
-2. Seed system templates `CLASSIC` và `REVERSE`.
+2. Seed 6 system templates: `CLASSIC`, `REVERSE`, `LISTENING`, `IMAGE_VOCAB`, `SPELLING`, `CONTEXT`.
 3. Thêm cột `card_template_id` vào bảng `deck` (nullable tạm thời).
 4. Migration script: gán template mặc định cho Deck hiện có. Nếu Deck đang chứa Card có `CardType.MEANINGS_TO_WORD` là chủ đạo thì gán `REVERSE`, các trường hợp còn lại gán `CLASSIC`.
 5. Cập nhật API học flashcard để lấy template config từ `Deck.cardTemplate` khi trả về Card.
