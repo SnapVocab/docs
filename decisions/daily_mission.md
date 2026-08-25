@@ -150,7 +150,7 @@ Sau khi lọc theo ngữ cảnh:
 | `ADD_5_WORDS` | Xây Kho Từ Vựng | Thêm 5 từ vào bộ từ cá nhân | 5 | 15 Coin, 25 XP |
 | `TAG_3_WORDS` | Sắp Xếp Gọn Gàng | Gắn tag/chủ đề cho 3 từ | 3 | 5 Coin, 15 XP |
 | `REVIEW_YESTERDAY_WORDS` | Gặp Lại Bạn Cũ | Xem lại 5 từ đã lưu hôm qua | 5 | 10 Coin, 20 XP |
-| `MARK_2_MASTERED` | Thành Thạo Hơn Mỗi Ngày | Đánh dấu mastered cho 2 từ đủ điều kiện | 2 | 10 Coin, 25 XP |
+| `REACH_2_MASTERED` | Thành Thạo Hơn Mỗi Ngày | Có 2 từ chuyển sang mastered theo learning-state map (REVIEW interval ≥ 21 ngày), không đánh dấu tay | 2 | 10 Coin, 25 XP |
 | `ADD_EXAMPLE_SENTENCE` | Đặt Câu Ghi Nhớ | Thêm ví dụ cho 1 từ trong bộ từ cá nhân | 1 | 5 Coin, 15 XP |
 
 ### 5.3. Flashcard & SRS

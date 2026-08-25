@@ -441,7 +441,7 @@ Error response:
 | Use case | Cơ chế Redis | TTL đề xuất | Ghi chú |
 | --- | --- | --- | --- |
 | Dictionary cache | Key-value (word detail/translation) | 1–24h | Cache từ phổ biến, giảm DB query |
-| Leaderboard | Sorted set (ZADD/ZRANGEBYSCORE) | 5–15 phút | Ranking global theo XP/streak/activity |
+| Leaderboard | Sorted set (ZADD/ZRANGEBYSCORE) | 5–15 phút | Ranking global theo Weekly XP |
 | Home summary | Key-value aggregate cache | 1–5 phút | Giảm query aggregate nặng |
 | Mission state | Key-value tạm thời | 5 phút | Không thay thế DB |
 | AI label → Word mapping | Key-value | 24h | Cache mapping label → Word ID |
@@ -956,7 +956,7 @@ Schema change
 
 | # | Rủi ro | Ảnh hưởng | Giảm thiểu |
 | --- | --- | --- | --- |
-| 1 | AI Florence pipeline dùng GPU, ~15–30s/ảnh | Recognition chậm, UX kém | Timeout 60s (cấu hình), scale AI riêng, loading UX, cancel button |
+| 1 | AI Florence pipeline dùng GPU, ~15–30s/ảnh | Recognition chậm, UX kém | Hàng đợi AI giới hạn 1 worker/GPU mặc định, quota 20 scan/ngày/Learner, timeout worker→AI 60s (cấu hình), loading/queued UX, cancel button |
 | 2 | Import dictionary lớn (357K+ từ) | DB chậm hoặc lỗi encoding | Import batch, index sau import, test subset trước |
 | 3 | Redis mất dữ liệu (restart) | Leaderboard/cache mất tạm thời | Redis chỉ cache, rebuild từ DB/events |
 | 4 | Object storage config sai giữa dev/prod | Upload avatar/scan thất bại | Smoke test presigned upload per env, S3-compatible abstraction |

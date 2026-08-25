@@ -694,7 +694,7 @@ Khi bật xác thực CLIP toàn phần, có thể thay pseudo-score bằng **đ
 | **Buttons** | Primary, secondary, ghost, disabled, loading |
 | **Inputs** | Text, password, OTP (digit), search, error state |
 | **Cards** | Vocabulary card, quiz card, mission card, topic card |
-| **Badges/Chips** | State badge (new/learning/review/mastered), source tag (SCAN/DICT/TOPIC), confidence badge |
+| **Badges/Chips** | Learning state badge (new/learning/reviewing/mastered suy từ FSRS + interval), source tag (SCAN/DICT/TOPIC), confidence badge |
 | **Navigation** | Tab bar, header, back button |
 | **Gamification** | XP bar, Coin badge, Streak flame, Level badge, Progress bar, Mission progress |
 | **Leaderboard** | Leaderboard row, rank indicator, avatar |
@@ -929,7 +929,7 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 
 | # | Rủi ro | Ảnh hưởng | Kiểm soát |
 | --- | --- | --- | --- |
-| 1 | Florence pipeline nặng (GPU T4, ~15–30s/ảnh) | AI service chậm, UX kém | Timeout 60s, GPU T4+, scale AI riêng; dev có thể mock inference |
+| 1 | Florence pipeline nặng (GPU T4, ~15–30s/ảnh) | AI service chậm, UX kém | Hàng đợi AI giới hạn worker/GPU, quota scan/ngày/Learner, timeout 60s, GPU T4+, scale AI riêng; dev có thể mock inference |
 | 2 | Florence hallucination (label sai) | Từ sai trên flashcard | CLIP verification (sàn 0.23 + biên độ 0.02), SAM geometry check |
 | 3 | Vocabulary collapse nếu fine-tune | Mất khả năng gọi từ mới | MVP giữ zero-shot; fine-tune kèm phép đo word-F1 hai chiều |
 | 4 | Dictionary lớn (357K+ từ) | Import/search chậm | Batch import, index, cache từ phổ biến (Redis) |

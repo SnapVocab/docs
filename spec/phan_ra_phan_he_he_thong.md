@@ -248,7 +248,7 @@ Quản lý cơ sở dữ liệu từ vựng Anh-Việt (357,729+ từ). Cung c�
 ```text
 Dictionary
   ├── WordSearchService         — Text search, ranking, cache Redis top words
-  ├── VoiceLookupService        — STT → translate → search (Should)
+  ├── VoiceLookupService        — Nhận text từ native STT → reverse-lookup tiếng Việt (Should)
   ├── WordDetailService         — Aggregate word + definitions + translations + pronunciations
   ├── ObjectWordMappingService  — Ánh xạ AI label → Word (synonym/mapping table)
   ├── DictionaryImportService   — Batch import CSV/Excel
@@ -349,7 +349,10 @@ Phân hệ backend phía Spring Boot chịu trách nhiệm orchestrate luồng n
 
 ```text
 Recognition (Backend)
-  ├── RecognitionOrchestrator   — Điều phối: upload → AI call → filter → mapping → response
+  ├── RecognitionOrchestrator   — Điều phối: upload → quota → enqueue → status/result response
+  ├── ScanQuotaService          — Kiểm tra/trừ quota scan/ngày theo Learner
+  ├── RecognitionQueueService   — Tạo job, giới hạn hàng đợi, trả QUEUED/PROCESSING + vị trí ước tính
+  ├── RecognitionWorker         — Lấy job theo worker limit/GPU và gọi AI service
   ├── AiServiceClient           — HTTP client gọi FastAPI AI service (timeout, retry, error handling)
   ├── ConfidenceFilterService   — Lọc kết quả theo ngưỡng cấu hình
   ├── LabelDeduplicationService — Gom trùng label (nhiều box → 1 từ)
@@ -380,11 +383,11 @@ Service **độc lập** (Python FastAPI) chạy pipeline nhận diện từ v�
 | Models       | Florence-2-large (zero-shot) + SAM (ViT-H) + CLIP (ViT-B/32)   |
 | Pipeline     | F2-v13: Tiled OD, Self-grounding, chuỗi lọc ngôn ngữ, cửa CLIP |
 | Phần cứng    | GPU T4 trở lên                                                   |
-| Latency      | ~15–30s/ảnh (full mode)                                          |
+| Latency      | ~15–30s/ảnh xử lý thực tế/ảnh (full mode); thời gian chờ phụ thuộc queue depth |
 
 ### Chức năng chính
 
-- Nhận ảnh (file hoặc object URL)
+- Nhận ảnh (file hoặc object URL) từ worker nội bộ, không nhận trực tiếp từ mobile
 - Florence-2: OD (`<OD>`) + Dense Region Caption + Self-grounding + Tiled OD
 - Lọc ngôn ngữ: WordNet (từ điển + danh từ chỉ vật cụ thể)
 - Xác thực CLIP: sàn 0,23 + biên độ 0,02
@@ -392,6 +395,7 @@ Service **độc lập** (Python FastAPI) chạy pipeline nhận diện từ v�
 - Cắt nền (RGBA) bằng SAM cho ảnh flashcard
 - Trả: `label` (bảo đảm thuộc từ điển), `confidence`, `boundingBox`, `cropUrl`
 - 1 thẻ / từ (max 1 entry per unique label)
+- Giới hạn đồng thời bằng số worker/GPU do backend vận hành cấu hình; mặc định 1 worker/GPU
 - Error handling: invalid image, model error, no-object → response có cấu trúc
 - Logging: requestId, processing time, object count, errors
 
@@ -457,7 +461,7 @@ Phân hệ quản lý từ vựng cá nhân của Learner theo canonical model `
 - Lưu từ → tạo Note (từ scan, dictionary, topic) + auto tạo Card (SS-09)
 - Unique per Deck: không Note trùng Word trong cùng Deck
 - Xem danh sách Note (My Vocabulary)
-- Lọc/sắp xếp theo trạng thái (new/learning/reviewing/mastered), ngày lưu, độ khó, ngày ôn
+- Lọc/sắp xếp theo UI state (new/learning/reviewing/mastered) suy từ FSRS + interval, ngày lưu, độ khó, ngày ôn
 - Xóa/archive Note (Card gắn Note ẩn/archive, Word gốc không bị xóa)
 - Gắn nguồn (source): SCAN, DICT, TOPIC
 
@@ -562,7 +566,7 @@ Sinh bài kiểm tra từ vựng từ Note/Card trong Deck của Learner. Hỗ t
 
 - Sinh quiz từ Note/Card trong Deck
 - Dạng câu hỏi: Multiple choice (Must), Matching (Should), Fill blank (Could)
-- Sinh đáp án nhiễu (không trùng, không quá dễ nhận biết)
+- Sinh đáp án nhiễu (lấy từ Note cùng Deck/POS, không trùng nghĩa)
 - Yêu cầu số Note tối thiểu để sinh quiz
 - Chấm điểm: score, correctCount, wrongCount, accuracy
 - Lưu QuizAttempt (idempotent — event key, retry không cộng trùng)
@@ -597,7 +601,7 @@ Quản lý hàng đợi ôn tập theo thuật toán FSRS (Free Spaced Repetitio
 - Tính Daily Review Queue: Card có `dueAt ≤ now`, ưu tiên overdue
 - Learner đánh giá recall (Again, Hard, Good, Easy)
 - Cập nhật FSRS trên Card: state, dueAt, stability, difficulty, interval
-- Recall tốt → interval tăng; recall kém → interval giảm hoặc đưa về learning
+- Recall tốt → interval tăng; recall kém → interval giảm hoặc đưa về LEARNING/RELEARNING theo FSRS
 - Hiển thị số từ cần ôn trên Home (daily due count)
 - Reset/archive Card (Could)
 
@@ -613,7 +617,8 @@ Quản lý hàng đợi ôn tập theo thuật toán FSRS (Free Spaced Repetitio
 ### Ghi chú
 
 - SRS logic tích hợp chặt với SS-09 (Card entity + FsrsService). Tách SS vì trách nhiệm nghiệp vụ khác nhau: SS-09 quản lý study session / template, SS-11 quản lý review scheduling.
-- FSRS parameters: state (New/Learning/Review/Relearning), dueAt, stability, difficulty, elapsed_days, scheduled_days, reps, lapses.
+- FSRS parameters: state (NEW/LEARNING/REVIEW/RELEARNING), dueAt, stability, difficulty, elapsed_days, scheduled_days, reps, lapses.
+- UI/progress state dùng map chuẩn FR-04: NEW→new; LEARNING/RELEARNING→learning; REVIEW interval <21 ngày→reviewing; REVIEW interval ≥21 ngày→mastered.
 
 ### Trace
 
@@ -634,18 +639,24 @@ Tổng hợp và hiển thị tiến độ học tập cá nhân: số từ, str
 
 | Entity             | Mô tả                                                                     |
 | ------------------ | -------------------------------------------------------------------------- |
-| `LearningProgress` | Aggregate: totalNotes, learnedCount, masteredCount, streak, accuracy       |
+| `LearningProgress` | Aggregate: totalNotes, learnedCount, dueCount, masteredCount, streak, accuracy theo learning-state map |
 | `LearningEvent`    | Sự kiện học (type, timestamp, metadata) — rebuild từ ReviewLog/QuizAttempt |
 
 ### Chức năng chính
 
-- Tổng quan: số từ đã lưu, đã học, đang ôn, mastered
+- Tổng quan: số từ đã lưu, đã học, đang ôn, mastered theo learning-state map
 - Streak: chuỗi ngày học liên tiếp (tăng khi hoàn thành điều kiện tối thiểu/ngày)
 - Accuracy: tỷ lệ chính xác quiz/review
 - Lịch sử hoạt động: ngày/tuần/tháng
 - Home summary widget (progress ngắn gọn)
 - Goal tracking (Could)
 - Cập nhật sau mỗi hoạt động: lưu từ, flashcard review, quiz submit
+
+Quy tắc aggregate:
+
+- `learnedCount` = số Card có UI state khác `new` (`learning + reviewing + mastered`).
+- `dueCount` / đang ôn = số Card có `dueAt <= now`.
+- `masteredCount` = số Card có FSRS `state = REVIEW` và `interval >= 21 ngày`.
 
 ### API Endpoints
 
@@ -689,7 +700,7 @@ Hệ thống tăng động lực học tập: điểm kinh nghiệm (XP), tiền
 - **Coin:** Cộng coin theo mission/milestone; trừ coin khi mua item
 - **Mission:** Nhiệm vụ ngày/tuần/thành tựu; tự động cập nhật progress; claim reward
 - **Badge:** Trao huy hiệu khi đạt điều kiện cụ thể
-- **Leaderboard:** Xếp hạng theo XP/streak/activity; Redis sorted set / snapshot cache
+- **Leaderboard:** Xếp hạng theo Weekly XP; Redis sorted set / snapshot cache
 - Admin cấu hình missions, badges, XP rules
 
 ### API Endpoints
@@ -786,7 +797,7 @@ Gửi thông báo đẩy (Push) và thông báo trong ứng dụng (In-app) cho 
 - Đánh dấu đã đọc
 - Cấu hình thông báo: Learner bật/tắt push trong Settings
 - Đăng ký/cập nhật device token
-- Không spam; tuân thủ giờ nhận thông báo (nếu cấu hình)
+- Tối đa 1 push nhắc SRS/ngày khung 19–21h; tuân thủ giờ nhận (nếu cấu hình)
 
 ### API Endpoints
 
@@ -1033,7 +1044,7 @@ graph TD
 | ---------------------- | --------------------- | ------------------------------------------------------------------------------------------ |
 | Mobile App → Identity  | SS-01 → SS-03         | Mọi API call đều qua JWT authentication                                                   |
 | Admin CMS → Identity   | SS-02 → SS-03         | CMS dùng JWT với ROLE_ADMIN                                                                |
-| Recognition → AI       | SS-06 → SS-07         | Backend gọi FastAPI AI service qua HTTP nội bộ (timeout 60s)                               |
+| Recognition → AI       | SS-06 → SS-07         | Recognition worker gọi FastAPI AI service qua HTTP nội bộ (timeout 60s); mobile theo dõi job bằng requestId |
 | Recognition → Dictionary | SS-06 → SS-04       | Ánh xạ label AI → Word qua ObjectWordMappingService                                        |
 | Recognition → Vocabulary | SS-06 → SS-08       | Learner lưu kết quả scan → tạo Note/Card                                                  |
 | Recognition → Storage  | SS-06 → SS-16         | Upload/access ảnh scan qua Object Storage                                                  |
@@ -1042,7 +1053,7 @@ graph TD
 | Vocabulary → Flashcard | SS-08 → SS-09         | Note → auto sinh Card; Deck gán Template                                                   |
 | Vocabulary → Quiz      | SS-08 → SS-10         | Note/Card là nguồn câu hỏi quiz                                                           |
 | Flashcard → SRS        | SS-09 → SS-11         | Review session ghi ReviewLog → cập nhật FSRS Card                                         |
-| Quiz → SRS             | SS-10 → SS-11         | Quiz result có thể ảnh hưởng SRS (không thay thế)                                         |
+| Quiz → SRS             | SS-10 → SS-11         | Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP)      |
 | SRS → Progress         | SS-11 → SS-12         | ReviewLog/Card state → aggregate progress                                                  |
 | Quiz → Progress        | SS-10 → SS-12         | QuizAttempt → aggregate accuracy, XP                                                       |
 | Flashcard → Progress   | SS-09 → SS-12         | Study session → cập nhật streak, learned count                                             |
@@ -1072,7 +1083,7 @@ graph TD
 | SS-02 | Admin CMS                  | FR-13                        | M4            |
 | SS-03 | Identity                   | FR-01                        | M1            |
 | SS-04 | Dictionary                 | FR-03, FR-13.02              | M1            |
-| SS-05 | Topic                      | FR-03 (topic), FR-13.02      | M1            |
+| SS-05 | Topic                      | FR-14                        | M1            |
 | SS-06 | Recognition (Orchestrator) | FR-02                        | M2            |
 | SS-07 | AI Service                 | FR-02.05, FR-02.06           | M2            |
 | SS-08 | Vocabulary (Deck/Note)     | FR-04, FR-05.01              | M1–M2         |
@@ -1179,7 +1190,7 @@ com.snapvocab
 
 ## Checklist tài liệu
 
-- [x] 18 phân hệ bao phủ toàn bộ FR-01 → FR-13 trong [specs.md](./specs.md).
+- [x] 18 phân hệ bao phủ toàn bộ FR-01 → FR-14 trong [specs.md](./specs.md).
 - [x] Mỗi SS có: mô tả, entities, chức năng chính, API endpoints, trace, milestone.
 - [x] Actor đúng canonical: Guest, Learner, Admin.
 - [x] Canonical model: Deck → Note → Card + ReviewLog (không `SavedWord`/`UserWord`).

@@ -2,7 +2,7 @@
 
 > Hub: [specs.md](./specs.md) · Source of truth cho mọi FR/BF/SS/MH.  
 > Tài liệu mô tả các **Business Flow (BF)** chính của hệ thống theo format: Actor, Precondition, Happy path, Alternative flow, Exception, Post-condition, Trace.  
-> Quyết định canonical: xem bảng §66–76 trong specs.md.
+> Quyết định canonical: xem mục "Quyết định canonical" trong specs.md §2.
 
 **Quy ước ID:** `BF-{nn}` — mỗi BF là một luồng nghiệp vụ end-to-end, truy vết về FR trong specs.
 
@@ -29,7 +29,7 @@
 | 4    | System | Tạo tài khoản trạng thái `PENDING`. Sinh OTP, gửi qua email.                                 |
 | 5    | Guest  | Nhập mã OTP trên màn hình xác thực.                                                          |
 | 6    | System | Kiểm tra OTP đúng, chưa hết hạn (TTL ≤ 10 phút), chưa sử dụng. Chuyển tài khoản → `ACTIVE`. |
-| 7    | System | Chuyển Guest sang màn hình đăng nhập hoặc tự đăng nhập.                                      |
+| 7    | System | Tự động đăng nhập cho Guest và chuyển vào màn hình chính.                                    |
 
 ### Alternative Flow
 
@@ -132,7 +132,7 @@
 | 3    | Guest  | Nhập OTP hoặc truy cập link reset.                                                         |
 | 4    | System | Validate OTP/link. Cho phép nhập mật khẩu mới.                                            |
 | 5    | Guest  | Nhập mật khẩu mới (phải pass policy).                                                      |
-| 6    | System | Hash và cập nhật mật khẩu. Revoke tất cả phiên đăng nhập cũ nếu rule bật. OTP invalidate. |
+| 6    | System | Hash và cập nhật mật khẩu. Revoke tất cả phiên đăng nhập cũ. OTP invalidate.               |
 
 ### Alternative Flow
 
@@ -140,12 +140,12 @@
 | ------- | ----------------------------- | ------------------------------------------------------------------------- |
 | AF-03.1 | Email không tồn tại           | Vẫn trả "OTP đã gửi" (chống enumeration), nhưng không gửi email thật.    |
 | AF-03.2 | OTP sai / hết hạn             | Xử lý tương tự BF-01: tối đa 5 lần, resend cooldown.                     |
-| AF-03.3 | Mật khẩu mới trùng mật khẩu cũ | (Tùy policy) Cho phép hoặc bắt đổi mật khẩu khác.                       |
+| AF-03.3 | Mật khẩu mới trùng mật khẩu cũ | Bắt buộc đổi mật khẩu khác.                                              |
 
 ### Post-condition
 
 - Mật khẩu đã được cập nhật.
-- Các phiên đăng nhập cũ (tùy rule) đã bị revoke.
+- Các phiên đăng nhập cũ đã bị revoke.
 - Guest có thể đăng nhập bằng mật khẩu mới.
 
 ---
@@ -199,7 +199,7 @@
 ## BF-05 — Tra cứu từ điển & Học theo chủ đề
 
 **Actor:** Learner  
-**Trace:** FR-03, FR-04.01 · SS-05 · MH: Dictionary / Search / Topic / Word Detail  
+**Trace:** FR-03, FR-14 · SS-04, SS-05 · MH: Dictionary / Search / Topic / Word Detail  
 **Milestone:** M1
 
 ### Precondition
@@ -216,15 +216,15 @@
 | 3    | Learner | Chọn một từ từ danh sách kết quả.                                                                   |
 | 4    | System  | Hiển thị Word Detail: từ tiếng Anh, nghĩa tiếng Việt, phiên âm IPA, nút phát âm, loại từ (POS).   |
 | 5    | System  | Nếu từ có nhiều nghĩa/loại từ → hiển thị nhóm theo POS rõ ràng.                                    |
-| 6    | Learner | (Tùy chọn) Nhấn nút **Lưu từ** → tạo Note vào Deck cá nhân (xem BF-07).                           |
+| 6    | Learner | (Tùy chọn) Nhấn nút **Lưu từ** → chọn Deck hoặc dùng Deck gần nhất/mặc định → tạo Note (xem BF-07). |
 
 ### Happy Path — Tra cứu giọng nói (Voice)
 
 | Bước | Actor   | Hành động                                                                                  |
 | ---- | ------- | ------------------------------------------------------------------------------------------ |
 | 1    | Learner | Nhấn nút microphone, đọc từ/cụm từ tiếng Việt.                                           |
-| 2    | System  | Voice-to-Text (STT) chuyển giọng nói thành chữ tiếng Việt.                                |
-| 3    | System  | Dịch sang tiếng Anh và tra cứu trong database.                                             |
+| 2    | Mobile  | Dùng native Speech-to-Text (on-device) chuyển giọng nói thành chữ tiếng Việt.             |
+| 3    | System  | Tra cứu ngược (reverse-lookup) trực tiếp chữ tiếng Việt trong bảng nghĩa của database.     |
 | 4    | System  | Hiển thị kết quả Word Detail (tương tự luồng văn bản).                                    |
 
 ### Happy Path — Duyệt chủ đề (Topic Learning)
@@ -235,7 +235,7 @@
 | 2    | Learner | Chọn một Collection → xem danh sách Topics (hỗ trợ phân cấp parent/child).                      |
 | 3    | Learner | Chọn một Topic → xem danh sách TopicItem (từ vựng/cụm từ) kèm thuộc tính EAV.                  |
 | 4    | Learner | Chọn từ cụ thể → xem chi tiết nghĩa, phiên âm, ví dụ từ TopicItemAttributeValue.               |
-| 5    | Learner | (Tùy chọn) Nhấn **Lưu từ** → tạo Note với `source = TOPIC` vào Deck cá nhân.                   |
+| 5    | Learner | (Tùy chọn) Nhấn **Lưu từ** → chọn Deck hoặc dùng Deck gần nhất/mặc định → tạo Note với `source = TOPIC`. |
 
 ### Alternative Flow
 
@@ -244,12 +244,12 @@
 | AF-05.1 | Từ không có trong database    | Hiển thị "Không tìm thấy từ", gợi ý kiểm tra lại chính tả.  |
 | AF-05.2 | Thiếu phiên âm hoặc phát âm  | UI ghi rõ "Chưa có dữ liệu phát âm", không để trống vô nghĩa. |
 | AF-05.3 | Voice-to-Text không nhận diện | Hiển thị "Không nhận diện được, vui lòng thử lại."           |
-| AF-05.4 | Từ đã lưu trong Deck          | Thông báo "Từ đã có trong danh sách học", không tạo trùng.   |
+| AF-05.4 | Từ đã lưu trong Deck được chọn | Thông báo "Từ đã có trong Deck được chọn", không tạo trùng.   |
 
 ### Post-condition
 
 - Learner đã xem thông tin chi tiết từ vựng.
-- Nếu lưu: Note mới được tạo trong Deck cá nhân với `source` phù hợp (DICT/TOPIC).
+- Nếu lưu: Note mới được tạo trong Deck được chọn với `source` phù hợp (DICT/TOPIC).
 
 ### Business Rules
 
@@ -270,6 +270,8 @@
 
 - Learner đã đăng nhập.
 - AI service (FastAPI + Florence-2 + SAM + CLIP) đang hoạt động.
+- Hàng đợi recognition còn nhận job mới.
+- Learner còn quota scan trong ngày.
 - Mobile có quyền truy cập camera/thư viện.
 
 ### Happy Path
@@ -280,14 +282,17 @@
 | 2    | Learner | Chụp ảnh mới bằng camera **hoặc** chọn ảnh từ thư viện thiết bị.                                                        |
 | 3    | Mobile  | Validate MIME (ảnh) và kích thước (≤ 10MB) phía client.                                                                  |
 | 4    | Mobile  | Gửi ảnh tới backend. Backend nhận trực tiếp hoặc cấp presigned URL để client upload lên Object Storage.                  |
-| 5    | System  | Backend lưu metadata ảnh (nếu cần). Gọi FastAPI AI service với ảnh/object key.                                          |
-| 6    | AI      | Pipeline xử lý: Florence-2 (OD + Dense Region + Self-grounding + Tiled OD) → lọc ngôn ngữ (WordNet + từ điển) → CLIP xác thực → SAM cắt nền. |
-| 7    | AI      | Trả danh sách object: `label` (thuộc từ điển), `confidence`, `boundingBox`, `cropUrl` (tùy chọn).                       |
-| 8    | System  | Backend lọc theo ngưỡng confidence (cấu hình được). Gom trùng label (nhiều box cùng label → 1 từ).                      |
-| 9    | System  | Ánh xạ label sang Word trong database (tra cứu trực tiếp + bảng mapping/synonym).                                       |
-| 10   | System  | Trả cho mobile danh sách từ vựng: từ tiếng Anh, nghĩa tiếng Việt, phiên âm, phát âm, metadata nhận diện.               |
-| 11   | Learner | Xem danh sách đối tượng trên màn hình kết quả. Chọn từ muốn lưu.                                                       |
-| 12   | Learner | Nhấn **Lưu** → tạo Note + Card vào Deck cá nhân với `source = SCAN` (xem BF-07).                                       |
+| 5    | System  | Backend validate ảnh, kiểm tra quota scan/ngày và trả `QUOTA_EXCEEDED` nếu Learner đã hết lượt.                         |
+| 6    | System  | Backend tạo `ScanRequest`, trừ/ghi nhận lượt scan, đưa job vào hàng đợi và trả `requestId`, `status = QUEUED`, `queuePosition`, `estimatedWaitMs`, `remainingScansToday`. |
+| 7    | Mobile  | Hiển thị trạng thái chờ/xử lý và poll/subscription trạng thái request theo `requestId`.                                |
+| 8    | Worker  | Worker lấy job theo thứ tự hàng đợi, đặt `status = PROCESSING`, gọi FastAPI AI service với ảnh/object key.             |
+| 9    | AI      | Pipeline xử lý: Florence-2 (OD + Dense Region + Self-grounding + Tiled OD) → lọc ngôn ngữ (WordNet + từ điển) → CLIP xác thực → SAM cắt nền. |
+| 10   | AI      | Trả danh sách object: `label` (thuộc từ điển), `confidence`, `boundingBox`, `cropUrl` (tùy chọn).                      |
+| 11   | System  | Backend lọc theo ngưỡng confidence (cấu hình được). Gom trùng label (nhiều box cùng label → 1 từ).                     |
+| 12   | System  | Ánh xạ label sang Word trong database (tra cứu trực tiếp + bảng mapping/synonym).                                      |
+| 13   | System  | Cập nhật `ScanRequest = SUCCESS` và trả cho mobile danh sách từ vựng: từ tiếng Anh, nghĩa tiếng Việt, phiên âm, phát âm, metadata nhận diện. |
+| 14   | Learner | Xem danh sách đối tượng trên màn hình kết quả. Chọn từ muốn lưu.                                                       |
+| 15   | Learner | Nhấn **Lưu** → chọn Deck hoặc dùng Deck gần nhất/mặc định → tạo Note + Card với `source = SCAN` (xem BF-07).             |
 
 ### Alternative Flow
 
@@ -296,24 +301,27 @@
 | AF-06.1 | Ảnh không hợp lệ (MIME/size)       | Client hoặc server trả lỗi validation, gợi ý chọn ảnh khác.               |
 | AF-06.2 | Không nhận diện được đối tượng     | Trả thông báo "Không nhận diện được vật thể, hãy thử ảnh rõ hơn." + CTA.  |
 | AF-06.3 | Tất cả object dưới ngưỡng confidence | Tương tự AF-06.2, thông báo dễ hiểu.                                     |
-| AF-06.4 | Label không map được sang dictionary | Trả kết quả nhận diện nhưng đánh dấu "Chưa có từ vựng tương ứng."        |
+| AF-06.4 | Label không map được sang dictionary | Trả kết quả nhận diện, đánh dấu "Chưa có từ vựng tương ứng". Hiển thị nút "Báo từ thiếu" để đẩy nhãn từ này vào Feedback Queue cho Admin (Trace: FR-02.05, FR-13). Learner không thể lưu từ này cho đến khi Admin cập nhật từ điển. |
 | AF-06.5 | Nhiều box cùng label               | Backend gom trùng label → hiển thị 1 từ duy nhất cho mỗi label.           |
 | AF-06.6 | Nút nổi Android (Bubble)          | Learner dùng overlay widget chụp màn hình từ app khác → pipeline tương tự. |
+| AF-06.7 | Hết quota scan trong ngày         | Backend trả `QUOTA_EXCEEDED`, `remainingScansToday = 0`, `resetAt`; mobile hiển thị lượt reset và CTA quay lại học từ đã lưu. |
+| AF-06.8 | Job đang chờ hoặc đang xử lý      | Backend trả `QUEUED`/`PROCESSING` kèm `queuePosition`/`estimatedWaitMs`; mobile tiếp tục hiển thị tiến trình và cho phép hủy. |
 
 ### Exception
 
 | Mã      | Lỗi                                | Xử lý                                                                 |
 | ------- | ----------------------------------- | ---------------------------------------------------------------------- |
-| EX-06.1 | AI service timeout (> 60s mặc định) | Backend trả error code cụ thể, mobile hiển thị "Xử lý quá lâu, thử lại." |
-| EX-06.2 | AI service unavailable              | Backend trả lỗi nghiệp vụ thân thiện, gợi ý thử lại sau.             |
+| EX-06.1 | AI worker timeout (> 60s mặc định)  | Backend đặt request `FAILED`, trả error code cụ thể, mobile hiển thị "Xử lý quá lâu, thử lại." |
+| EX-06.2 | AI service unavailable              | Backend giữ/hủy job theo cấu hình retry, trả lỗi nghiệp vụ thân thiện, gợi ý thử lại sau. |
 | EX-06.3 | Upload storage lỗi                  | Mobile hiển thị "Upload thất bại", retry button.                       |
 | EX-06.4 | Model error (invalid image input)   | AI trả error có cấu trúc, backend forward message phù hợp.           |
+| EX-06.5 | Hàng đợi quá tải                    | Backend không nhận thêm job, trả `AI_QUEUE_FULL` kèm message thử lại sau; không trừ quota nếu job chưa được nhận. |
 
 ### Post-condition
 
-- Learner đã xem danh sách từ vựng nhận diện được từ ảnh.
+- Learner đã xem danh sách từ vựng nhận diện được từ ảnh hoặc trạng thái lỗi/chờ xử lý rõ ràng.
 - Hệ thống **không** tự động lưu toàn bộ kết quả — chỉ lưu khi Learner xác nhận.
-- Recognition request được log: requestId, thời gian xử lý, số object, lỗi nếu có.
+- Recognition request được log: requestId, status, queue wait time, thời gian xử lý, số object, lỗi nếu có.
 - App không crash ở mọi trường hợp lỗi.
 
 ### Business Rules
@@ -321,10 +329,13 @@
 1. Nhãn từ AI service đã thuộc từ điển (chuỗi lọc ngôn ngữ + cổng từ điển cuối trong pipeline).
 2. Backend giữ thêm ngưỡng confidence cấu hình được làm lớp bảo vệ cuối.
 3. Gom trùng label để tránh trả từ vựng lặp.
-4. Không tự động lưu kết quả scan nếu Learner chưa xác nhận.
-5. Ảnh scan chỉ lưu nếu cần cho lịch sử/debug, phải tuân thủ quyền riêng tư (bucket private).
-6. Timeout backend→AI cấu hình được (mặc định 60s).
-7. Mọi lỗi AI trả `error.code` + message, app không crash.
+4. Quota mặc định 20 scan/ngày/Learner, cấu hình được; ảnh không hợp lệ hoặc hàng đợi từ chối job không trừ lượt.
+5. Recognition phải xử lý qua hàng đợi FIFO hoặc ưu tiên tương đương, giới hạn worker theo GPU (mặc định 1 worker/GPU) để tránh nhiều request đồng thời vượt timeout.
+6. Mobile không giữ kết nối chờ AI vô hạn; dùng `requestId` để theo dõi `QUEUED`/`PROCESSING`/`SUCCESS`/`FAILED`/`CANCELED`.
+7. Không tự động lưu kết quả scan nếu Learner chưa xác nhận.
+8. Ảnh scan chỉ lưu nếu cần cho lịch sử/debug, phải tuân thủ quyền riêng tư (bucket private).
+9. Timeout worker→AI cấu hình được (mặc định 60s).
+10. Mọi lỗi AI trả `error.code` + message, app không crash.
 
 ---
 
@@ -337,24 +348,25 @@
 ### Precondition
 
 - Learner đã đăng nhập.
-- Learner có ít nhất 1 Deck (hệ thống có thể tạo Deck mặc định khi đăng ký).
+- Learner có ít nhất 1 Deck (hệ thống luôn tạo Deck mặc định khi đăng ký).
 
 ### Happy Path — Lưu từ mới
 
 | Bước | Actor   | Hành động                                                                                                      |
 | ---- | ------- | -------------------------------------------------------------------------------------------------------------- |
-| 1    | Learner | Từ Word Detail (BF-05) hoặc Scan Result (BF-06), nhấn **Lưu từ**.                                             |
-| 2    | System  | Kiểm tra Note trùng trong cùng Deck (unique per Deck rule).                                                    |
-| 3    | System  | Tạo Note mới liên kết Word, gắn `source` (SCAN / DICT / TOPIC). Tạo kèm NoteMeaning, NotePronunciation.      |
-| 4    | System  | Tự động sinh 1 Card cho Note (theo CardTemplate của Deck). Card ở trạng thái `NEW` với tham số SRS khởi tạo.  |
-| 5    | System  | Trả xác nhận "Đã lưu thành công".                                                                             |
+| 1    | Learner | Từ Word Detail (BF-05) hoặc Scan Result (BF-06), nhấn **Lưu từ**/**Lưu tất cả**.                              |
+| 2    | System  | Xác định Deck đích: dùng Deck gần nhất; nếu chưa có thì dùng Deck mặc định; Learner có thể nhấn **Đổi Deck** để chọn Deck khác trước khi xác nhận. |
+| 3    | System  | Kiểm tra Note trùng trong Deck đích (unique per Deck rule).                                                    |
+| 4    | System  | Tạo Note mới liên kết Word, gắn `source` (SCAN / DICT / TOPIC). Tạo kèm NoteMeaning, NotePronunciation.      |
+| 5    | System  | Tự động sinh 1 Card cho Note. Card ở trạng thái `NEW` với tham số SRS khởi tạo. *(M1: Deck mặc định render theo CLASSIC hard-code; entity CardTemplate đầy đủ từ M3)* |
+| 6    | System  | Trả xác nhận "Đã lưu vào <Deck name>" kèm action "Đổi Deck" khi còn ở màn kết quả/chi tiết.                 |
 
 ### Happy Path — Xem & Quản lý danh sách
 
 | Bước | Actor   | Hành động                                                                                        |
 | ---- | ------- | ------------------------------------------------------------------------------------------------ |
 | 1    | Learner | Mở My Vocabulary → xem danh sách Note trong Deck.                                               |
-| 2    | Learner | Lọc theo trạng thái (new, learning, reviewing, mastered), ngày lưu, độ khó, ngày ôn tiếp theo.  |
+| 2    | Learner | Lọc theo UI state (new, learning, reviewing, mastered), ngày lưu, độ khó, ngày ôn tiếp theo.    |
 | 3    | Learner | Xem chi tiết một Note: từ, nghĩa, phiên âm, source, trạng thái Card/SRS.                       |
 | 4    | Learner | (Tùy chọn) Xóa/archive Note.                                                                    |
 | 5    | System  | Khi xóa/archive Note: Card gắn Note được ẩn/archive. Word dictionary gốc **không** bị xóa.     |
@@ -369,7 +381,7 @@
 
 ### Post-condition
 
-- Note/Card mới đã được tạo trong Deck cá nhân.
+- Note/Card mới đã được tạo trong Deck đích đã xác nhận.
 - Từ đã sẵn sàng cho Flashcard, Quiz, SRS.
 - Xóa/archive Note không ảnh hưởng Word dictionary gốc.
 
@@ -378,7 +390,8 @@
 1. **Canonical model:** `Deck` → `Note` → `Card`. UI "My Vocabulary" = danh sách Note.
 2. **Không** tạo entity `SavedWord`/`UserWord` song song.
 3. Unique per Deck: 1 Learner không có Note trùng cùng Word trong cùng Deck.
-4. Note/Card là nguồn đầu vào chính cho Flashcard, Quiz, SRS.
+4. Luồng Save từ mọi nguồn (DICT/TOPIC/SCAN) dùng cùng pattern Deck đích: Deck gần nhất → Deck mặc định → tùy chọn Đổi Deck.
+5. Note/Card là nguồn đầu vào chính cho Flashcard, Quiz, SRS.
 
 ---
 
@@ -386,19 +399,19 @@
 
 **Actor:** Learner  
 **Trace:** FR-05 · SS-09 · MH: Flashcard / Study Session  
-**Milestone:** M1 (cơ bản), M3 (template)
+**Milestone:** M1 (flip CLASSIC hard-code + FSRS 4 mức Again/Hard/Good/Easy), M3 (CardTemplate entity đầy đủ + multi-template + custom template)
 
 ### Precondition
 
 - Learner có ít nhất 1 Card trong Deck (từ Note đã lưu).
-- Deck đã được gán CardTemplate.
+- Deck đã được gán template render. *(M1: layout CLASSIC hard-code; M3: CardTemplate entity với UI cấu hình)*
 
 ### Happy Path
 
 | Bước | Actor   | Hành động                                                                                           |
 | ---- | ------- | --------------------------------------------------------------------------------------------------- |
 | 1    | Learner | Mở Deck → chọn **Học Flashcard** hoặc vào study session từ Home.                                   |
-| 2    | System  | Lấy danh sách Card cần học (new + due). Render giao diện thẻ theo cấu hình template của Deck.      |
+| 2    | System  | Lấy danh sách Card cần học (new + due). Render giao diện thẻ theo template của Deck. *(M1: layout CLASSIC hard-code trong mobile; M3: render theo CardTemplateField config từ API)* |
 | 3    | Learner | Xem mặt trước (Front) của thẻ: từ tiếng Anh, ảnh crop (nếu có), audio (nếu có).                   |
 | 4    | Learner | Tương tác: lật thẻ (Flip), gõ từ (Type-in), nghe audio (Listening) — tùy loại template.            |
 | 5    | System  | Hiển thị mặt sau (Back): nghĩa tiếng Việt, phiên âm, ví dụ.                                       |
@@ -446,7 +459,7 @@
 | Bước | Actor   | Hành động                                                                                           |
 | ---- | ------- | --------------------------------------------------------------------------------------------------- |
 | 1    | Learner | Mở Quiz từ Deck hoặc từ Home. Chọn loại quiz (multiple choice, matching, fill blank).               |
-| 2    | System  | Sinh bộ câu hỏi từ Note/Card. Tạo đáp án đúng + đáp án nhiễu (không trùng, không quá dễ nhận).    |
+| 2    | System  | Sinh bộ câu hỏi từ Note/Card. Tạo đáp án đúng + đáp án nhiễu (lấy cùng Deck/POS, không trùng).    |
 | 3    | Learner | Trả lời từng câu hỏi.                                                                               |
 | 4    | System  | Sau mỗi câu: phản hồi đúng/sai (tuỳ mode). Sau quiz: tính điểm, tỷ lệ chính xác.                 |
 | 5    | System  | Lưu QuizAttempt: điểm, số câu đúng/sai, thời gian làm, timestamp.                                 |
@@ -457,7 +470,7 @@
 | Mã      | Điều kiện                        | Xử lý                                                                   |
 | ------- | -------------------------------- | ------------------------------------------------------------------------ |
 | AF-09.1 | Số Note chưa đủ sinh quiz        | Hiển thị CTA "Lưu thêm từ trước khi tạo quiz."                         |
-| AF-09.2 | Learner thoát giữa chừng        | Lưu draft hoặc hủy, không ghi QuizAttempt chưa hoàn thành.               |
+| AF-09.2 | Learner thoát giữa chừng        | Hủy bỏ, không ghi QuizAttempt chưa hoàn thành.                                         |
 | AF-09.3 | Retry quiz (cùng attempt)        | Idempotent submit — retry không cộng trùng điểm/XP (dùng event key).    |
 
 ### Exception
@@ -470,13 +483,13 @@
 
 - QuizAttempt đã được ghi nhận.
 - Progress, XP, accuracy được cập nhật.
-- Kết quả quiz có thể ảnh hưởng SRS nhưng không thay thế hoàn toàn đánh giá recall trong review.
+- Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP).
 
 ### Business Rules
 
-1. Đáp án nhiễu không trùng và không quá dễ nhận biết.
+1. Đáp án nhiễu lấy từ Note cùng Deck/POS, không trùng nghĩa.
 2. Submit quiz idempotent (event key, retry không cộng trùng).
-3. Kết quả quiz ảnh hưởng progress nhưng không thay thế SRS recall.
+3. Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP).
 4. Yêu cầu số Note tối thiểu để sinh quiz.
 
 ---
@@ -501,7 +514,7 @@
 | 4    | System  | Hiển thị Card theo flashcard template (tương tự BF-08).                                              |
 | 5    | Learner | Xem thẻ → đánh giá mức nhớ FSRS (Again, Hard, Good, Easy).                                           |
 | 6    | System  | Ghi ReviewLog. Cập nhật Card: state, dueAt, stability, difficulty theo FSRS.                         |
-| 7    | System  | **Recall tốt** → tăng khoảng cách ôn (interval dài hơn). **Recall kém** → giảm hoặc đưa về learning. |
+| 7    | System  | **Recall tốt** → tăng khoảng cách ôn (interval dài hơn). **Recall kém** → giảm hoặc đưa về LEARNING/RELEARNING theo FSRS. |
 | 8    | System  | Chuyển Card tiếp. Lặp đến hết queue → hiển thị summary.                                              |
 | 9    | System  | Cập nhật Progress (số lượt ôn, streak, accuracy).                                                     |
 
@@ -524,7 +537,7 @@
 
 1. FSRS trên `Card`: state/dueAt/stability/difficulty.
 2. Review queue chỉ gồm Card thuộc Deck/Note của Learner hiện tại.
-3. Recall tốt → interval tăng; recall kém → interval giảm hoặc đưa về learning.
+3. Recall tốt → interval tăng; recall kém → interval giảm hoặc đưa về LEARNING/RELEARNING theo FSRS.
 4. Từ mới → trạng thái học ban đầu, lịch ôn đầu tiên.
 5. Overdue card được ưu tiên trong queue.
 
@@ -544,7 +557,7 @@
 
 | Bước | Actor   | Hành động                                                                                              |
 | ---- | ------- | ------------------------------------------------------------------------------------------------------ |
-| 1    | Learner | Mở Home screen → xem progress summary widget: số từ đã lưu, đã học, đang ôn, mastered.               |
+| 1    | Learner | Mở Home screen → xem progress summary widget: số từ đã lưu, đã học, đang ôn, mastered theo learning-state map. |
 | 2    | Learner | Mở màn hình Progress chi tiết.                                                                         |
 | 3    | System  | Hiển thị: streak (chuỗi ngày liên tiếp), accuracy (quiz/review), lịch sử hoạt động ngày/tuần/tháng.  |
 | 4    | System  | Tổng hợp dữ liệu từ ReviewLog, QuizAttempt, Note count.                                               |
@@ -566,7 +579,7 @@
 1. Progress cập nhật sau các hoạt động: lưu từ, flashcard, review, quiz.
 2. Streak tăng khi hoàn thành điều kiện học tối thiểu trong ngày.
 3. Leaderboard dùng Redis/cache, không full-scan aggregate mỗi request.
-4. Dữ liệu progress cá nhân không công khai nếu Learner chưa tham gia leaderboard.
+4. Dữ liệu progress cá nhân không công khai, ngoại trừ thông tin hiển thị trên Leaderboard (`displayName`, `avatar`, `Weekly XP`).
 
 ---
 
@@ -604,7 +617,7 @@
 
 | Bước | Actor   | Hành động                                                                                |
 | ---- | ------- | ---------------------------------------------------------------------------------------- |
-| 1    | System  | Khi Learner đạt điều kiện cụ thể (VD: streak 30 ngày, scan 100 ảnh) → trao Badge.      |
+| 1    | System  | Khi Learner đạt điều kiện cụ thể (VD: streak 30 ngày, 100 lượt scan có lưu từ) → trao Badge.      |
 | 2    | System  | Tạo UserBadge. Gửi In-app Notification.                                                  |
 | 3    | Learner | Xem danh sách Badge đã đạt trong Profile / Badge Gallery.                                |
 
@@ -662,7 +675,7 @@
 
 1. Push Notification qua Expo Push hoặc Firebase FCM.
 2. In-app Notification lưu database để Learner xem lại.
-3. Không spam thông báo; tuân thủ cấu hình giờ nhận (nếu có).
+3. Tối đa 1 push nhắc SRS/ngày khung 19–21h; tuân thủ cấu hình giờ nhận (nếu có).
 4. Learner có thể bật/tắt push trong Settings.
 
 ---
@@ -722,7 +735,7 @@
 | BF    | Tên luồng                   | FR chính          | Milestone |
 | ----- | ---------------------------- | ----------------- | --------- |
 | BF-01 | Đăng ký & Xác thực          | FR-01.01, FR-01.02 | M1        |
-| BF-02 | Đăng nhập & Quản lý phiên   | FR-01.03–06, 08    | M1        |
+| BF-02 | Đăng nhập & Quản lý phiên   | FR-01.03, 04, 06, 08 | M1        |
 | BF-03 | Khôi phục mật khẩu          | FR-01.05           | M1        |
 | BF-04 | Hồ sơ & Avatar              | FR-01.07, FR-11    | M1        |
 | BF-05 | Tra cứu từ điển & Chủ đề    | FR-03, FR-04.01    | M1        |

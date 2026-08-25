@@ -467,8 +467,14 @@ Quản lý dữ liệu lưu trữ media và tiến trình nhận diện hình �
 | `id` | Long | Khóa chính (PK) | ID lượt quét |
 | `userId` | Long | FK -> `User(id)` | Người thực hiện quét |
 | `mediaObjectId`| Long | FK -> `MediaObject(id)`| Ảnh gốc để quét |
-| `status` | Enum | | PENDING, PROCESSING, SUCCESS, FAILED |
-| `aiLatencyMs` | Long | | Độ trễ xử lý của AI |
+| `status` | Enum | | QUEUED, PROCESSING, SUCCESS, FAILED, CANCELED |
+| `quotaDate` | LocalDate | Index (`userId`, `quotaDate`) | Ngày quota bị trừ cho lượt scan này |
+| `queuePositionSnapshot` | Integer | | Vị trí hàng đợi tại thời điểm trả response (ước tính) |
+| `queuedAt` | Instant | | Thời điểm job vào hàng đợi |
+| `processingStartedAt` | Instant | | Thời điểm worker bắt đầu xử lý |
+| `completedAt` | Instant | | Thời điểm kết thúc thành công/thất bại |
+| `queueWaitMs` | Long | | Thời gian chờ trong hàng đợi |
+| `aiLatencyMs` | Long | | Độ trễ xử lý thực tế của AI |
 | `createdAt` | Instant| | Thời điểm tạo request |
 
 ### Bảng `DetectedObject`

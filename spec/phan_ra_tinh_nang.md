@@ -17,7 +17,7 @@
 | F-AUTH-02 | Xác thực OTP/email verify | M   | TTL ≤ 10 phút; ≤ 5 lần thử; resend cooldown ≥ 60s; one-time use; PENDING→ACTIVE         |
 | F-AUTH-03 | Đăng nhập + JWT           | M   | Access Token + Refresh Token; sai credential → generic message không tiết lộ field      |
 | F-AUTH-04 | Refresh token             | M   | Rotate/revoke on logout; 401 → refresh → retry flow trên mobile                         |
-| F-AUTH-05 | Khôi phục mật khẩu        | M   | OTP/link reset; set new password; revoke phiên cũ nếu rule bật; chống email enumeration |
+| F-AUTH-05 | Khôi phục mật khẩu        | M   | OTP/link reset; set new password; revoke tất cả phiên cũ; chống email enumeration |
 | F-AUTH-06 | Đăng xuất                 | S   | Refresh token revoke; xóa session local trên mobile                                     |
 | F-AUTH-07 | Hồ sơ cá nhân (view/edit) | M   | Chỉ owner xem/sửa; cập nhật tên hiển thị; xem thống kê học tập cơ bản                   |
 | F-AUTH-08 | Upload avatar             | M   | Presigned upload → validate MIME (ảnh) + size ≤ 5MB → lưu metadata; TTL URL ≤ 15 phút   |
@@ -43,7 +43,7 @@
 | F-RECOG-01 | Camera capture                        | M   | Request permission UX; fallback gallery nếu từ chối camera                               |
 | F-RECOG-02 | Gallery pick                          | M   | MIME/size validate client (ảnh, ≤ 10MB) + server                                         |
 | F-RECOG-03 | Android overlay bubble                | C   | Floating widget chụp/quét từ app khác; stretch feature, không chặn MVP                   |
-| F-RECOG-04 | Submit recognition                    | M   | requestId trả ngay; timeout backend→AI 60s (cấu hình được); UX loading/cancel            |
+| F-RECOG-04 | Submit recognition                    | M   | requestId trả ngay; kiểm tra quota trước khi nhận job; UX loading/cancel                 |
 | F-RECOG-05 | AI Florence-2 pipeline                | M   | label ∈ dict path (chuỗi lọc ngôn ngữ + cổng từ điển); confidence; bbox; cropUrl (opt.)  |
 | F-RECOG-06 | Backend confidence gate               | M   | Ngưỡng cấu hình được (lớp bảo vệ cuối); CLIP sàn 0,23 + biên độ 0,02 trong AI service    |
 | F-RECOG-07 | Multi-object result UI                | S   | Hiển thị nhiều object; Learner chọn từng object để lưu                                   |
@@ -52,13 +52,19 @@
 | F-RECOG-10 | Word mapping                          | M   | Ánh xạ label AI → Word dictionary (tra cứu + mapping/synonym); đánh dấu nếu thiếu mục    |
 | F-RECOG-11 | Save from scan                        | M   | Tạo Note + Card trong Deck (source=SCAN); xem BF-07, F-VOCAB                             |
 | F-RECOG-12 | Scan history                          | S   | Lưu metadata request; lịch sử scan của Learner; ảnh scan lưu nếu cần (privacy compliant) |
+| F-RECOG-13 | Daily scan quota                      | M   | Mặc định 20 scan/ngày/Learner, cấu hình được; response có remaining/resetAt; hết lượt trả `QUOTA_EXCEEDED` |
+| F-RECOG-14 | Recognition queue                     | M   | Job vào hàng đợi `QUEUED`→`PROCESSING`; 1 worker/GPU mặc định; response có queuePosition/estimatedWaitMs |
+| F-RECOG-15 | Báo cáo thiếu từ                      | S   | Gửi nhãn từ chưa có trong từ điển vào Feedback queue cho Admin xử lý                     |
 
 **Business rules:**
 
-1. Nhãn từ AI đã thuộc từ điển (pipeline bảo đảm); backend chỉ tra cứu trực tiếp.
-2. Không tự động lưu kết quả scan nếu Learner chưa xác nhận.
-3. Ảnh scan chỉ lưu khi cần; bucket private, presigned URL TTL ≤ 15 phút.
-4. Log: requestId, processing time, object count, errors.
+1. Nhãn từ AI service đã được chuẩn hóa và bảo đảm thuộc từ điển ngay trong pipeline; backend chỉ cần tra cứu trực tiếp, dùng bảng mapping/synonym cho trường hợp từ điển Anh-Việt thiếu mục tương ứng.
+2. Mỗi Learner có quota scan/ngày mặc định 20 lượt, cấu hình được; ảnh không hợp lệ không trừ lượt.
+3. Khi hết lượt, Recognition API trả `QUOTA_EXCEEDED`, `remainingScansToday = 0`, `resetAt`; mobile hiển thị trạng thái hết lượt và không retry tự động.
+4. Request hợp lệ được đưa vào hàng đợi AI, xử lý giới hạn theo GPU (mặc định 1 worker/GPU); client theo dõi `QUEUED`/`PROCESSING` thay vì giữ kết nối treo quá timeout.
+5. Không tự động lưu kết quả scan nếu Learner chưa xác nhận.
+6. Ảnh scan chỉ lưu khi cần; bucket private, presigned URL TTL ≤ 15 phút.
+7. Log: requestId, status, queuePosition/estimatedWaitMs, processing time, object count, errors.
 
 ---
 
@@ -69,7 +75,7 @@
 | ID        | Tính năng                     | P   | AC tóm tắt                                                                                      |
 | --------- | ----------------------------- | --- | ----------------------------------------------------------------------------------------------- |
 | F-DICT-01 | Text search                   | M   | Tìm kiếm từ tiếng Anh trong DB; p95 server < 500ms cho từ phổ biến; cache Redis top words       |
-| F-DICT-02 | Voice VI → lookup             | S   | STT provider chuyển giọng nói tiếng Việt → text → dịch → lookup; empty/error states rõ ràng     |
+| F-DICT-02 | Voice VI → lookup             | S   | Native STT on-device → text tiếng Việt → tra ngược (reverse-lookup) bảng nghĩa; empty/error rõ ràng |
 | F-DICT-03 | Word detail (nghĩa/IPA/audio) | M   | Hiển thị nghĩa tiếng Việt, phiên âm IPA, nút phát âm; field thiếu → label rõ, không blank crash |
 | F-DICT-04 | Multi-sense / POS grouping    | S   | Nhiều nghĩa/loại từ → nhóm theo POS hiển thị UI rõ ràng                                         |
 | F-DICT-05 | Relations / examples          | C   | Synonym/antonym/related words + câu ví dụ nếu dữ liệu hỗ trợ                                    |
@@ -86,16 +92,15 @@
 
 ## 4. TOPIC — Chủ đề & Bộ sưu tập
 
-**Trace:** FR-03 (topic), FR-04.01, FR-13.02 · BF-05 · SS-05 · MH: Collections, Topic List, Topic Items
+**Trace:** FR-14 · BF-05 · SS-05 · MH: Collections, Topic List, Topic Items
 
 | ID         | Tính năng                    | P   | AC tóm tắt                                                                   |
 | ---------- | ---------------------------- | --- | ---------------------------------------------------------------------------- |
 | F-TOPIC-01 | Browse Collections           | M   | Danh sách bộ sưu tập (VD: TOEIC Words, Animals); pagination                  |
 | F-TOPIC-02 | Browse Topics in Collection  | M   | Danh sách topics thuộc collection; hỗ trợ phân cấp parent/child              |
 | F-TOPIC-03 | View TopicItems + EAV attrs  | M   | Danh sách từ vựng/cụm từ kèm thuộc tính linh hoạt (nghĩa, IPA, ví dụ, audio) |
-| F-TOPIC-04 | Save topic item → Note       | M   | Tạo Note từ TopicItem vào Deck cá nhân; source=TOPIC; unique per Deck        |
-| F-TOPIC-05 | Admin CRUD Collection/Topic  | M   | Admin quản lý cấu trúc collection/topic; soft-delete                         |
-| F-TOPIC-06 | Admin CRUD TopicItem + attrs | M   | Admin quản lý nội dung từ vựng theo mô hình EAV                              |
+| F-TOPIC-04 | Save topic item → Note       | M   | Tạo Note từ TopicItem vào Deck được chọn/gần nhất/mặc định; source=TOPIC; unique per Deck |
+| F-TOPIC-07 | Seed Collections/Topics      | M   | Seed dữ liệu mẫu khi init DB (vd: 3 collections, 15 topics, 300 từ) cho M1   |
 
 **Business rules:**
 
@@ -110,11 +115,11 @@
 
 | ID         | Tính năng                       | P   | AC tóm tắt                                                                        |
 | ---------- | ------------------------------- | --- | --------------------------------------------------------------------------------- |
-| F-VOCAB-01 | Create/list/update/delete Decks | M   | Owner-only; gán 1 CardTemplate per Deck; mặc định template CLASSIC nếu không chọn |
-| F-VOCAB-02 | Add Note from word/scan/topic   | M   | Tạo Note + auto sinh 1 Card; unique per Deck (no dup Word in same Deck)           |
-| F-VOCAB-03 | List/filter/sort Notes          | M   | Lọc theo state (new/learning/reviewing/mastered), ngày lưu, độ khó, ngày due      |
+| F-VOCAB-01 | Create/list/update/delete Decks | M   | Owner-only; luôn tạo Deck mặc định khi đăng ký; Deck mặc định dùng layout CLASSIC *(M1: hard-code, không có entity CardTemplate; M3: FK sang CardTemplate)* |
+| F-VOCAB-02 | Add Note from word/scan/topic   | M   | Tạo Note + auto sinh 1 Card vào Deck đích; unique per Deck (no dup Word in same Deck); trùng → "Từ đã có trong Deck được chọn" |
+| F-VOCAB-03 | List/filter/sort Notes          | M   | Lọc theo UI state (new/learning/reviewing/mastered) suy từ FSRS + interval, ngày lưu, độ khó, ngày due |
 | F-VOCAB-04 | Delete/archive Note             | M   | Không xóa Word gốc; Card gắn Note → ẩn/archive; soft operation                    |
-| F-VOCAB-05 | Learning state surface          | S   | Trạng thái new/learning/review/mastered suy từ Card.state (FSRS)                  |
+| F-VOCAB-05 | Learning state surface          | S   | Hiển thị state UI theo map chuẩn: NEW→new; LEARNING/RELEARNING→learning; REVIEW interval <21d→reviewing; REVIEW interval ≥21d→mastered |
 | F-VOCAB-06 | Source tag                      | C   | Gắn nguồn Note: SCAN / DICT / TOPIC; hiển thị filter theo source                  |
 | F-VOCAB-07 | NoteMeaning + NotePronunciation | M   | Lưu nghĩa/POS/example/ghi chú + IPA/audio gắn Note                                |
 | F-VOCAB-08 | Empty state UX                  | M   | Chưa có Note → CTA "Tra cứu / Scan để thêm từ mới"; chưa có Deck → tạo Deck nhanh |
@@ -126,7 +131,8 @@
 1. Canonical model: Deck → Note → Card. UI "My Vocabulary" = danh sách Note.
 2. 1 Note → 1 Card theo template Deck (1 Deck = 1 Template).
 3. Note/Card là nguồn đầu vào chính cho Flashcard, Quiz, SRS.
-4. Xóa/archive Note không xóa Word khỏi dictionary gốc.
+4. UI/progress state là taxonomy suy từ FSRS theo FR-04; không lưu `mastered` như Card.state riêng.
+5. Xóa/archive Note không xóa Word khỏi dictionary gốc.
 
 ---
 
@@ -136,17 +142,16 @@
 
 | ID         | Tính năng                  | P   | AC tóm tắt                                                                                |
 | ---------- | -------------------------- | --- | ----------------------------------------------------------------------------------------- |
-| F-FLASH-01 | Auto Card per Note         | M   | 1 Note → 1 Card duy nhất (theo template Deck); Card khởi tạo state=NEW, FSRS params init  |
+| F-FLASH-01 | Auto Card per Note         | M   | 1 Note → 1 Card duy nhất; Card khởi tạo state=NEW, FSRS params init *(M1: render CLASSIC hard-code; M3: đọc template từ Deck.cardTemplate entity)* |
 | F-FLASH-02 | System templates (seed)    | M   | CLASSIC, REVERSE, LISTENING, IMAGE_VOCAB, SPELLING, CONTEXT; seeded khi init DB           |
 | F-FLASH-03 | Custom template CRUD       | S   | Learner tự tạo template: chọn layout, field mapping, interaction type; max 20/user        |
 | F-FLASH-04 | Assign template → Deck     | M   | Đổi template không mất Card, chỉ đổi render; SRS/ReviewLog giữ nguyên                     |
-| F-FLASH-05 | Mobile render by config    | M   | Render front/back theo CardTemplateField config; ẩn field thiếu dữ liệu, không lỗi layout |
+| F-FLASH-05 | Mobile render by config    | M   | Render front/back theo config; ẩn field thiếu dữ liệu, không lỗi layout *(M1: config CLASSIC hard-code trong mobile; M3: config từ API CardTemplateField)* |
 | F-FLASH-06 | Submit FSRS rating         | M   | Learner chọn Again/Hard/Good/Easy; ghi ReviewLog + cập nhật Card (state/dueAt/stab/diff)  |
 | F-FLASH-07 | Study session              | M   | Build queue new + due Cards; session → card → interact → rate → next → summary            |
 | F-FLASH-08 | Interaction types          | M   | FLIP (lật thẻ), TYPE_IN (gõ từ — back phải có WORD), TAP_TO_REVEAL (chạm lộ dần)          |
 | F-FLASH-09 | Template field config      | S   | fieldConfig JSON: autoPlay cho AUDIO, maskPattern cho CONTEXT, strict mode cho TYPE_IN    |
-| F-FLASH-10 | Admin System Template CRUD | M   | Admin quản lý/tạo mới System Template; system template không sửa/xóa bởi Learner          |
-| F-FLASH-11 | Delete custom template     | S   | Soft-delete; Deck đang dùng → fallback CLASSIC; Card liên quan → SUSPENDED                |
+| F-FLASH-11 | Delete custom template     | S   | Soft-delete; Deck đang dùng → fallback CLASSIC; Card giữ nguyên state/SRS                 |
 
 **Business rules:**
 
@@ -165,8 +170,8 @@
 
 | ID        | Tính năng                | P   | AC tóm tắt                                                                            |
 | --------- | ------------------------ | --- | ------------------------------------------------------------------------------------- |
-| F-QUIZ-01 | Generate quiz from Notes | M   | Sinh quiz từ Note/Card trong Deck; yêu cầu min Notes (VD: ≥ 4); else empty CTA        |
-| F-QUIZ-02 | Multiple choice (MCQ)    | M   | Chọn nghĩa/từ đúng từ nhiều đáp án; đáp án nhiễu unique, không quá dễ nhận            |
+| F-QUIZ-01 | Generate quiz from Notes | M   | Sinh quiz từ Note/Card trong Deck; yêu cầu min Notes ≥ 4; else empty CTA        |
+| F-QUIZ-02 | Multiple choice (MCQ)    | M   | Chọn nghĩa/từ đúng từ nhiều đáp án; đáp án nhiễu lấy cùng Deck/POS            |
 | F-QUIZ-03 | Matching                 | S   | Ghép từ tiếng Anh ↔ nghĩa tiếng Việt; hiển thị N cặp                                  |
 | F-QUIZ-04 | Fill blank               | C   | Điền từ còn thiếu trong câu/gợi ý; so khớp case-insensitive + trim                    |
 | F-QUIZ-05 | Score + attempt          | M   | Tính điểm, correctCount, wrongCount, accuracy, duration; lưu QuizAttempt              |
@@ -176,9 +181,9 @@
 
 **Business rules:**
 
-1. Đáp án nhiễu không trùng đáp án đúng, không quá dễ nhận biết.
+1. Đáp án nhiễu lấy từ Note cùng Deck/POS, không trùng nghĩa.
 2. Số Note chưa đủ → CTA "Lưu thêm từ trước khi tạo quiz."
-3. Kết quả quiz có thể ảnh hưởng SRS nhưng không thay thế hoàn toàn đánh giá recall trong review.
+3. Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP).
 4. Submit idempotent (event key).
 
 ---
@@ -194,12 +199,12 @@
 | F-SRS-03 | Daily count Home       | S   | Home hiển thị số Card cần ôn hôm nay (due count + overdue count)                             |
 | F-SRS-04 | Overdue priority       | S   | Card quá hạn ôn → đẩy lên đầu review queue trước Card vừa đến hạn                            |
 | F-SRS-05 | Reset/archive card     | C   | Reset Card về state=NEW hoặc archive; cho phép Learner bỏ qua từ khó                         |
-| F-SRS-06 | FSRS parameters        | M   | State (New/Learning/Review/Relearning), dueAt, stability, difficulty, interval, reps, lapses |
+| F-SRS-06 | FSRS parameters        | M   | State (NEW/LEARNING/REVIEW/RELEARNING), dueAt, stability, difficulty, interval, reps, lapses |
 | F-SRS-07 | Review session summary | S   | Sau khi hết queue → summary: số Card ôn, accuracy, thời gian                                 |
 
 **Business rules:**
 
-1. FSRS trên Card: recall tốt → interval tăng; recall kém → interval giảm hoặc đưa về learning.
+1. FSRS trên Card: recall tốt → interval tăng; recall kém → interval giảm hoặc đưa về LEARNING/RELEARNING theo thuật toán.
 2. Từ mới → state=NEW, lịch ôn đầu tiên.
 3. Review queue chỉ gồm Card thuộc Deck/Note của Learner hiện tại.
 4. ReviewLog ghi mỗi lượt ôn (rating, reviewedAt, elapsed).
@@ -212,7 +217,7 @@
 
 | ID        | Tính năng      | P   | AC tóm tắt                                                                                |
 | --------- | -------------- | --- | ----------------------------------------------------------------------------------------- |
-| F-PROG-01 | Summary counts | M   | Tổng quan: notes saved / learned / due / mastered; rebuild từ Note + Card state           |
+| F-PROG-01 | Summary counts | M   | Tổng quan: notes saved / learned / due / mastered; rebuild từ Note + Card FSRS + learning-state map |
 | F-PROG-02 | Streak         | S   | Chuỗi ngày học liên tiếp; tăng khi hoàn thành min activity/day; reset nếu bỏ ngày         |
 | F-PROG-03 | Accuracy       | S   | Tỷ lệ chính xác tổng hợp từ Quiz + Review (correctCount / total)                          |
 | F-PROG-04 | History charts | S   | Lịch sử hoạt động: daily/weekly/monthly view; biểu đồ số từ học, số review, quiz attempts |
@@ -222,8 +227,8 @@
 **Business rules:**
 
 1. Progress cập nhật sau mọi hoạt động học: lưu từ, flashcard review, quiz submit.
-2. Streak rule: min activity threshold mỗi ngày (VD: ≥ 1 review hoặc ≥ 1 quiz).
-3. Dữ liệu progress cá nhân không công khai nếu chưa tham gia leaderboard.
+2. Streak rule: min activity threshold mỗi ngày (≥ 1 review hoặc ≥ 1 quiz).
+3. Dữ liệu progress cá nhân không công khai, ngoại trừ thông tin trên Leaderboard (`displayName`, `avatar`, `Weekly XP`).
 
 ---
 
@@ -237,15 +242,15 @@
 | F-GAME-02 | Coin transaction      | S   | Cộng/trừ Coin; balance ≥ 0 mọi lúc; CoinTransaction ghi type (earn/spend) + eventKey            |
 | F-GAME-03 | Daily mission         | S   | 3–5 nhiệm vụ/ngày từ pool (context-aware + weighted random); tracking → claim → reward          |
 | F-GAME-04 | Weekly mission/stamps | C   | Hoàn thành tất cả daily → Activity Stamp; 3/5/7 stamps → Rương Đồng/Bạc/Vàng                    |
-| F-GAME-05 | Badges                | S   | Huy hiệu khi đạt điều kiện cụ thể (streak 30 ngày, scan 100 ảnh…); UserBadge + notification     |
-| F-GAME-06 | Leaderboard           | S   | Xếp hạng XP/streak/activity; Redis sorted set hoặc snapshot cache; hiển thị top N + vị trí user |
+| F-GAME-05 | Badges                | S   | Huy hiệu khi đạt điều kiện cụ thể (streak 30 ngày, 100 lượt scan có lưu từ…); UserBadge + notification |
+| F-GAME-06 | Leaderboard           | S   | Xếp hạng theo Weekly XP; Redis sorted set hoặc snapshot cache; hiển thị top N + vị trí user |
 | F-GAME-07 | Shop browse + buy     | C   | Duyệt vật phẩm; mua bằng Coin (balance ≥ price); trừ Coin → tạo UserItem                        |
 | F-GAME-08 | Apply item            | C   | Áp dụng vật phẩm: theme, avatar frame, booster (x2 XP…); UserItem.equipped                      |
 | F-GAME-09 | Admin config          | S   | Admin CRUD: Missions, Badges, Shop Items, XP reward rules                                       |
-| F-GAME-10 | Mission reset cycle   | S   | Daily missions reset 00:00 (UTC+7 hoặc user timezone); progress không cộng dồn sang ngày sau    |
-| F-GAME-11 | Anti-cheat            | S   | Không cộng progress cho action spam (scan ảnh rỗng liên tục); chỉ tính "lưu thành công từ mới"  |
+| F-GAME-10 | Mission reset cycle   | S   | Daily missions reset 00:00 Asia/Ho_Chi_Minh (xem ../decisions/daily_mission.md §3.1); progress không cộng dồn sang ngày sau    |
+| F-GAME-11 | Anti-cheat            | S   | Không cộng progress cho action spam; lượt scan hợp lệ phải có "≥ 1 từ được lưu thành công"      |
 
-**Detail:** Xem [daily_mission.md](./daily_mission.md) — MissionTemplate, UserDailyMission, reset cycle, activity stamps.
+**Detail:** Xem [daily_mission.md](../decisions/daily_mission.md) — MissionTemplate, UserDailyMission, reset cycle, activity stamps.
 
 **Business rules:**
 
@@ -273,7 +278,7 @@
 
 1. Push qua Expo Push hoặc Firebase FCM.
 2. In-app notification lưu database, Learner xem lại khi mở app.
-3. Không spam; tuân thủ cấu hình giờ nhận (nếu có).
+3. Tối đa 1 push nhắc SRS/ngày khung 19–21h; tuân thủ cấu hình giờ nhận (nếu có).
 4. Tắt push → không gửi push, vẫn lưu in-app.
 
 ---
@@ -358,9 +363,9 @@
 
 | Milestone | Features chính                                                                  |
 | --------- | ------------------------------------------------------------------------------- |
-| **M1**    | AUTH, DICT, TOPIC, VOCAB, FLASH cơ bản (CLASSIC template), STOR avatar, OPENAPI |
+| **M1**    | AUTH, DICT, TOPIC, VOCAB, FLASH cơ bản (FSRS 4 mức + CLASSIC hard-code, **không** CardTemplate entity), STOR avatar, OPENAPI |
 | **M2**    | RECOG full pipeline, STOR scan/crop, VOCAB from scan (source=SCAN)              |
-| **M3**    | FLASH templates (custom), QUIZ, SRS, PROGRESS, NOTIF                            |
+| **M3**    | FLASH templates đầy đủ (CardTemplate entity, multi-template, custom template CRUD), QUIZ, SRS, PROGRESS, NOTIF |
 | **M4**    | GAME (XP, Coin, Mission, Badge, Leaderboard, Shop), ADMIN, production harden    |
 
 ### Chi tiết tính năng theo Milestone
@@ -374,9 +379,9 @@ gantt
     section M1 — Core Auth & Vocab
     AUTH (F-AUTH-01→09)           :m1a, 0, 1
     DICT (F-DICT-01→07)          :m1b, 0, 1
-    TOPIC (F-TOPIC-01→06)        :m1c, 0, 1
+    TOPIC (F-TOPIC-01→04,07)     :m1c, 0, 1
     VOCAB (F-VOCAB-01→08)        :m1d, 0, 1
-    FLASH basic (F-FLASH-01,02,04→07) :m1e, 0, 1
+    FLASH basic (F-FLASH-01,02,04,06,07) :m1e, 0, 1
     STOR avatar (F-STOR-01→04,08):m1f, 0, 1
     OPENAPI (F-API-01→05)        :m1g, 0, 1
 
@@ -385,7 +390,7 @@ gantt
     STOR scan/crop (F-STOR-05,06):m2b, 1, 2
 
     section M3 — Learning Engine
-    FLASH templates (F-FLASH-03,08→11) :m3a, 2, 3
+    FLASH templates (F-FLASH-03,05,08,09,11) :m3a, 2, 3
     QUIZ (F-QUIZ-01→08)          :m3b, 2, 3
     SRS (F-SRS-01→07)            :m3c, 2, 3
     PROGRESS (F-PROG-01→06)      :m3d, 2, 3
@@ -404,22 +409,22 @@ gantt
 | Area     | Must   | Should | Could  | Total   |
 | -------- | ------ | ------ | ------ | ------- |
 | AUTH     | 7      | 2      | 0      | 9       |
-| RECOG    | 8      | 2      | 1      | 12\*    |
-| DICT     | 4      | 1      | 1      | 7\*     |
-| TOPIC    | 4      | 0      | 0      | 6\*     |
-| VOCAB    | 5      | 1      | 1      | 8\*     |
-| FLASH    | 6      | 4      | 0      | 11\*    |
-| QUIZ     | 3      | 3      | 1      | 8\*     |
+| RECOG    | 11     | 3      | 1      | 15      |
+| DICT     | 4      | 2      | 1      | 7       |
+| TOPIC    | 5      | 0      | 0      | 5       |
+| VOCAB    | 6      | 1      | 1      | 8       |
+| FLASH    | 7      | 3      | 0      | 10      |
+| QUIZ     | 4      | 3      | 1      | 8       |
 | SRS      | 3      | 3      | 1      | 7       |
 | PROGRESS | 2      | 3      | 1      | 6       |
-| GAME     | 0      | 7      | 3      | 11\*    |
+| GAME     | 0      | 8      | 3      | 11      |
 | NOTIF    | 3      | 2      | 0      | 5       |
-| STORAGE  | 4      | 3      | 0      | 8\*     |
-| OPENAPI  | 1      | 3      | 0      | 5\*     |
-| ADMIN    | 5      | 3      | 1      | 10\*    |
-| **Tổng** | **55** | **37** | **10** | **103** |
+| STORAGE  | 4      | 4      | 0      | 8       |
+| OPENAPI  | 1      | 4      | 0      | 5       |
+| ADMIN    | 6      | 3      | 1      | 10      |
+| **Tổng** | **63** | **41** | **10** | **114** |
 
-_\* Một số feature có sub-items gộp._
+
 
 ---
 

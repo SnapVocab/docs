@@ -37,7 +37,7 @@ Mục tiêu chính:
 | 10    | Quiz                                  | Luyện tập bằng câu hỏi trắc nghiệm, ghép nghĩa, điền từ hoặc các dạng kiểm tra phù hợp                       |
 | 11    | SRS Review                            | Tạo hàng đợi ôn tập theo thời điểm đến hạn và cập nhật lịch ôn dựa trên kết quả nhớ                          |
 | 12    | Tiến độ học tập                       | Theo dõi số từ đã học, số lượt ôn, streak, độ chính xác và kết quả quiz                                      |
-| 13    | Bảng xếp hạng                         | Xếp hạng cá nhân dựa trên điểm học tập, XP hoặc hoạt động                                                    |
+| 13    | Bảng xếp hạng                         | Xếp hạng cá nhân dựa trên XP tuần (Weekly XP)                                                                |
 | 14    | Gamification                          | Nhiệm vụ, huy hiệu, điểm kinh nghiệm, coin, vật phẩm và cửa hàng trong ứng dụng                              |
 | 15    | Hệ thống thông báo                    | Nhận thông báo đẩy (Push Notification) nhắc nhở ôn tập và thông báo trong ứng dụng (In-app)                  |
 | **B** | **Chức năng Admin (CMS / Dashboard)** |                                                                                                              |
@@ -72,7 +72,7 @@ Mục tiêu chính:
 | Learning domain | `Deck` → `Note` → `Card` + `ReviewLog`          | “Saved vocabulary” = Note trong Deck của Learner; **không** entity song song `SavedWord/UserWord` |
 | SRS             | FSRS trên `Card`                                | State/due/stability/difficulty nằm ở Card                                                         |
 | Milestone       | 4 mốc (Auth+Dict → Scan → Learning → Game+Prod) | Theo thứ tự ưu tiên triển khai hiện tại                                                           |
-| FR IDs          | FR-01 … FR-13 như §5                            | Không dùng map FR cũ                                                                              |
+| FR IDs          | FR-01 … FR-14 như §5                            | Không dùng map FR cũ                                                                              |
 
 ### MVP Cut & Milestones
 
@@ -89,7 +89,7 @@ Mục tiêu: hoàn thiện nền tảng tài khoản, hồ sơ và tra cứu/lư
 | Dictionary       | Tra cứu từ vựng bằng văn bản hoặc giọng nói tiếng Việt, xem nghĩa, phiên âm, phát âm                        |
 | Topic Learning   | Duyệt và học từ vựng theo các bộ sưu tập (Collections) và chủ đề (Topics) có sẵn                            |
 | Saved Vocabulary | Lưu/xóa từ vào danh sách cá nhân, xem danh sách đã lưu                                                      |
-| Flashcard cơ bản | Sinh flashcard từ saved words, flip card, đánh dấu đã nhớ/chưa nhớ                                          |
+| Flashcard cơ bản | Sinh flashcard từ saved words, flip card, đánh giá FSRS 4 mức (Again/Hard/Good/Easy); template CLASSIC hard-code, chưa có UI cấu hình template |
 
 Done criteria:
 
@@ -97,7 +97,7 @@ Done criteria:
 2. Learner xem và cập nhật được hồ sơ cá nhân.
 3. Learner tra cứu được từ vựng và xem thông tin nghĩa tiếng Việt, phiên âm, phát âm nếu có.
 4. Learner lưu được từ vào danh sách học cá nhân và mở lại danh sách này.
-5. Learner học được saved words bằng flashcard cơ bản.
+5. Learner học được saved words bằng flashcard template CLASSIC (flip), đánh giá FSRS 4 mức (Again/Hard/Good/Easy) sau mỗi thẻ, Card được cập nhật dueAt/state theo FSRS.
 
 #### Milestone 2 — Camera/Object Recognition MVP
 
@@ -107,7 +107,7 @@ Mục tiêu: chứng minh luồng scan-to-vocabulary hoạt động end-to-end.
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | Image Input        | Chụp ảnh bằng camera hoặc chọn ảnh từ thư viện                                                                                                  |
 | Upload/Storage     | Gửi ảnh tới backend hoặc upload qua presigned URL nếu cần lưu trữ                                                                               |
-| AI Detection       | Backend gọi FastAPI AI service chạy pipeline Florence-2 + SAM + CLIP (chế độ sản phẩm, phiên bản F2-v13)                                        |
+| AI Detection       | Recognition worker gọi FastAPI AI service qua hàng đợi, chạy pipeline Florence-2 + SAM + CLIP (chế độ sản phẩm, phiên bản F2-v13)                |
 | Recognition Result | Nhận danh sách vật thể: nhãn từ vựng mở đã qua chuỗi lọc từ điển, điểm tin cậy, bounding box và (tùy chọn) ảnh cắt nền trong suốt cho flashcard |
 | Word Mapping       | Ánh xạ label sang từ vựng trong database                                                                                                        |
 | Result UI          | Hiển thị danh sách đối tượng/từ vựng kèm nghĩa, phiên âm, phát âm                                                                               |
@@ -129,7 +129,7 @@ Mục tiêu: hoàn thiện cơ chế học, kiểm tra và ôn tập dài hạn.
 | ------------ | -------------------------------------------------------------------- |
 | Quiz         | Trắc nghiệm nghĩa, chọn từ đúng, ghép từ-nghĩa, điền từ nếu phù hợp  |
 | Quiz Attempt | Lưu điểm, số câu đúng/sai, thời gian làm và lịch sử attempt          |
-| SRS          | Tính due date, interval, ease factor hoặc recall quality cho từng từ |
+| SRS          | Tính state, dueAt, stability, difficulty theo FSRS cho từng Card     |
 | Review Queue | Danh sách từ đến hạn ôn tập theo ngày                                |
 | Progress     | Streak, số từ đã học, accuracy, số lượt ôn, thống kê tuần/tháng      |
 | Notification | Gửi thông báo đẩy (Push) nhắc nhở ôn tập SRS và thông báo in-app     |
@@ -139,7 +139,7 @@ Done criteria:
 1. Learner làm quiz từ danh sách từ cá nhân và nhận điểm sau khi hoàn thành.
 2. Kết quả quiz/review được ghi nhận vào tiến độ học tập.
 3. Hệ thống tạo được daily review queue dựa trên lịch SRS.
-4. Lịch ôn của một từ thay đổi sau khi Learner đánh giá mức độ nhớ.
+4. Lịch ôn của một Card thay đổi sau khi Learner đánh giá mức độ nhớ.
 5. Màn hình tiến độ phản ánh đúng dữ liệu sau các hoạt động học.
 
 #### Milestone 4 — Gamification & Production Readiness
@@ -157,9 +157,9 @@ Mục tiêu: tăng động lực học tập và chuẩn bị vận hành produc
 
 Done criteria:
 
-1. Hoạt động học tập hợp lệ cộng XP/coin theo rule nhất quán.
+1. Hoạt động học tập hợp lệ cộng XP theo bảng cơ sở (review = 2 XP, quiz đúng = 1 XP/câu, lưu từ = 1 XP).
 2. Learner nhận huy hiệu khi đạt điều kiện cụ thể.
-3. Learner mua và sử dụng được vật phẩm bằng coin.
+3. Learner mua và sử dụng được vật phẩm bằng coin (nếu Shop được triển khai).
 4. Leaderboard cập nhật đúng và có chiến lược cache phù hợp.
 5. Media production được lưu qua Cloudflare R2 hoặc S3-compatible storage an toàn.
 6. API có tài liệu Swagger/OpenAPI đủ cho mobile và AI service tích hợp.
@@ -242,6 +242,7 @@ Business rules:
 Business rules:
 
 - Mật khẩu phải được hash ở backend, không lưu plaintext.
+- Đăng ký thành công tự động đăng nhập. Đặt lại mật khẩu thành công tự động revoke tất cả phiên đăng nhập cũ và bắt buộc đổi mật khẩu mới (khác mật khẩu cũ).
 - OTP phải có thời hạn sử dụng và không được dùng lại sau khi thành công.
 - API yêu cầu định danh phải kiểm tra JWT hợp lệ.
 - Refresh token bị revoke khi đăng xuất hoặc khi có rủi ro bảo mật.
@@ -259,11 +260,16 @@ Business rules:
 | FR-02.07 | Xử lý nhiều đối tượng    | Mobile hiển thị nhiều object để Learner chọn/lưu từng từ                                                                                                     | Should  |
 | FR-02.08 | No-object/low-confidence | Hệ thống trả thông báo dễ hiểu và gợi ý thử ảnh khác                                                                                                         | Must    |
 | FR-02.09 | Lưu kết quả scan         | Learner lưu từ được phát hiện vào danh sách học cá nhân                                                                                                      | Must    |
+| FR-02.10 | Quota scan hằng ngày     | Mỗi Learner có giới hạn lượt scan/ngày cấu hình được; API trả số lượt còn lại và lỗi `QUOTA_EXCEEDED` khi hết lượt                                          | Must    |
+| FR-02.11 | Hàng đợi xử lý AI        | Recognition request được đưa vào hàng đợi; backend trả trạng thái `QUEUED`/`PROCESSING` kèm vị trí ước tính thay vì giữ client treo                         | Must    |
 
 Business rules:
 
 - Nhãn từ AI service đã được chuẩn hóa và bảo đảm thuộc từ điển ngay trong pipeline (chuỗi lọc ngôn ngữ + cổng từ điển cuối); backend chỉ cần tra cứu trực tiếp, dùng bảng mapping/synonym cho trường hợp từ điển Anh-Việt thiếu mục tương ứng.
 - Nếu nhiều bounding box cùng label, backend có thể gom trùng label để tránh trả từ vựng lặp.
+- Mỗi Learner có quota scan/ngày mặc định 20 lượt, cấu hình được theo môi trường/gói; lượt chỉ bị trừ khi request ảnh hợp lệ được nhận vào hàng đợi.
+- Khi hết lượt, backend trả `QUOTA_EXCEEDED` kèm `remainingScansToday = 0` và thời điểm reset; mobile không gọi AI service.
+- Recognition request phải đi qua hàng đợi xử lý tuần tự/giới hạn worker (mặc định 1 worker/GPU, tối đa 2 nếu đo tải cho phép); trạng thái gồm `QUEUED`, `PROCESSING`, `SUCCESS`, `FAILED`, `CANCELED`.
 - Hệ thống không tự động lưu toàn bộ kết quả scan nếu Learner chưa xác nhận.
 - Ảnh scan chỉ được lưu nếu cần cho lịch sử hoặc debug; nếu lưu phải tuân thủ quyền riêng tư.
 
@@ -293,7 +299,7 @@ Business rules:
 | FR-04.01 | Lưu từ             | Learner lưu từ từ kết quả scan hoặc tra cứu từ điển                       | Must    |
 | FR-04.02 | Danh sách cá nhân  | Learner xem danh sách từ đã lưu                                           | Must    |
 | FR-04.03 | Xóa khỏi danh sách | Learner xóa hoặc archive từ không muốn học tiếp                           | Must    |
-| FR-04.04 | Trạng thái học     | Mỗi từ có trạng thái như new, learning, reviewing, mastered               | Should  |
+| FR-04.04 | Trạng thái học     | Mỗi từ hiển thị state UI suy từ FSRS: new, learning, reviewing, mastered | Should  |
 | FR-04.05 | Lọc/sắp xếp        | Learner lọc theo trạng thái, ngày lưu, độ khó hoặc ngày ôn                | Should  |
 | FR-04.06 | Gắn nguồn          | Hệ thống lưu nguồn của từ: scan ảnh, tra cứu dictionary, topic/collection | Could   |
 
@@ -304,6 +310,22 @@ Business rules:
 - Một Learner không nên có Note trùng cùng một Word trong cùng một Deck (unique theo rule Deck).
 - Xóa/archive Note không xóa Word khỏi dictionary gốc; Card/SRS gắn Note được ẩn hoặc archive theo rule.
 - Note/Card là nguồn đầu vào chính cho flashcard, quiz và SRS.
+
+Learning state UI là taxonomy hiển thị/aggregate, không phải enum FSRS lưu trực tiếp trên Card:
+
+| FSRS Card.state | Điều kiện bổ sung | UI/Progress state |
+| --------------- | ----------------- | ----------------- |
+| `NEW` | — | `new` |
+| `LEARNING` | — | `learning` |
+| `RELEARNING` | — | `learning` |
+| `REVIEW` | `interval < 21 ngày` | `reviewing` |
+| `REVIEW` | `interval >= 21 ngày` | `mastered` |
+
+Business rules cho learning state:
+
+- `mastered` là trạng thái suy ra từ Card FSRS đã mature, không phải Learner đánh dấu tay.
+- Ngưỡng mature/mastered mặc định là `interval >= 21 ngày` theo quy ước mature card tương tự Anki; nếu cấu hình sản phẩm đổi ngưỡng, mọi query/list/progress/mission phải dùng cùng một config.
+- `learnedCount` = số Card không còn `new` (`learning + reviewing + mastered`); `dueCount`/`đang ôn` = số Card có `dueAt <= now`; `masteredCount` = số Card có UI state `mastered`.
 
 ### FR-05 — Flashcard & Custom Card
 
@@ -336,9 +358,10 @@ Business rules:
 
 Business rules:
 
-- Quiz không nên sinh đáp án nhiễu trùng hoặc quá dễ nhận biết.
-- Nếu số lượng Note/Card chưa đủ, hệ thống cần thông báo Learner lưu thêm từ trước khi tạo quiz.
-- Kết quả quiz có thể ảnh hưởng đến SRS nhưng không thay thế hoàn toàn đánh giá recall trong review.
+- Đáp án nhiễu lấy từ Note cùng Deck/POS, không trùng nghĩa.
+- Nếu số lượng Note/Card chưa đủ (tối thiểu 4 thẻ), hệ thống cần thông báo Learner lưu thêm từ trước khi tạo quiz.
+- Thoát quiz giữa chừng hệ thống sẽ hủy bỏ, không lưu draft.
+- Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP).
 
 ### FR-07 — Spaced Repetition System (SRS)
 
@@ -361,7 +384,7 @@ Business rules:
 
 | Mã       | Yêu cầu           | Mô tả                                                    | Ưu tiên |
 | -------- | ----------------- | -------------------------------------------------------- | ------- |
-| FR-08.01 | Tổng quan tiến độ | Learner xem số từ đã lưu, đã học, đang ôn và đã mastered | Must    |
+| FR-08.01 | Tổng quan tiến độ | Learner xem số từ đã lưu, đã học, đang ôn và mastered theo bảng map learning state | Must    |
 | FR-08.02 | Streak            | Hệ thống tính chuỗi ngày học liên tiếp                   | Should  |
 | FR-08.03 | Accuracy          | Hệ thống tính độ chính xác quiz/review                   | Should  |
 | FR-08.04 | Lịch sử học       | Learner xem hoạt động học theo ngày/tuần/tháng           | Should  |
@@ -371,8 +394,9 @@ Business rules:
 Business rules:
 
 - Progress phải cập nhật sau các hoạt động học quan trọng: lưu từ, flashcard, review, quiz.
-- Streak chỉ tăng khi Learner hoàn thành điều kiện học tối thiểu trong ngày.
-- Dữ liệu progress cá nhân chỉ hiển thị cho chính Learner và Admin có quyền phù hợp.
+- Các count `learned`/`đang ôn`/`mastered` dùng cùng bảng map learning state ở FR-04.
+- Streak chỉ tăng khi Learner hoàn thành điều kiện học tối thiểu trong ngày (thực hiện tối thiểu 1 review hoặc 1 quiz).
+- Dữ liệu progress cá nhân chỉ hiển thị cho chính Learner và Admin có quyền phù hợp, ngoại trừ `displayName`, `avatar` và `Weekly XP` được công khai trên bảng xếp hạng.
 
 ### FR-09 — Leaderboard & Gamification
 
@@ -382,7 +406,7 @@ Business rules:
 | FR-09.02 | Coin                | Learner nhận coin theo nhiệm vụ hoặc milestone học tập               | Should  |
 | FR-09.03 | Mission             | Hệ thống cung cấp nhiệm vụ ngày/tuần/thành tựu                       | Should  |
 | FR-09.04 | Badge               | Learner nhận huy hiệu khi đạt điều kiện cụ thể                       | Should  |
-| FR-09.05 | Leaderboard cá nhân | Learner xem xếp hạng theo XP, streak hoặc điểm học tập               | Should  |
+| FR-09.05 | Leaderboard cá nhân | Learner xem xếp hạng theo XP tuần (Weekly XP). Lượng XP tổng kết từ 00:00 Thứ Hai đến 23:59 Chủ Nhật (theo múi giờ cấu hình của server). | Should  |
 | FR-09.06 | Shop item           | Learner dùng coin mua vật phẩm trong cửa hàng                        | Could   |
 | FR-09.07 | Apply item          | Learner áp dụng vật phẩm như theme, avatar frame hoặc booster nếu có | Could   |
 
@@ -391,6 +415,7 @@ Business rules:
 - Reward phải có rule rõ ràng để tránh cộng trùng khi retry API.
 - Coin chỉ là đơn vị trong ứng dụng, không quy đổi thành tiền thật trong phạm vi đồ án.
 - Leaderboard nên dùng Redis/cache khi dữ liệu tăng hoặc cần cập nhật thường xuyên.
+- Daily missions reset lúc 00:00 múi giờ Asia/Ho_Chi_Minh.
 
 ### FR-10 — Notification System
 
@@ -404,7 +429,7 @@ Business rules:
 
 - Push Notification sử dụng dịch vụ trung gian (Expo Push hoặc Firebase FCM).
 - In-app Notification được lưu trong database để Learner xem lại khi mở app.
-- Không spam thông báo, cần tuân thủ cấu hình giờ nhận thông báo của Learner (nếu có).
+- Tối đa 1 push nhắc SRS/ngày khung 19–21h, tuân thủ cấu hình giờ nhận của Learner (nếu có).
 
 ### FR-11 — Storage & Media
 
@@ -445,14 +470,36 @@ Business rules:
 | FR-13.03 | Import dữ liệu         | Admin có công cụ import từ vựng hàng loạt qua CSV/Excel hoặc API                             | Should  |
 | FR-13.04 | Quản lý Gamification   | Admin cấu hình điểm XP, thiết lập Missions, Badges và vật phẩm Shop                          | Should  |
 | FR-13.05 | Quản lý lỗi / Feedback | Admin xem danh sách các từ vựng bị người dùng báo lỗi để điều chỉnh                          | Could   |
-| FR-13.06 | Thống kê hệ thống      | Dashboard hiển thị biểu đồ người dùng, mức sử dụng AI và dung lượng R2/S3                    | Should  |
+| FR-13.06 | Thống kê hệ thống      | Dashboard hiển thị biểu đồ người dùng, mức sử dụng AI, độ dài hàng đợi AI, quota scan và dung lượng R2/S3 | Should  |
 | FR-13.07 | Quản lý Card Template  | Admin có thể quản lý, tạo mới và cấu hình các mẫu System Template (Classic, Listening, v.v.) | Must    |
 
 Business rules:
 
 - CMS/Dashboard chạy độc lập với Mobile App (có thể là Web App nội bộ).
 - Các API quản trị phải được bảo vệ bởi role ROLE_ADMIN.
+- Admin xem được AI queue depth, p95 queue wait, p95 processing time, số job timeout/failed và phân bổ lượt scan theo ngày.
+- Quota scan/ngày và số worker AI/GPU là cấu hình vận hành, không hardcode trong mobile.
 - Hành động xóa từ vựng phải là soft-delete (xóa mềm) để không làm hỏng dữ liệu flashcard của Learner hiện tại.
+
+---
+
+### FR-14 — Topic Learning (Collections & Topics)
+
+| Mã       | Yêu cầu                       | Mô tả                                                                                     | Ưu tiên |
+| -------- | ----------------------------- | ----------------------------------------------------------------------------------------- | ------- |
+| FR-14.01 | Duyệt Collections             | Learner xem danh sách bộ sưu tập từ vựng có sẵn (TOEIC, Animals…) với pagination          | Must    |
+| FR-14.02 | Duyệt Topics trong Collection | Learner duyệt danh sách Topic thuộc Collection; hỗ trợ phân cấp parent/child              | Must    |
+| FR-14.03 | Xem TopicItems + thuộc tính  | Learner xem danh sách từ vựng trong Topic kèm thuộc tính EAV (nghĩa, IPA, ví dụ, audio)  | Must    |
+| FR-14.04 | Lưu TopicItem thành Note      | Learner lưu từ vựng từ Topic vào Deck được chọn/gần nhất/mặc định với source = TOPIC      | Must    |
+| FR-14.05 | Admin CRUD Collection/Topic   | Admin quản lý cấu trúc Collection và Topic (thêm, sửa, xóa mềm), hỗ trợ phân cấp         | Must    |
+| FR-14.06 | Admin CRUD TopicItem + EAV    | Admin quản lý nội dung từ vựng theo mô hình EAV (TopicAttributeGroup/Attribute/Value)    | Must    |
+
+Business rules:
+
+- Mô hình dữ liệu EAV: TopicAttributeGroup → TopicAttribute → TopicItemAttributeValue.
+- Soft-delete Collection/Topic không xóa Note/Card đã lưu của Learner.
+- Learner không có quyền tạo/sửa/xóa Collection hoặc Topic (read-only + lưu).
+- Unique per Deck: Learner không lưu trùng cùng TopicItem vào cùng Deck (áp dụng rule unique per Deck của FR-04).
 
 ---
 
@@ -485,8 +532,8 @@ Business rules:
 | NotePronunciation                 | IPA/audio gắn Note                                           | Đã có                                        |
 | Card                              | Thẻ học + tham số SRS (state, dueAt, stability, difficulty…) | Đã có; 1 Note → 1 Card theo template Deck    |
 | ReviewLog                         | Lịch sử từng lượt ôn (rating, time)                          | Đã có                                        |
-| CardTemplate                      | Layout system/custom, interaction type                       | Dự kiến M3 — xem custom_card                 |
-| CardTemplateField                 | Field mapping front/back                                     | Dự kiến M3                                   |
+| CardTemplate                      | Layout system/custom, interaction type                       | **Entity đầy đủ M3**; M1 seed 1 bản ghi CLASSIC hard-code, không có CRUD/UI — xem custom_card |
+| CardTemplateField                 | Field mapping front/back                                     | **Entity đầy đủ M3** (đi kèm CardTemplate CRUD)              |
 | Quiz / QuizQuestion / QuizAttempt | Kiểm tra từ trong Deck/Note                                  | Dự kiến M3                                   |
 | Notification / DeviceToken        | In-app + push                                                | Dự kiến M3                                   |
 | LearningProgress / LearningEvent  | Aggregate streak, accuracy, summary                          | Dự kiến M3; rebuild từ ReviewLog/QuizAttempt |
@@ -540,7 +587,7 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | User/Profile API    | Đã có bằng chứng trong mã nguồn | Xem/cập nhật hồ sơ người dùng                                            |
 | Word/Dictionary API | Đã có bằng chứng trong mã nguồn | Tra cứu từ, xem word detail, definition, translation, pronunciation      |
 | Storage API         | Đã có bằng chứng trong mã nguồn | Presigned upload, upload complete, media metadata                        |
-| Recognition API     | Dự kiến/MVP AI                  | Gửi ảnh nhận diện, nhận detected objects, map sang vocabulary            |
+| Recognition API     | Dự kiến/MVP AI                  | Gửi ảnh nhận diện, kiểm tra quota, tạo job hàng đợi, theo dõi trạng thái, nhận detected objects, map sang vocabulary |
 | Deck / Note API     | Đã có bằng chứng một phần       | CRUD Deck/Note — tương đương “saved vocabulary” UI                       |
 | Card Template API   | Dự kiến learning module         | CRUD custom template, lấy system templates                               |
 | Card / Review API   | Đã có domain Card/ReviewLog     | Queue ôn, submit rating FSRS, render theo template                       |
@@ -555,14 +602,14 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 
 | Thuộc tính     | Yêu cầu                                                                                                                                                                                  |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Giao thức      | Backend gọi FastAPI AI service qua HTTP nội bộ                                                                                                                                           |
+| Giao thức      | Worker recognition gọi FastAPI AI service qua HTTP nội bộ; mobile/backend public giao tiếp qua `requestId` và trạng thái job                                                             |
 | Input          | Ảnh hoặc object key/URL tạm thời truy cập ảnh                                                                                                                                            |
 | Output         | Danh sách object: label (bảo đảm thuộc từ điển), confidence, bounding box, crop cắt nền (tùy chọn)                                                                                       |
 | Model          | Florence-2-large zero-shot + SAM (ViT-H) + CLIP (ViT-B/32), cấu hình chế độ sản phẩm F2-v13 (tiled OD, self-grounding, từ vựng nền + cửa CLIP, 1 thẻ/từ)                                 |
 | Confidence     | Florence-2 không trả xác suất từng box; điểm tin cậy là pseudo-score theo nguồn phát hiện, có thể thay bằng điểm CLIP khi bật xác thực toàn phần — tài liệu API cần ghi rõ ngữ nghĩa này |
 | Phần cứng      | Cần GPU (T4 trở lên); độ trễ ~15–30 giây/ảnh ở chế độ đầy đủ — xem NFR Recognition Performance                                                                                           |
-| Error handling | Timeout, model error, invalid image, no-object phải được trả về có cấu trúc                                                                                                              |
-| Logging        | Ghi nhận requestId, thời gian xử lý, số object nhận diện, lỗi nếu có                                                                                                                     |
+| Error handling | Timeout, model error, invalid image, no-object, quota exceeded và queue full phải được trả về có cấu trúc                                                                                |
+| Logging        | Ghi nhận requestId, trạng thái, queue wait, thời gian xử lý, số object nhận diện, lỗi nếu có                                                                                             |
 
 ### 7.3 Tích hợp dictionary
 
@@ -597,17 +644,18 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | 4   | Idempotency             | Reward/XP/coin/claim mission và submit quiz dùng event key — retry không cộng trùng                              |
 | 5   | File Safety             | Validate MIME allowlist ảnh; avatar ≤ 5MB, scan ≤ 10MB (trừ khi cấu hình khác); object key do backend sinh       |
 | 6   | Privacy                 | Bucket private; presigned URL TTL ngắn (≤ 15 phút); ảnh scan/avatar không public mặc định                        |
-| 7   | Recognition Performance | Timeout backend→AI cấu hình được (mặc định 60s); UX loading/cancel; GPU T4 ~15–30s/ảnh full mode                 |
-| 8   | Dictionary Performance  | Lookup word phổ biến p95 < 500ms (server, exclude mobile network); cache Redis top words khi cần                 |
-| 9   | Leaderboard Performance | Không full-scan aggregate mỗi request; Redis sorted set hoặc snapshot cache TTL rõ                               |
-| 10  | Reliability             | AI lỗi / no-object / low-confidence / upload fail / dictionary miss → error có `code` + message, app không crash |
-| 11  | Scalability             | Tách mobile, backend, AI, DB, Redis, object storage scale độc lập                                                |
-| 12  | API Standard            | REST + JSON envelope thống nhất (`success/data/error/requestId`); OpenAPI cho endpoint public                    |
-| 13  | Mobile UX               | Scan-to-save ≤ 3 bước chính sau khi có ảnh; empty/error/loading có CTA rõ                                        |
-| 14  | Accessibility           | Contrast đọc được trên mobile; touch target ≥ 44pt cho CTA chính                                                 |
-| 15  | Admin isolation         | CMS/Admin không nằm trong mobile app; tách deploy/route                                                          |
-| 16  | Maintainability         | FE theo feature; BE controller-service-repository + DTO/mapper                                                   |
-| 17  | Observability           | Log requestId, auth fail, recognition latency/object count, upload fail, learning events; health checks bắt buộc |
+| 7   | Recognition Performance | Recognition xử lý qua hàng đợi; mặc định 1 worker/GPU; timeout worker→AI 60s cấu hình được; GPU T4 ~15–30s/ảnh full mode |
+| 8   | Recognition Quota       | Quota scan/ngày mặc định 20/Learner, cấu hình được; hết lượt trả `QUOTA_EXCEEDED`; job bị từ chối do queue full không trừ lượt |
+| 9   | Dictionary Performance  | Lookup word phổ biến p95 < 500ms (server, exclude mobile network); cache Redis top words khi cần                 |
+| 10  | Leaderboard Performance | Không full-scan aggregate mỗi request; Redis sorted set hoặc snapshot cache TTL rõ                               |
+| 11  | Reliability             | AI lỗi / no-object / low-confidence / upload fail / dictionary miss → error có `code` + message, app không crash |
+| 12  | Scalability             | Tách mobile, backend, AI, DB, Redis, object storage scale độc lập                                                |
+| 13  | API Standard            | REST + JSON envelope thống nhất (`success/data/error/requestId`); OpenAPI cho endpoint public                    |
+| 14  | Mobile UX               | Scan-to-save ≤ 3 bước chính sau khi có ảnh; empty/error/loading có CTA rõ                                        |
+| 15  | Accessibility           | Contrast đọc được trên mobile; touch target ≥ 44pt cho CTA chính                                                 |
+| 16  | Admin isolation         | CMS/Admin không nằm trong mobile app; tách deploy/route                                                          |
+| 17  | Maintainability         | FE theo feature; BE controller-service-repository + DTO/mapper                                                   |
+| 18  | Observability           | Log requestId, auth fail, recognition status/queue wait/latency/object count, upload fail, learning events; health checks bắt buộc |
 
 ### Security decisions
 
@@ -619,7 +667,9 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 
 ### Reliability decisions
 
-- Recognition request cần có timeout rõ ràng khi gọi AI service.
+- Recognition request cần có timeout rõ ràng khi worker gọi AI service.
+- Backend không gọi AI service trực tiếp từ request mobile; request hợp lệ được đưa vào hàng đợi và client theo dõi bằng `requestId`.
+- Queue phải có giới hạn nhận job; khi đầy, backend trả `AI_QUEUE_FULL` và không trừ quota.
 - Nếu AI service unavailable, backend trả lỗi nghiệp vụ có message thân thiện cho mobile.
 - Nếu label không map được sang dictionary, hệ thống trả kết quả nhận diện nhưng đánh dấu chưa có từ vựng tương ứng.
 - Hoạt động cộng XP/coin phải idempotent để tránh cộng trùng khi client retry.
@@ -637,20 +687,21 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | 4   | Learner duyệt được Collection/Topic và đưa từ chủ đề vào Deck/Note cá nhân (nếu Topic Learning bật).      |
 | 5   | Learner tạo/xóa Note trong Deck; danh sách My Vocabulary phản ánh đúng Note còn hiệu lực.                 |
 | 6   | Learner học Card bằng flashcard; hệ thống ghi ReviewLog và cập nhật SRS trên Card.                        |
-| 7   | Learner chụp/chọn ảnh, gửi xử lý và nhận object từ AI (Florence-2 pipeline).                              |
-| 8   | Backend ánh xạ label sang Word dictionary và trả word detail cho mobile.                                  |
-| 9   | No-object / low-confidence / AI lỗi trả `error.code` rõ, app không crash.                                 |
-| 10  | Learner lưu được từ từ ảnh thành Note/Card trong Deck.                                                    |
-| 11  | Learner làm quiz từ Note/Deck và xem điểm/đúng-sai.                                                       |
-| 12  | Daily review queue lấy Card `dueAt` đến hạn; rating cập nhật lịch ôn.                                     |
-| 13  | Home/progress hiển thị summary học tập khớp ReviewLog/QuizAttempt.                                        |
-| 14  | Leaderboard cá nhân phản ánh XP/activity theo rule (M4).                                                  |
-| 15  | Admin (nếu milestone bật) ban/unban hoặc CRUD dictionary qua role `ROLE_ADMIN`, không qua mobile Learner. |
-| 16  | Mission/badge/XP/coin idempotent — retry không cộng trùng.                                                |
-| 17  | Learner mua item bằng coin; UserItem được ghi nhận.                                                       |
-| 18  | Upload media private bucket + presigned; không lộ object ngoài quyền.                                     |
-| 19  | OpenAPI/Swagger đủ cho mobile tích hợp; error envelope thống nhất.                                        |
-| 20  | Docs/code/UI không chứa secrets môi trường thật.                                                          |
+| 7   | Learner chụp/chọn ảnh, gửi xử lý, thấy `QUEUED`/`PROCESSING` khi phải chờ và nhận object từ AI (Florence-2 pipeline). |
+| 8   | Backend kiểm tra quota scan/ngày, trả lượt còn lại/resetAt và không gọi AI khi `QUOTA_EXCEEDED`.          |
+| 9   | Backend ánh xạ label sang Word dictionary và trả word detail cho mobile.                                  |
+| 10  | No-object / low-confidence / AI lỗi / queue full trả `error.code` rõ, app không crash.                    |
+| 11  | Learner lưu được từ từ ảnh thành Note/Card trong Deck.                                                    |
+| 12  | Learner làm quiz từ Note/Deck và xem điểm/đúng-sai.                                                       |
+| 13  | Daily review queue lấy Card `dueAt` đến hạn; rating cập nhật lịch ôn.                                     |
+| 14  | Home/progress hiển thị summary học tập khớp ReviewLog/QuizAttempt.                                        |
+| 15  | Leaderboard cá nhân phản ánh XP/activity theo rule (M4).                                                  |
+| 16  | Admin (nếu milestone bật) ban/unban hoặc CRUD dictionary qua role `ROLE_ADMIN`, không qua mobile Learner. |
+| 17  | Mission/badge/XP/coin idempotent — retry không cộng trùng.                                                |
+| 18  | Learner mua item bằng coin; UserItem được ghi nhận (nếu Shop được triển khai).                            |
+| 19  | Upload media private bucket + presigned; không lộ object ngoài quyền.                                     |
+| 20  | OpenAPI/Swagger đủ cho mobile tích hợp; error envelope thống nhất.                                        |
+| 21  | Docs/code/UI không chứa secrets môi trường thật.                                                          |
 
 ---
 
@@ -679,7 +730,7 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 - Luồng scan-to-learn được mô tả rõ từ mobile → backend → AI service → dictionary → saved vocabulary.
 - Stack khớp với dự án: React Native/Expo, Spring Boot, Spring Security/JWT, MySQL/MariaDB, Redis, Cloudflare R2/S3-compatible storage, FastAPI, Florence-2 + SAM + CLIP (pipeline open-vocabulary), Swagger/OpenAPI, Figma.
 - Tài liệu phân biệt phần đã có bằng chứng trong mã nguồn và phần dự kiến triển khai.
-- Functional requirements bao phủ auth, profile, recognition, dictionary, Deck/Note vocabulary, flashcard/custom card, quiz, SRS, progress, leaderboard, gamification, storage, notification và Admin.
+- Functional requirements bao phủ auth, profile, recognition, dictionary, topic/collection learning, Deck/Note vocabulary, flashcard/custom card, quiz, SRS, progress, leaderboard, gamification, storage, notification và Admin.
 - Non-functional requirements bao phủ security, performance, reliability, scalability, usability, maintainability và observability.
 - Milestone có done criteria đo được để phục vụ triển khai và nghiệm thu đồ án.
 - Không chứa secrets, mật khẩu, token, endpoint nhạy cảm hoặc giá trị cấu hình local/dev.

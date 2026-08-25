@@ -348,7 +348,7 @@ flowchart TD
 **Dữ liệu hiển thị:**
 
 - Greeting theo tên Learner
-- **Progress widget:** số từ đã lưu / đã học / mastered
+- **Progress widget:** số từ đã lưu / đã học / mastered theo learning-state map
 - **SRS due count:** số Card cần ôn hôm nay + overdue badge
 - **Streak:** chuỗi ngày học liên tiếp (flame icon)
 - **XP / Coin / Level** (M4)
@@ -412,11 +412,13 @@ flowchart TD
 - Permission request UX (camera/gallery)
 - Hướng dẫn: "Chụp rõ vật thể để nhận diện từ vựng"
 - Loading overlay khi gửi ảnh xử lý
+- Lượt scan còn lại trong ngày (`remainingScansToday`) và thời điểm reset khi gần/hết lượt
 
 **Trạng thái UI:**
 
 - Camera permission denied → settings redirect
-- Loading scan → spinner + "Đang nhận diện..." (timeout ~15–30s)
+- Loading scan → spinner + "Đang nhận diện..."; nếu job còn chờ thì hiển thị "Đang xếp hàng" + vị trí ước tính
+- Hết lượt scan → "Bạn đã dùng hết lượt scan hôm nay" + thời điểm reset + CTA học từ đã lưu
 - Upload failed → retry button
 
 ---
@@ -428,7 +430,7 @@ flowchart TD
 | Actor      | Learner                                        |
 | Feature    | F-RECOG-04 → F-RECOG-12, F-DICT-06, F-VOCAB-02 |
 | BF         | BF-06                                          |
-| FR         | FR-02.04 → FR-02.09                            |
+| FR         | FR-02.04 → FR-02.11                            |
 | Mục tiêu   | Hiển thị kết quả nhận diện và cho phép lưu từ  |
 
 **Dữ liệu hiển thị:**
@@ -440,9 +442,10 @@ flowchart TD
     - Nghĩa tiếng Việt
     - IPA / nút phát âm
     - Ảnh crop (nếu có cropUrl)
-    - **Save** button per object → tạo Note + Card
-    - Trạng thái đã lưu (nếu đã có trong Deck)
-- "Lưu tất cả" button
+    - **Save** button per object → lưu vào Deck gần nhất/mặc định, có option **Đổi Deck** trước khi xác nhận
+    - Trạng thái đã lưu (nếu đã có trong Deck đang chọn)
+- Deck đích hiện tại: tên Deck + action **Đổi Deck**
+- "Lưu tất cả" button → lưu các object chưa trùng vào Deck đang chọn; nếu có trùng, báo số từ bị bỏ qua
 - "Chụp lại" button → MH-CAMERA-01
 
 **Trạng thái UI bắt buộc:**
@@ -452,8 +455,12 @@ flowchart TD
 | No object detected | "Không nhận diện được vật thể" + CTA "Thử ảnh khác"     |
 | All low confidence | "Kết quả không chắc chắn" + CTA "Thử ảnh rõ hơn"        |
 | Dictionary miss    | Có label nhưng đánh dấu "Chưa có từ vựng tương ứng"     |
+| Queued / processing | "Đang xếp hàng"/"Đang nhận diện" + vị trí/thời gian chờ ước tính + nút hủy |
+| Quota exceeded     | "Bạn đã dùng hết lượt scan hôm nay" + `resetAt` + CTA quay lại học |
 | AI error / timeout | "Xử lý thất bại" + CTA "Thử lại" hoặc "Quay lại camera" |
+| Queue full         | "Hệ thống đang quá tải, thử lại sau"; không tự retry liên tục |
 | Partial results    | Hiển thị object có data, ẩn/ghi chú object thiếu data   |
+| Already saved      | Badge "Đã có trong Deck được chọn"; không tạo trùng     |
 
 **Tap object →** MH-DICT-02 (Word Detail)
 
@@ -505,13 +512,13 @@ flowchart TD
 - **Synonym / Antonym / Related words** (Could)
 - **Ảnh crop** từ scan (nếu vào từ Detection Result)
 - **Save / Remove button:**
-    - Chưa lưu → "Lưu vào Deck" → chọn Deck → tạo Note + Card
-    - Đã lưu → "Đã lưu ✓" + option "Xóa khỏi Deck"
+    - Chưa lưu → "Lưu vào Deck" → chọn Deck hoặc dùng Deck gần nhất/mặc định → tạo Note + Card
+    - Đã lưu trong Deck đang chọn → "Đã lưu ✓" + option "Xóa khỏi Deck"
 
 **Trạng thái UI:**
 
 - Field thiếu dữ liệu → label rõ "Chưa có dữ liệu phát âm", không để trống
-- Từ đã có trong Deck → "Từ đã có trong danh sách học"
+- Từ đã có trong Deck đang chọn → "Từ đã có trong Deck được chọn"
 
 ---
 
@@ -576,9 +583,10 @@ flowchart TD
     - Từ vựng
     - Nghĩa tiếng Việt (từ EAV attributes)
     - Phiên âm, audio (nếu có)
-    - Save button per item → tạo Note (source=TOPIC)
-    - Trạng thái đã lưu
-- "Lưu tất cả" button
+    - Save button per item → lưu vào Deck gần nhất/mặc định, có option **Đổi Deck** trước khi xác nhận; tạo Note (source=TOPIC)
+    - Trạng thái đã lưu trong Deck đang chọn
+- Deck đích hiện tại: tên Deck + action **Đổi Deck**
+- "Lưu tất cả" button → lưu các item chưa trùng vào Deck đang chọn; nếu có trùng, báo số từ bị bỏ qua
 
 **Tap item →** MH-DICT-02 (Word Detail)
 
@@ -623,11 +631,11 @@ flowchart TD
 **Dữ liệu hiển thị:**
 
 - Deck name + template badge
-- Filter/sort: state (new/learning/reviewing/mastered), ngày lưu, độ khó, due date
+- Filter/sort: UI state (new/learning/reviewing/mastered), ngày lưu, độ khó, due date
 - Danh sách Notes:
     - Từ tiếng Anh
     - Nghĩa ngắn
-    - Card state badge (new/learning/review/mastered)
+    - Learning state badge (new/learning/reviewing/mastered) suy từ FSRS + interval
     - Source tag (SCAN/DICT/TOPIC) — Could
     - Swipe delete/archive
 - **Action buttons:**
@@ -797,7 +805,7 @@ flowchart TD
 
 **Dữ liệu hiển thị:**
 
-- Words: saved / learned / reviewing / mastered (progress bars)
+- Words: saved / learned / reviewing / mastered theo learning-state map (progress bars)
 - Streak: current + longest
 - Accuracy: quiz + review tổng hợp
 - Activity heatmap / chart: daily / weekly / monthly
@@ -842,7 +850,7 @@ flowchart TD
 
 - My rank + score
 - Top N users (avatar, name, score)
-- Filter: period (daily/weekly/all-time), type (XP/streak/activity)
+- Filter: period (chỉ dùng weekly cho MVP), type (chỉ dùng XP)
 - Scroll to "Your position"
 
 ---

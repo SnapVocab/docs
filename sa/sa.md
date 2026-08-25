@@ -239,7 +239,7 @@ Hệ thống backend được chia thành **18 phân hệ** thuộc 5 lớp ch�
 | Flashcard & Template | SS-09 | Card, CardTemplate (system/custom), study session, FSRS rating, ReviewLog | M1, M3 |
 | Quiz | SS-10 | Quiz generation, MCQ/Matching/Fill, scoring, QuizAttempt (idempotent) | M3 |
 | SRS (FSRS) | SS-11 | Review queue (due Cards), FSRS calculation, overdue priority | M3 |
-| Progress | SS-12 | Streak, accuracy, mastered count, LearningEvent, home widget summary | M3 |
+| Progress | SS-12 | Streak, accuracy, mastered count theo learning-state map, LearningEvent, home widget summary | M3 |
 
 ### 4.5 Lớp Engagement & Infrastructure
 
@@ -289,7 +289,7 @@ erDiagram
     NOTE }o--|| WORD : references
     CARD ||--o{ REVIEW_LOG : generates
     CARD {
-        string state "New/Learning/Review/Relearning"
+        string state "NEW/LEARNING/REVIEW/RELEARNING"
         datetime dueAt
         float stability
         float difficulty
@@ -365,13 +365,16 @@ sequenceDiagram
 
     M->>B: POST /recognition/scan (image)
     B->>S: Upload ảnh (presigned URL optional)
-    B->>AI: POST /api/recognize (requestId, image)
+    B->>B: Kiểm tra quota scan/ngày
+    B->>DB: Tạo ScanRequest(status=QUEUED)
+    B-->>M: {requestId, status=QUEUED, queuePosition, estimatedWaitMs, remainingScansToday}
+    B->>AI: Worker POST /api/recognize (requestId, image)
     Note over AI: Florence-2 OD + Dense Region + Self-grounding<br>+ Tiled OD → WordNet filter → CLIP verify<br>→ SAM crop (~15-30s GPU T4)
     AI-->>B: {objects: [{label, confidence, bbox, cropUrl}]}
     B->>B: Lọc confidence (ngưỡng cấu hình)
     B->>B: Gom trùng label (nhiều box → 1 từ)
     B->>DB: Ánh xạ label → Word (tra cứu + mapping/synonym)
-    B-->>M: {words: [{word, meaning, ipa, audio, confidence, cropUrl}]}
+    B-->>M: Poll/subscription trả SUCCESS + {words: [{word, meaning, ipa, audio, confidence, cropUrl}]}
     M->>M: Hiển thị kết quả, Learner chọn từ muốn lưu
     M->>B: POST /decks/{id}/notes (wordId, source=SCAN)
     B->>DB: Tạo Note + auto Card (state=NEW)
@@ -384,7 +387,9 @@ sequenceDiagram
 | --- | --- |
 | No object detected | Trả empty state + CTA "Thử ảnh khác" |
 | All low confidence | Hiển thị cảnh báo "Kết quả không chắc chắn" + CTA retry |
-| AI timeout (> 60s) | Backend trả lỗi có error.code, mobile hiển thị "Xử lý quá lâu, thử lại" |
+| Quota exceeded | Trả `QUOTA_EXCEEDED`, remaining=0, resetAt; không gọi AI service |
+| Queue full | Trả `AI_QUEUE_FULL`; không trừ quota nếu job chưa nhận |
+| AI timeout (> 60s) | Worker đặt job FAILED, backend trả lỗi có error.code, mobile hiển thị "Xử lý quá lâu, thử lại" |
 | AI service unavailable | Lỗi nghiệp vụ thân thiện + retry |
 | Dictionary miss | Hiển thị label nhưng đánh dấu "Chưa có từ vựng tương ứng" |
 | Upload fail | Không tạo recognition hoàn chỉnh, cho phép thử lại |
@@ -400,7 +405,7 @@ flowchart LR
     D --> E["ReviewLog ghi lại"]
     E --> F["Card SRS update<br>(state/dueAt/stability/difficulty)"]
     F --> G["LearningEvent"]
-    G --> H["Progress aggregate<br>(streak/accuracy/mastered)"]
+    G --> H["Progress aggregate<br>(streak/accuracy/mastered via learning-state map)"]
     H --> I["Mission/XP/Coin/Badge<br>evaluation (M4)"]
     I --> J["Leaderboard update<br>(Redis sorted set)"]
 ```
@@ -428,7 +433,7 @@ System tính Daily Review Queue
   → Card render theo template (tương tự Flashcard)
   → FSRS rating: Again/Hard/Good/Easy
   → ReviewLog ghi + Card update
-  → Recall tốt → interval tăng; Recall kém → interval giảm/đưa về learning
+  → Recall tốt → interval tăng; Recall kém → interval giảm/đưa về LEARNING/RELEARNING theo FSRS
   → Summary khi hết queue
   → Progress cập nhật (streak, accuracy, review count)
 ```
@@ -572,7 +577,7 @@ Tất cả API public/mobile dùng JSON envelope thống nhất:
 | Metric | Target |
 | --- | --- |
 | Dictionary lookup p95 | < 500ms (server, exclude mobile network) |
-| Recognition flow | Timeout 60s (cấu hình được); UX loading/cancel |
+| Recognition flow | Hàng đợi AI + quota scan/ngày; worker timeout 60s (cấu hình được); UX queued/loading/cancel |
 | Leaderboard query | Không full-scan aggregate; Redis sorted set |
 | Home/progress | Summary table/cache, không tính lại toàn bộ lịch sử |
 | Scan-to-save UX | ≤ 3 bước chính sau khi có ảnh |
@@ -862,7 +867,7 @@ com.snapvocab
 
 | # | Rủi ro | Ảnh hưởng | Kiểm soát |
 | --- | --- | --- | --- |
-| 1 | AI service chậm (15–30s) hoặc lỗi | Scan-to-learn gián đoạn | Timeout 60s (cấu hình), retry, error state thân thiện, loading UX, tách service riêng scale GPU |
+| 1 | AI service chậm (15–30s), nghẽn GPU hoặc lỗi | Scan-to-learn gián đoạn | Hàng đợi giới hạn worker/GPU, quota 20 scan/ngày/Learner, timeout 60s (cấu hình), queued/loading UX, tách service riêng scale GPU |
 | 2 | Label AI không khớp dictionary Anh-Việt | Không tạo được từ học | ObjectWordMapping + synonym/manual mapping, dictionary miss state UI |
 | 3 | Dictionary lớn (357K+ từ) | Lookup/import chậm | Index DB, cache từ phổ biến (Redis), import batch với kiểm tra chất lượng |
 | 4 | Reward bị cộng trùng (retry) | Sai coin/XP/leaderboard | Idempotent event key, unique transaction, distributed lock nếu concurrent |
