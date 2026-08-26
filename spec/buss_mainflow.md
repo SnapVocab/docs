@@ -281,16 +281,16 @@
 | 1    | Learner | Mở tab Camera hoặc chức năng upload ảnh.                                                                                 |
 | 2    | Learner | Chụp ảnh mới bằng camera **hoặc** chọn ảnh từ thư viện thiết bị.                                                        |
 | 3    | Mobile  | Validate MIME (ảnh) và kích thước (≤ 10MB) phía client.                                                                  |
-| 4    | Mobile  | Gửi ảnh tới backend. Backend nhận trực tiếp hoặc cấp presigned URL để client upload lên Object Storage.                  |
-| 5    | System  | Backend validate ảnh, kiểm tra quota scan/ngày và trả `QUOTA_EXCEEDED` nếu Learner đã hết lượt.                         |
-| 6    | System  | Backend tạo `ScanRequest`, trừ/ghi nhận lượt scan, đưa job vào hàng đợi và trả `requestId`, `status = QUEUED`, `queuePosition`, `estimatedWaitMs`, `remainingScansToday`. |
-| 7    | Mobile  | Hiển thị trạng thái chờ/xử lý và poll/subscription trạng thái request theo `requestId`.                                |
-| 8    | Worker  | Worker lấy job theo thứ tự hàng đợi, đặt `status = PROCESSING`, gọi FastAPI AI service với ảnh/object key.             |
+| 4    | Mobile  | Gọi API cấp presigned URL và upload ảnh trực tiếp lên Object Storage.                                                                    |
+| 5    | System  | Mobile gọi POST /recognition/scan (truyền objectKey). Backend kiểm tra quota scan/ngày và trả `QUOTA_EXCEEDED` nếu đã hết lượt.         |
+| 6    | System  | Backend tạo `ScanRequest` (trạng thái `PENDING`), trừ lượt scan, đẩy job vào in-process queue và trả `202 Accepted` kèm `requestId`, `status = PENDING`. |
+| 7    | Mobile  | Hiển thị trạng thái chờ và poll định kỳ GET /recognition/results/{requestId} (mỗi 2-3s, timeout giao diện 90s).                          |
+| 8    | System  | Background worker (Spring `@Async` + Bounded Executor) lấy job, đổi trạng thái thành `PROCESSING` và gọi FastAPI AI service.             |
 | 9    | AI      | Pipeline xử lý: Florence-2 (OD + Dense Region + Self-grounding + Tiled OD) → lọc ngôn ngữ (WordNet + từ điển) → CLIP xác thực → SAM cắt nền. |
-| 10   | AI      | Trả danh sách object: `label` (thuộc từ điển), `confidence`, `boundingBox`, `cropUrl` (tùy chọn).                      |
-| 11   | System  | Backend lọc theo ngưỡng confidence (cấu hình được). Gom trùng label (nhiều box cùng label → 1 từ).                     |
+| 10   | AI      | Trả danh sách object: `label` (thuộc từ điển), `detectionSource`, `clipScore`, `boundingBox`, `cropUrl` (tùy chọn).                      |
+| 11   | System  | Backend lọc theo cặp (source, clipScore) (cấu hình được). Gom trùng label (nhiều box cùng label → 1 từ).                     |
 | 12   | System  | Ánh xạ label sang Word trong database (tra cứu trực tiếp + bảng mapping/synonym).                                      |
-| 13   | System  | Cập nhật `ScanRequest = SUCCESS` và trả cho mobile danh sách từ vựng: từ tiếng Anh, nghĩa tiếng Việt, phiên âm, phát âm, metadata nhận diện. |
+| 13   | System  | Cập nhật `ScanRequest = DONE` kèm danh sách từ vựng. Ở lần poll tiếp theo, mobile nhận kết quả này.                                      |
 | 14   | Learner | Xem danh sách đối tượng trên màn hình kết quả. Chọn từ muốn lưu.                                                       |
 | 15   | Learner | Nhấn **Lưu** → chọn Deck hoặc dùng Deck gần nhất/mặc định → tạo Note + Card với `source = SCAN` (xem BF-07).             |
 
@@ -300,12 +300,12 @@
 | ------- | ---------------------------------- | --------------------------------------------------------------------------- |
 | AF-06.1 | Ảnh không hợp lệ (MIME/size)       | Client hoặc server trả lỗi validation, gợi ý chọn ảnh khác.               |
 | AF-06.2 | Không nhận diện được đối tượng     | Trả thông báo "Không nhận diện được vật thể, hãy thử ảnh rõ hơn." + CTA.  |
-| AF-06.3 | Tất cả object dưới ngưỡng confidence | Tương tự AF-06.2, thông báo dễ hiểu.                                     |
+| AF-06.3 | Tất cả object có độ tin cậy thấp (Medium/Low) | Tương tự AF-06.2, thông báo dễ hiểu.                                     |
 | AF-06.4 | Label không map được sang dictionary | Trả kết quả nhận diện, đánh dấu "Chưa có từ vựng tương ứng". Hiển thị nút "Báo từ thiếu" để đẩy nhãn từ này vào Feedback Queue cho Admin (Trace: FR-02.05, FR-13). Learner không thể lưu từ này cho đến khi Admin cập nhật từ điển. |
 | AF-06.5 | Nhiều box cùng label               | Backend gom trùng label → hiển thị 1 từ duy nhất cho mỗi label.           |
 | AF-06.6 | Nút nổi Android (Bubble)          | Learner dùng overlay widget chụp màn hình từ app khác → pipeline tương tự. |
 | AF-06.7 | Hết quota scan trong ngày         | Backend trả `QUOTA_EXCEEDED`, `remainingScansToday = 0`, `resetAt`; mobile hiển thị lượt reset và CTA quay lại học từ đã lưu. |
-| AF-06.8 | Job đang chờ hoặc đang xử lý      | Backend trả `QUEUED`/`PROCESSING` kèm `queuePosition`/`estimatedWaitMs`; mobile tiếp tục hiển thị tiến trình và cho phép hủy. |
+| AF-06.8 | Job đang chờ hoặc đang xử lý      | Backend trả `PENDING`/`PROCESSING`; mobile tiếp tục hiển thị tiến trình (tối đa 90s) và cho phép hủy. |
 
 ### Exception
 
@@ -327,11 +327,11 @@
 ### Business Rules
 
 1. Nhãn từ AI service đã thuộc từ điển (chuỗi lọc ngôn ngữ + cổng từ điển cuối trong pipeline).
-2. Backend giữ thêm ngưỡng confidence cấu hình được làm lớp bảo vệ cuối.
+2. Backend giữ thêm điều kiện lọc bằng cặp (source allowlist, clipScore floor) cấu hình được làm lớp bảo vệ cuối.
 3. Gom trùng label để tránh trả từ vựng lặp.
 4. Quota mặc định 20 scan/ngày/Learner, cấu hình được; ảnh không hợp lệ hoặc hàng đợi từ chối job không trừ lượt.
 5. Recognition phải xử lý qua hàng đợi FIFO hoặc ưu tiên tương đương, giới hạn worker theo GPU (mặc định 1 worker/GPU) để tránh nhiều request đồng thời vượt timeout.
-6. Mobile không giữ kết nối chờ AI vô hạn; dùng `requestId` để theo dõi `QUEUED`/`PROCESSING`/`SUCCESS`/`FAILED`/`CANCELED`.
+6. Mobile không giữ kết nối đồng bộ; dùng `requestId` để poll kết quả với các trạng thái `PENDING`/`PROCESSING`/`DONE`/`FAILED`.
 7. Không tự động lưu kết quả scan nếu Learner chưa xác nhận.
 8. Ảnh scan chỉ lưu nếu cần cho lịch sử/debug, phải tuân thủ quyền riêng tư (bucket private).
 9. Timeout worker→AI cấu hình được (mặc định 60s).

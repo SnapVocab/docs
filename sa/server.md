@@ -14,7 +14,7 @@ Mô tả cách tổ chức, triển khai và vận hành các thành phần serv
 - **Backend API** (Spring Boot) — nghiệp vụ chính, auth, learning, gamification.
 - **AI Service** (FastAPI) — pipeline Florence-2 + SAM + CLIP cho nhận diện vật thể.
 - **Database** (MySQL/MariaDB) — source of truth cho toàn bộ dữ liệu nghiệp vụ.
-- **Cache** (Redis/Redisson) — cache dictionary, leaderboard sorted set, session support.
+- **Cache** (Redis/Redisson) — cache dictionary, leaderboard sorted set (chỉ dùng từ M3/M4).
 - **Object Storage** (Cloudflare R2 / MinIO) — lưu avatar, ảnh scan, ảnh crop, tài nguyên vật phẩm.
 - **Mail Provider** — OTP/email verification, reset password.
 - **API Documentation** (Swagger/OpenAPI) — kiểm thử và tích hợp mobile ↔ backend ↔ AI.
@@ -97,7 +97,7 @@ Expo Dev Client (mobile)
   → MySQL/MariaDB local
   → Redis local
   → MinIO local (S3-compatible storage)
-  → FastAPI AI Service local (GPU hoặc mock inference)
+  → FastAPI AI Service local (mock inference hoặc Fast mode để tránh nghẽn VRAM)
   → SMTP sandbox (Mailtrap / MailHog / Ethereal)
   → Swagger UI: enabled
 ```
@@ -192,26 +192,26 @@ Mobile App Store / APK
 
 ### 4.2 Module và API endpoints
 
-Tên endpoint cụ thể cần đồng bộ với code/API_SPEC khi triển khai. Bảng dưới đây mô tả mapping module → API group theo phân hệ.
+Tên endpoint cụ thể (bao gồm HTTP method, path, request/response payload) vui lòng tham khảo nguồn duy nhất (Single Source of Truth) tại tài liệu `phan_ra_phan_he_he_thong.md`. Bảng dưới đây mô tả mapping module theo phân hệ.
 
-| Module (SS) | Endpoint Group | Mục đích chính | Auth | Milestone |
-| --- | --- | --- | --- | --- |
-| **Identity (SS-03)** | `/auth/*` | Register, login, refresh, OTP, forgot/reset password | Public | M1 |
-| | `/users/me` | Profile view/edit | Learner | M1 |
-| **Dictionary (SS-04)** | `/words/*`, `/dictionary/*` | Search word, word detail, pronunciation, translation | Learner | M1 |
-| **Topic (SS-05)** | `/collections/*`, `/topics/*` | Collections, Topics, TopicItems browse | Learner | M1 |
-| **Storage (SS-16)** | `/storage/*` | Presigned upload, upload complete, access URL | Learner | M1 |
-| **Recognition (SS-06)** | `/recognition/*` | Submit scan image, get detection result | Learner | M2 |
-| **Vocabulary (SS-08)** | `/decks/*`, `/notes/*` | CRUD Deck/Note (personal vocabulary) | Learner | M1–M2 |
-| **Flashcard (SS-09)** | `/flashcards/*`, `/cards/*` | Card session, recall rating, template CRUD | Learner | M1, M3 |
-| **Quiz (SS-10)** | `/quizzes/*` | Quiz setup, play, result, history | Learner | M3 |
-| **SRS (SS-11)** | `/reviews/*`, `/srs/*` | Review queue, submit FSRS rating | Learner | M3 |
-| **Progress (SS-12)** | `/progress/*`, `/stats/*` | Home summary, streak, accuracy, activity history | Learner | M3 |
-| **Gamification (SS-13)** | `/missions/*`, `/badges/*`, `/leaderboards/*`, `/xp/*` | Missions, badges, XP, leaderboard | Learner | M4 |
-| **Shop (SS-14)** | `/shop/*`, `/inventory/*`, `/wallet/*` | Shop browse/buy, inventory, coin balance | Learner | M4 |
-| **Notification (SS-15)** | `/notifications/*` | List/read notifications, device token register | Learner | M3 |
-| **Admin (SS-17)** | `/admin/*` | User mgmt, dict CRUD, topic, template, game config, dashboard | Admin | M4 |
-| **AI Service (SS-07)** | Internal: `POST /api/recognize`, `GET /api/health` | Backend → AI (không qua mobile) | Internal | M2 |
+| Module (SS) | Mục đích chính | Auth | Milestone |
+| --- | --- | --- | --- |
+| **Identity (SS-03)** | Register, login, refresh, OTP, forgot/reset password | Public | M1 |
+| | Profile view/edit | Learner | M1 |
+| **Dictionary (SS-04)** | Search word, word detail, pronunciation, translation | Learner | M1 |
+| **Topic (SS-05)** | Collections, Topics, TopicItems browse | Learner | M1 |
+| **Storage (SS-16)** | Presigned upload, upload complete, access URL | Learner | M1 |
+| **Recognition (SS-06)** | Submit scan image, get detection result | Learner | M2 |
+| **Vocabulary (SS-08)** | CRUD Deck/Note (personal vocabulary) | Learner | M1–M2 |
+| **Flashcard (SS-09)** | Card session, recall rating, template CRUD | Learner | M1, M3 |
+| **Quiz (SS-10)** | Quiz setup, play, result, history | Learner | M3 |
+| **SRS (SS-11)** | Review queue, submit FSRS rating | Learner | M3 |
+| **Progress (SS-12)** | Home summary, streak, accuracy, activity history | Learner | M3 |
+| **Gamification (SS-13)** | Missions, badges, XP, leaderboard | Learner | M4 |
+| **Shop (SS-14)** | Shop browse/buy, inventory, coin balance | Learner | M4 |
+| **Notification (SS-15)** | List/read notifications, device token register | Learner | M3 |
+| **Admin (SS-17)** | User mgmt, dict CRUD, topic, template, game config, dashboard | Admin | M4 |
+| **AI Service (SS-07)** | Backend → AI (Internal: `POST /api/recognize`, `GET /api/health`) | Internal | M2 |
 
 ### 4.3 API response envelope
 
@@ -245,7 +245,7 @@ Error response:
 
 | Nhóm | Biến cấu hình (ví dụ) | Ghi chú |
 | --- | --- | --- |
-| **App** | `APP_ENV`, `APP_BASE_URL`, `API_BASE_PATH` | Theo môi trường (dev/staging/prod) |
+| **App** | `APP_ENV`, `APP_BASE_URL`, `API_BASE_PATH` | Theo môi trường (mặc định `API_BASE_PATH=/api/v1`) |
 | **Database** | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD` | Không commit secret |
 | **Redis** | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` | Password nếu môi trường yêu cầu |
 | **JWT** | `JWT_SECRET`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL` | Secret đủ mạnh, rotate được |
@@ -289,7 +289,7 @@ Input Image (từ backend hoặc URL tạm thời)
   → Xác thực CLIP: sàn 0.23 + biên độ 0.02
   → Xác thực hình học SAM: mask quá nhỏ (< 400px) → loại
   → Cắt nền RGBA (SAM) cho ảnh flashcard
-  → Output: label ∈ dict, confidence (pseudo-score), boundingBox, cropUrl
+  → Output: label ∈ dict, detectionSource, clipScore, boundingBox, cropBase64
   → 1 thẻ / từ (max 1 entry per unique label)
 ```
 
@@ -303,7 +303,8 @@ Input:
 | --- | --- | --- |
 | `requestId` | string | UUID truy vết do backend sinh |
 | `image` | file/multipart hoặc URL | Ảnh gốc hoặc presigned URL tạm thời |
-| `options.confidenceThreshold` | float (optional) | Ngưỡng confidence bổ sung |
+| `options.sourceAllowlist` | string[] (optional) | Danh sách nguồn cho phép |
+| `options.clipScoreFloor` | float (optional) | Ngưỡng điểm xác thực tối thiểu |
 | `options.maxObjects` | int (optional) | Giới hạn số object trả về |
 
 Output:
@@ -313,9 +314,10 @@ Output:
 | `requestId` | string | UUID truy vết |
 | `objects[]` | array | Danh sách detected objects |
 | `objects[].label` | string | Nhãn đã qua chuỗi lọc ngôn ngữ (thuộc từ điển) |
-| `objects[].confidence` | float | Pseudo-score theo nguồn: OD 0.90 > grounding 0.85 > self 0.80 > dense 0.75 > base 0.70 |
+| `objects[].detectionSource` | string | Nguồn phát hiện: `OD`, `GROUNDING`, `SELF`, `DENSE`, `BASE` |
+| `objects[].clipScore` | float | Điểm xác thực CLIP |
 | `objects[].boundingBox` | array[4] | [x1, y1, x2, y2] |
-| `objects[].cropUrl` | string (optional) | URL ảnh cắt nền trong suốt RGBA |
+| `objects[].cropBase64` | string (optional) | Chuỗi base64 ảnh cắt nền trong suốt RGBA |
 | `modelVersion` | string | Phiên bản model (VD: "F2-v13") |
 | `processingTimeMs` | long | Thời gian xử lý (ms) |
 
@@ -346,10 +348,10 @@ Error response:
 | Network | Không public trực tiếp cho mobile; chỉ backend gọi |
 | Auth | Service token nếu chạy trên public network |
 | Input | Giới hạn kích thước ảnh đầu vào (max 10MB) |
-| Timeout | Backend cấu hình timeout (mặc định 60s) — cancel khi quá hạn |
+| Timeout | Backend chờ AI tối đa 60s — đánh dấu FAILED khi quá hạn; Mobile poll timeout sau 90s |
 | Logging | Log requestId, modelVersion, processingTimeMs, object count, errors |
 | Storage | **Không** lưu ảnh lâu dài trong AI service |
-| Scaling | Scale AI service độc lập với backend; GPU T4+ per instance |
+| Scaling | 1 worker/GPU T4; khuyến nghị dùng Spot Instance hoặc Serverless GPU (scale-to-0) |
 | Failover | Backend handle AI unavailable → trả error code thân thiện cho mobile |
 
 ### 5.5 AI configuration
@@ -393,7 +395,7 @@ Error response:
 | **Progress** | `learning_events`, `learning_progress` | SS-12 |
 | **Gamification** | `missions`, `mission_progress`, `badges`, `user_badges`, `experience_logs`, `coin_transactions`, `leaderboard_entries` | SS-13 |
 | **Economy** | `shop_items`, `user_items` | SS-14 |
-| **Media** | `storage_metadata` (object key, owner, MIME, size, type, timestamp) | SS-16 |
+| **Media** | `storage_metadata` (object key, owner, MIME, size, type, state, timestamp) | SS-16 |
 | **Notification** | `notifications`, `device_tokens` | SS-15 |
 
 ### 6.3 Indexing đề xuất
@@ -690,19 +692,20 @@ Mobile ──→ Object Storage: GET presignedUrl (download binary)
 
 ### 12.2 Readiness policy
 
-- Production readiness chỉ báo **ready** khi các dependency bắt buộc hoạt động:
-  - Database ✅
-  - Redis ✅ (nếu module bắt buộc Redis đã bật)
-  - Object storage ✅
-  - AI service ✅ (nếu recognition module bật)
-  - Mail provider ✅ (validate config)
+- Trạng thái **ready** của Backend API được quyết định duy nhất bởi **Hard Dependency**:
+  - Database ✅ (Bắt buộc)
+- Các dịch vụ phụ trợ là **Soft Dependencies**. Lỗi kết nối đến các dịch vụ này sẽ đánh dấu trạng thái *Degraded/Warning* trên health indicator (`/health`) để giám sát, nhưng KHÔNG làm sập readiness:
+  - Redis ⚠️ (Lỗi → degrade gracefully, fallback xuống DB)
+  - Object storage ⚠️ (Lỗi → trả về mã lỗi nghiệp vụ khi upload/download)
+  - AI service ⚠️ (Lỗi → trả về mã lỗi nghiệp vụ thân thiện + cho phép retry)
+  - Mail provider ⚠️ (Lỗi → log cảnh báo, retry gửi mail sau)
 
 ### 12.3 Liveness vs Readiness
 
 | Probe | Ý nghĩa | Dependency check |
 | --- | --- | --- |
 | Liveness | Backend process sống, không bị hang | Không check dependency |
-| Readiness | Backend sẵn sàng nhận request | Check DB, Redis, Storage, AI |
+| Readiness | Backend sẵn sàng nhận request | Chỉ check Database (Hard dependency) |
 
 ---
 
@@ -924,7 +927,7 @@ Schema change
 | 7 | Profile | `GET /users/me` | Trả user info | M1 |
 | 8 | Word search | `GET /words?q=apple` | Trả word detail + translation | M1 |
 | 9 | Avatar upload | Storage upload flow | Presigned upload + complete thành công | M1 |
-| 10 | AI recognition | `POST /recognition/scan` | Ảnh test trả objects (label/confidence) | M2 |
+| 10 | AI recognition | `POST /recognition/scan` | Ảnh test trả objects (label/detectionSource) | M2 |
 | 11 | Save word | `POST /decks/{id}/notes` | Tạo Note + Card thành công | M1-M2 |
 | 12 | Flashcard | Card API | Lấy được cards từ Deck | M1 |
 | 13 | Quiz | Quiz API | Tạo và submit quiz test | M3 |

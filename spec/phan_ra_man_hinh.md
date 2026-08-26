@@ -438,7 +438,7 @@ flowchart TD
 - Ảnh đã scan (có bounding box overlay nếu hỗ trợ)
 - Danh sách detected objects:
     - Object label (từ tiếng Anh)
-    - Confidence badge
+    - Source/Reliability badge (High/Medium/Low)
     - Nghĩa tiếng Việt
     - IPA / nút phát âm
     - Ảnh crop (nếu có cropUrl)
@@ -453,7 +453,7 @@ flowchart TD
 | Tình huống         | UI cần thể hiện                                         |
 | ------------------ | ------------------------------------------------------- |
 | No object detected | "Không nhận diện được vật thể" + CTA "Thử ảnh khác"     |
-| All low confidence | "Kết quả không chắc chắn" + CTA "Thử ảnh rõ hơn"        |
+| All low reliability| "Không tìm thấy vật thể có độ tin cậy cao" + CTA "Thử ảnh rõ hơn"        |
 | Dictionary miss    | Có label nhưng đánh dấu "Chưa có từ vựng tương ứng"     |
 | Queued / processing | "Đang xếp hàng"/"Đang nhận diện" + vị trí/thời gian chờ ước tính + nút hủy |
 | Quota exceeded     | "Bạn đã dùng hết lượt scan hôm nay" + `resetAt` + CTA quay lại học |
@@ -504,7 +504,7 @@ flowchart TD
 
 - **Từ tiếng Anh** (heading lớn)
 - **Phiên âm IPA** (hoặc label "Chưa có phiên âm")
-- **Nút phát âm** 🔊 (audio URL hoặc TTS; nếu thiếu → label "Chưa có")
+- **Nút phát âm** 🔊: nếu `audioUrl` có → phát URL; nếu `audioUrl = null` → TTS on-device (`expo-speech`). Nếu khả năng TTS không khả dụng → label “Chưa có” (ARC-12)
 - **Nghĩa tiếng Việt** — nhóm theo POS nếu nhiều nghĩa:
     - _noun_ — nghĩa 1, nghĩa 2
     - _verb_ — nghĩa 3
@@ -534,15 +534,16 @@ flowchart TD
 
 **UX:** Có thể là overlay/modal trên MH-DICT-01 hoặc màn riêng.
 
-- Microphone animation (recording)
-- Chuyển giọng nói → text tiếng Việt (hiển thị)
-- Dịch → tiếng Anh → tra cứu
+- Nhấn microphone → `expo-speech-recognition` (STT on-device) bắt đầu lắng nghe tiếng Việt
+- Chuyển giọng nói → text tiếng Việt (hiển thị ngay trên UI)
+- Gửi text lên `/words/search` → backend reverse-lookup bảng Translation (tiếng Việt → Word). **Không** gọi STT API hay translate API cloud. (ARC-12)
 - Hiển thị kết quả hoặc redirect MH-DICT-02
 
 **Trạng thái UI:**
 
 - Không nhận diện → "Không nhận diện được, vui lòng thử lại"
 - Microphone permission denied → settings redirect
+- STT không khả dụng trên thiết bị → bướt nút mic và hiển thị tooltip
 
 ---
 
@@ -1047,7 +1048,7 @@ flowchart TD
 - Buttons (primary, secondary, ghost, disabled, loading)
 - Inputs (text, password, OTP, search, error state)
 - Cards (vocabulary card, quiz card, mission card)
-- Badges/chips (state badges, source tags, confidence)
+- Badges/chips (state badges, source tags, reliability badge)
 - Navigation / Tab bar
 - Gamification components: XP bar, Coin badge, Streak flame, Level badge, Progress bar
 - Leaderboard row
@@ -1065,7 +1066,7 @@ flowchart TD
 | **Empty search**     | Dictionary Search            | "Không tìm thấy từ, kiểm tra lại chính tả"              |
 | **Empty review**     | SRS / Home                   | "Bạn đã ôn xong hôm nay! 🎉"                            |
 | **No object**        | Detection Result             | "Không nhận diện được" + CTA "Thử ảnh khác"             |
-| **Low confidence**   | Detection Result             | "Kết quả không chắc chắn" + CTA retry                   |
+| **Low reliability**   | Detection Result             | "Không tìm thấy vật thể có độ tin cậy cao" + CTA retry                   |
 | **Network error**    | Toàn app                     | Illustration + "Không có kết nối" + Retry button        |
 | **Auth expired**     | Toàn app                     | Auto refresh hoặc redirect Login                        |
 | **Permission deny**  | Camera / Gallery / Mic       | Hướng dẫn bật permission trong Settings                 |
@@ -1152,7 +1153,7 @@ flowchart TD
 - [x] MH-TOPIC-01, MH-TOPIC-02 đã bổ sung — duyệt Collection/Topic/TopicItem.
 - [x] MH-VOCAB-02 (Deck Detail) đã bổ sung — quản lý Notes trong Deck.
 - [x] MH-LEARN-06 (Template Management)
-- [x] Detection Result thể hiện đủ states: success, no-object, low-confidence, dictionary miss, AI error.
+- [x] Detection Result thể hiện đủ states: success, no-object, low-reliability, dictionary miss, AI error.
 - [x] Vocabulary screens = Deck/Note/Card, không `SavedWord`/`UserWord`.
 - [x] AI pipeline = Florence-2 + SAM + CLIP, không YOLO.
 - [x] SRS = FSRS trên Card.

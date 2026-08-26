@@ -67,13 +67,15 @@ SnapVocab sử dụng kiến trúc mobile-first cho Learner, web admin riêng ch
 | **Expo Router** | File-based routing/navigation | Phù hợp app nhiều tab/nested: auth, learn, camera, profile |
 | **Axios** (hoặc tương đương) | HTTP client | Gắn JWT interceptor, xử lý refresh token, error handling |
 | **TanStack Query** (React Query) | Server state/cache | Cache API data: words, progress, leaderboard; background refetch |
-| **Zustand** / **MMKV** | Client state/persistence | UI state, preferences, offline cache nhẹ; secret/token ưu tiên SecureStore |
+| **Zustand** / **MMKV** | Client state/persistence | UI state, preferences, queue rating offline & sync batch; secret ưu tiên SecureStore |
 | **Zod** | Form/input validation | Auth forms, profile, quiz, search validation |
 | **Expo SecureStore** | Secure token storage | Lưu refresh token/secret nhỏ trong Keychain/Keystore thay vì plain storage |
 | **Expo Local Authentication** | Biometric unlock | Mở khóa nhanh bằng vân tay/Face ID sau khi đã login; không gửi biometric data lên backend |
 | **React Native MMKV** | Local persistence hiệu năng cao | Preferences, cache nhẹ; không dùng cho secret nếu chưa mã hóa/thiết kế rõ |
 | **Expo Image Picker** | Chọn ảnh từ thư viện | Gallery picker cho recognition flow |
 | **Expo Camera** | Camera capture | Chụp ảnh trực tiếp cho scan-to-learn |
+| **expo-speech** | TTS on-device | Phát âm từ vựng khi `Pronunciation.audioUrl = null` — fallback không cần server; xem ARC-12 |
+| **expo-speech-recognition** | STT on-device (Voice Search) | Capture giọng nói tiếng Việt → text → gửi lên `/words/search` reverse-lookup bảng Translation; xem ARC-12 |
 | **i18n** (optional) | Đa ngôn ngữ UI | UI tiếng Việt chính, có thể mở rộng |
 
 ### 2.2 Cấu trúc module mobile
@@ -163,6 +165,8 @@ API Client Layer:
 | TanStack Query | Phù hợp dữ liệu remote: words, progress, leaderboard — cache, background refetch, pagination |
 | Zustand + MMKV | Client state nhẹ; MMKV nhanh hơn AsyncStorage cho preferences/cache; secret ưu tiên SecureStore |
 | Expo SecureStore + Local Authentication | Cho phép biometric unlock thuận tiện mà không biến vân tay/Face ID thành credential backend |
+| expo-speech (TTS) | Dataset minhqnd/dictionary hầu như không có file audio; `audioUrl` nullable; TTS on-device không phát sinh thêm cost/API/server; xem ARC-12 |
+| expo-speech-recognition (STT) | Voice Search on-device: không cần STT API cloud, không phát sinh credential/billing; text kết quả gửi thẳng lên `/words/search`; xem ARC-12 |
 
 ---
 
@@ -196,12 +200,12 @@ Web Admin CMS là frontend riêng dành cho `ROLE_ADMIN`, chạy trên browser v
 | **User Management** | Danh sách user, xem hồ sơ, khóa/mở khóa, reset trạng thái cần thiết | Admin User API | M4 |
 | **Dictionary CMS** | Tìm kiếm, xem/sửa word, definition, translation, pronunciation | Dictionary/Admin API | M4 |
 | **Topic CMS** | Quản lý collection/topic/topic item/attributes | Topic/Admin API | M4 |
-| **Object Mapping** | Mapping AI label/synonym → Word, xử lý dictionary miss | Recognition/Dictionary Admin API | M4 |
-| **Learning Content** | Card template, quiz template/rule cơ bản | Flashcard/Quiz Admin API | M4 |
+| **Object Mapping** | Mapping AI label/synonym → Word, xử lý dictionary miss | Recognition/Dictionary Admin API | M4 (Ngoài MVP) |
+| **Learning Content** | Card template, quiz template/rule cơ bản | Flashcard/Quiz Admin API | M4 (Ngoài MVP) |
 | **Gamification CMS** | Mission, badge, shop item, item asset | Gamification/Economy/Storage Admin API | M4 |
-| **Notification CMS** | Gửi/thử nghiệm thông báo, xem log gửi | Notification Admin API | M4 |
-| **Storage Management** | Xem metadata media, cleanup orphan, kiểm tra upload lỗi | Storage Admin API | M4 |
-| **Audit/Logs** | Tra cứu hành động admin và lỗi hệ thống cơ bản | Admin Audit/Observability API | M4 |
+| **Notification CMS** | Gửi/thử nghiệm thông báo, xem log gửi | Notification Admin API | M4 (Ngoài MVP) |
+| **Storage Management** | Xem metadata media, cleanup orphan, kiểm tra upload lỗi | Storage Admin API | M4 (Ngoài MVP) |
+| **Audit/Logs** | Tra cứu hành động admin và lỗi hệ thống cơ bản | Admin Audit/Observability API | M4 (Ngoài MVP) |
 
 ### 3.3 Routing architecture
 
@@ -220,17 +224,17 @@ Admin App Root
     │   ├── collections
     │   └── items/[topicItemId]
     ├── recognition
-    │   └── object-mappings
+    │   └── object-mappings (ngoài MVP)
     ├── learning
     │   ├── card-templates
-    │   └── quiz-rules
+    │   └── quiz-rules (ngoài MVP)
     ├── gamification
     │   ├── missions
     │   ├── badges
     │   └── shop-items
-    ├── notifications
-    ├── storage
-    └── audit-logs
+    ├── notifications (ngoài MVP)
+    ├── storage (ngoài MVP)
+    └── audit-logs (ngoài MVP)
 ```
 
 ### 3.4 Admin API client pattern
@@ -244,7 +248,6 @@ Admin API Client Layer:
   │   ├── useAdminUsers()                ← User list/detail/actions
   │   ├── useAdminWords()                ← Dictionary CMS
   │   ├── useAdminTopics()               ← Topic CMS
-  │   ├── useAdminObjectMappings()       ← AI label mapping
   │   ├── useAdminMissions()             ← Gamification CMS
   │   └── useAdminDashboardStats()       ← Dashboard aggregates
   └── Form schemas                       ← React Hook Form + Zod per create/update DTO
@@ -254,9 +257,8 @@ Admin API Client Layer:
 
 1. Tất cả route admin phải yêu cầu `ROLE_ADMIN`; frontend guard chỉ để UX, backend guard là bắt buộc.
 2. Không lưu JWT trong `localStorage` nếu có thể tránh; ưu tiên httpOnly cookie hoặc access token ngắn hạn trong memory + refresh token được bảo vệ.
-3. Admin action quan trọng cần audit log: khóa user, sửa dictionary/topic, sửa mission/shop item, cleanup storage.
-4. Form CMS phải validate ở cả frontend (Zod) và backend (`@Valid`).
-5. Dashboard/log không hiển thị secret, token, OTP hoặc thông tin nhạy cảm.
+3. Form CMS phải validate ở cả frontend (Zod) và backend (`@Valid`).
+4. Dashboard/log không hiển thị secret, token, OTP hoặc thông tin nhạy cảm.
 6. Production admin nên giới hạn origin/domain, bật HTTPS, CSRF protection nếu dùng cookie.
 
 ### 3.6 Lý do chọn
@@ -296,7 +298,7 @@ Admin API Client Layer:
 | **Identity** | `com.snapvocab.identity` | SS-03 | Spring Security, JWT, Mail/OTP | M1 |
 | **Dictionary** | `com.snapvocab.dictionary` | SS-04 | JPA repositories, indexed queries, Redis cache | M1 |
 | **Topic** | `com.snapvocab.topic` | SS-05 | JPA, EAV model (Collection/Topic/TopicItem) | M1 |
-| **Recognition** | `com.snapvocab.recognition` | SS-06 | HTTP client → FastAPI, ConfidenceFilter, LabelDedup | M2 |
+| **Recognition** | `com.snapvocab.recognition` | SS-06 | Spring @Async queue, HTTP client → FastAPI, RecognitionFilter, LabelDedup | M2 |
 | **Vocabulary** | `com.snapvocab.vocabulary` | SS-08 | JPA transaction, Deck/Note CRUD | M1–M2 |
 | **Flashcard** | `com.snapvocab.flashcard` | SS-09 | CardService, StudySessionService, FsrsService, CardTemplateService | M1, M3 |
 | **Quiz** | `com.snapvocab.quiz` | SS-10 | Quiz generation, scoring, idempotent submit | M3 |
@@ -488,6 +490,7 @@ Security Layer
 2. Key prefix theo môi trường: `snapvocab:{env}:{module}:{key}`.
 3. TTL rõ ràng cho mọi cache tạm thời.
 4. Redis unavailable → backend degrade gracefully (query DB trực tiếp), không crash.
+5. Redis chỉ bắt buộc từ Milestone 3/4 (Leaderboard, Rate limiting, Gamification). Trong M1/M2, hệ thống hoàn toàn có thể chạy không cần Redis nhờ DB index cho tra cứu từ điển.
 5. Cache tạm thời phải có TTL; không cache vĩnh viễn.
 
 ---
@@ -501,7 +504,7 @@ Security Layer
 | **Python 3.10+** | Runtime | Ecosystem ML/AI phong phú |
 | **FastAPI** | HTTP API framework | Async, OpenAPI tự động, lightweight |
 | **Uvicorn** | ASGI server (dev) | Hot-reload cho development |
-| **Gunicorn + Uvicorn** | Production server | Multi-worker cho throughput |
+| **Gunicorn + Uvicorn** | Production server | 1 worker/GPU (giới hạn VRAM, concurrency=1) |
 | **Florence-2-large** | Object detection model | Open-vocabulary, multi-task VLM (F2-v13) |
 | **SAM (ViT-H)** | Segment Anything Model | Cắt nền RGBA cho flashcard + xác thực hình học |
 | **CLIP (ViT-B/32)** | Vision-language matching | Xác thực ngữ nghĩa label ↔ crop image |
@@ -541,25 +544,26 @@ Input Image
   │
   └── Output
       ├── label ∈ dict (đã qua chuỗi lọc)
-      ├── confidence (pseudo-score theo nguồn phát hiện)
+      ├── detectionSource (nguồn phát hiện vật thể: OD, GROUNDING, SELF...)
+      ├── clipScore (điểm xác thực ngữ nghĩa, float)
       ├── boundingBox [x1, y1, x2, y2]
-      ├── cropUrl (ảnh RGBA cắt nền)
+      ├── cropBase64 (chuỗi base64 ảnh RGBA cắt nền)
       └── 1 entry / unique label (gom trùng)
 ```
 
-### 8.3 Confidence scoring
+### 8.3 Độ tin cậy (Reliability Scoring)
 
-Florence-2 sinh chuỗi văn bản nên **không** có xác suất thật cho từng box. Hệ thống gán **pseudo-score** theo nguồn phát hiện:
+Florence-2 sinh chuỗi văn bản nên **không** có xác suất thật cho từng box. Để phản ánh đúng bản chất, hệ thống bóc tách độ tin cậy thành 2 trường:
 
-| Nguồn | Pseudo-score | Ý nghĩa |
-| --- | --- | --- |
-| `<OD>` (standard OD) | 0.90 | Tin cậy cao nhất |
-| Phrase grounding | 0.85 | Từ prompt-based grounding |
-| Self-grounding | 0.80 | Từ self-description |
-| Dense region caption | 0.75 | Từ region description |
-| Base fallback | 0.70 | Các nguồn khác |
+1. **`detectionSource`**: Nguồn sinh ra nhãn phát hiện:
+   - `OD` (standard OD): Độ tin cậy cao nhất (High)
+   - `GROUNDING` (prompt-based grounding): Độ tin cậy cao (High)
+   - `SELF` (self-description): Độ tin cậy trung bình (Medium)
+   - `DENSE` (region description): Độ tin cậy thấp (Low)
+   - `BASE` (fallback): Độ tin cậy cực thấp (Low)
+2. **`clipScore`**: Điểm số Cosine Similarity thực sự khi bật xác thực CLIP toàn phần (ví dụ: `0.28`).
 
-Khi bật xác thực CLIP toàn phần, có thể thay pseudo-score bằng **điểm CLIP thật** (cosine similarity).
+Backend sử dụng kết hợp `(sourceAllowlist, clipScoreFloor)` để làm lớp lọc cuối cùng. Mobile UI sử dụng `detectionSource` để map ra các thẻ màu High/Medium/Low.
 
 ### 8.4 Hiệu năng
 
@@ -568,7 +572,7 @@ Khi bật xác thực CLIP toàn phần, có thể thay pseudo-score bằng **đ
 | COCO128 box-F1 | 0.646 | Đánh giá theo IoU ≥ 0.5 |
 | COCO128 word-F1 | 0.825 | Đánh giá theo word match (sát mục tiêu sản phẩm) |
 | Internet-50 word-precision | 0.885 | Ảnh thực tế từ internet |
-| Inference time | ~15–30s/ảnh (full mode) | GPU T4; tiled OD + SAM + CLIP |
+| Inference time | ~15–30s (full mode), <10s (fast mode) | GPU T4; fast mode bỏ Tiled OD và SAM |
 | Hardware | GPU T4 trở lên | CUDA required |
 
 ### 8.5 Contract với backend
@@ -576,8 +580,8 @@ Khi bật xác thực CLIP toàn phần, có thể thay pseudo-score bằng **đ
 | Thuộc tính | Mô tả |
 | --- | --- |
 | Giao thức | HTTP nội bộ (backend → AI service) |
-| Input | `requestId`, ảnh (file/URL), options (confidence, maxObjects) |
-| Output | `requestId`, `objects[]` (label, confidence, bbox, cropUrl), `modelVersion`, `processingTimeMs` |
+| Input | `requestId`, ảnh (file/URL), options (`sourceAllowlist`, `clipScoreFloor`, maxObjects) |
+| Output | `requestId`, `objects[]` (label, detectionSource, clipScore, bbox, cropBase64), `modelVersion`, `processingTimeMs` |
 | Error | Structured error: `INVALID_IMAGE`, `NO_OBJECT`, `MODEL_ERROR`, `TIMEOUT` |
 | Timeout | Backend cấu hình (mặc định 60s) |
 | Logging | requestId, processingTimeMs, object count, errors |
@@ -694,7 +698,7 @@ Khi bật xác thực CLIP toàn phần, có thể thay pseudo-score bằng **đ
 | **Buttons** | Primary, secondary, ghost, disabled, loading |
 | **Inputs** | Text, password, OTP (digit), search, error state |
 | **Cards** | Vocabulary card, quiz card, mission card, topic card |
-| **Badges/Chips** | Learning state badge (new/learning/reviewing/mastered suy từ FSRS + interval), source tag (SCAN/DICT/TOPIC), confidence badge |
+| **Badges/Chips** | Learning state badge (new/learning/reviewing/mastered suy từ FSRS + interval), source tag (SCAN/DICT/TOPIC), reliability badge |
 | **Navigation** | Tab bar, header, back button |
 | **Gamification** | XP bar, Coin badge, Streak flame, Level badge, Progress bar, Mission progress |
 | **Leaderboard** | Leaderboard row, rank indicator, avatar |
@@ -721,6 +725,8 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 | Mobile biometric | `expo-local-authentication` | Mobile | Vân tay/Face ID để mở khóa app hoặc xác nhận thao tác nhạy cảm sau login |
 | Mobile secure storage | `expo-secure-store` | Mobile | Lưu refresh token/secret nhỏ trong Keychain/Keystore |
 | Mobile camera/media | `expo-camera`, `expo-image-picker`, `expo-image-manipulator` | Mobile | Chụp/chọn/nén ảnh trước khi upload recognition |
+| Mobile TTS | `expo-speech` | Mobile | Phát âm từ vựng on-device khi `audioUrl = null`; fallback cho AUDIO field trong flashcard/word detail; xem ARC-12 |
+| Mobile STT (Voice Search) | `expo-speech-recognition` | Mobile | Capture giọng nói tiếng Việt → text → gửi `/words/search` reverse-lookup; không cần STT cloud API; xem ARC-12 |
 | Mobile state/cache | `@tanstack/react-query`, `zustand`, `react-native-mmkv` | Mobile | Server state, client preferences, cache nhẹ |
 | Mobile form/schema | `react-hook-form`, `zod` | Mobile/Web | Form validation thống nhất, giảm lỗi request DTO |
 | Mobile UI utility | `react-native-reanimated`, `react-native-gesture-handler`, `lucide-react-native` | Mobile | Animation, gesture, icon |
@@ -777,8 +783,8 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 | 7 | Avatar upload (presigned) → Upload complete → Profile update | Storage, Identity | High |
 | 8 | Topic browse → Save from topic → Note created | Topic, Vocabulary | Medium |
 | 9 | Reward idempotency (retry claim → no duplicate XP/coin) | Gamification | High |
-| 10 | No-object / low-confidence / AI timeout → error state | Recognition, AI | High |
-| 11 | Admin login → dashboard → dictionary/topic edit → audit log | Web Admin, Identity, Dictionary/Topic | High |
+| 10 | No-object / low-reliability / AI timeout → error state | Recognition, AI | High |
+| 11 | Admin login → dashboard → dictionary/topic edit | Web Admin, Identity, Dictionary/Topic | High |
 | 12 | Biometric unlock enabled → app restart → local auth success/fail → token access policy | Mobile, Identity | High |
 
 ### 13.3 Lý do chọn
@@ -880,7 +886,7 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 | --- | --- |
 | API request | `requestId`, method, path, status, latency, userId |
 | Auth | Login fail/success, OTP fail/expire, refresh fail, registration, biometric unlock enable/disable event (không log biometric data) |
-| Admin | Admin login/logout, forbidden access, user lock/unlock, dictionary/topic/gamification changes, audit actor/action/target |
+| Admin | Admin login/logout, forbidden access, user lock/unlock, dictionary/topic/gamification changes |
 | Recognition | `requestId`, image metadata, modelVersion, processingTimeMs, object count, errors |
 | Storage | upload-init, upload-complete, validation fail, orphan cleanup |
 | Dictionary | Lookup latency, not-found rate, import job result |
@@ -918,7 +924,7 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 
 | Milestone | Stack trọng tâm |
 | --- | --- |
-| **M1 — Core Auth & Vocabulary** | React Native/Expo, Expo SecureStore, Spring Boot, Spring Security/JWT, MySQL/MariaDB (dictionary import 357K+), MinIO/S3 (avatar), Redis (cache), Spring Mail (OTP), Swagger |
+| **M1 — Core Auth & Vocabulary** | React Native/Expo, Expo SecureStore, Spring Boot, Spring Security/JWT, MySQL/MariaDB (dictionary import 357K+), MinIO/S3 (avatar), Spring Mail (OTP), Swagger |
 | **M2 — Camera/Recognition** | Expo Camera/Image Picker/Image Manipulator, Storage scan image, FastAPI + Florence-2 + SAM + CLIP (GPU T4), Recognition API, ObjectWordMapping |
 | **M3 — Learning Engine** | Flashcard/Quiz/SRS backend services, CardTemplate, Progress aggregate, Notification (Expo Push/FCM), TanStack Query learning screens, biometric unlock optional, tests SRS/quiz |
 | **M4 — Gamification & Admin Production** | Redis leaderboard sorted set, Mission/Badge/Coin/Shop services, Next.js Admin CMS, shadcn/ui, TanStack Table, Playwright smoke, Cloudflare R2 production, Observability hardening, CI/CD |

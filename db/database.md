@@ -1,17 +1,19 @@
 # Database Schema
 
-Tài liệu này mô tả kiến trúc cơ sở dữ liệu của hệ thống SnapVocab, được tổng hợp từ Domain (Backend), schema `crawler.db` và các thiết kế mới trong thư mục `decisions` (`custom_card.md`, `daily_mission.md`).
+Tài liệu này mô tả kiến trúc cơ sở dữ liệu của hệ thống SnapVocab.
 
 ## Quy chuẩn thiết kế (Conventions)
 
 Để đảm bảo tính đồng nhất trên mọi môi trường và công cụ ORM (Hibernate), dự án áp dụng các quy ước cơ sở dữ liệu sau:
 
 ### 1. Encoding & Collation
+
 - **Charset:** `utf8mb4` (hỗ trợ đầy đủ Unicode, emoji, đa ngôn ngữ).
 - **Collation:** `utf8mb4_0900_ai_ci` hoặc `utf8mb4_unicode_ci` cho tất cả các bảng.
 
 ### 2. Naming Convention
-- **Vật lý (RDBMS):** Bắt buộc sử dụng `snake_case` số nhiều cho tên bảng (ví dụ: `users`, `card_templates`) và `snake_case` cho tên cột (`card_id`, `created_at`). 
+
+- **Vật lý (RDBMS):** Bắt buộc sử dụng `snake_case` số nhiều cho tên bảng (ví dụ: `users`, `card_templates`) và `snake_case` cho tên cột (`card_id`, `created_at`).
 - **Tài liệu:** Tài liệu bên dưới sử dụng tên Entity (PascalCase/camelCase) hoặc tên bảng có sẵn để dễ ánh xạ với Class trong Spring Boot, nhưng khi DDL/Migration phải tuân thủ nghiêm ngặt chuẩn `snake_case`.
 
 ### 3. Data Types & Length

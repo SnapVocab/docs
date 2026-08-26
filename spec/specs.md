@@ -119,7 +119,7 @@ Done criteria:
 3. Backend ánh xạ được ít nhất một nhãn phổ biến sang từ vựng trong database.
 4. Mobile hiển thị kết quả nhận diện kèm thông tin từ vựng học tập.
 5. Learner lưu được từ sinh ra từ ảnh vào danh sách học cá nhân.
-6. Trường hợp không nhận diện được hoặc confidence thấp được xử lý bằng thông báo rõ ràng, không làm app crash.
+6. Trường hợp không nhận diện được hoặc toàn bộ vật thể có độ tin cậy thấp (Medium/Low source) được xử lý bằng thông báo rõ ràng, không làm app crash.
 
 #### Milestone 3 — Learning Engine
 
@@ -193,7 +193,7 @@ Business rules:
 | Backend API       | Java Spring Boot REST API                                  | Xử lý nghiệp vụ, xác thực, quản lý user/word/learning/gamification, tích hợp storage và AI service                                  |
 | Authentication    | Spring Security + JWT + Refresh Token                      | Bảo vệ API, phân quyền actor, quản lý phiên đăng nhập                                                                               |
 | Database          | MySQL/MariaDB + JPA/Hibernate                              | Lưu user, từ vựng, nghĩa, phiên âm, tiến độ, reward và cấu hình nghiệp vụ                                                           |
-| Cache             | Redis/Redisson                                             | Cache dữ liệu truy cập thường xuyên, leaderboard, điểm kinh nghiệm, session/distributed state nếu cần                               |
+| Cache             | Redis/Redisson                                             | Cache dữ liệu truy cập thường xuyên, leaderboard, điểm kinh nghiệm (không dùng cho session)                               |
 | Object Storage    | Cloudflare R2 hoặc S3-compatible storage/MinIO             | Lưu ảnh scan, avatar và tài nguyên vật phẩm                                                                                         |
 | AI Service        | Python FastAPI + Florence-2-large (zero-shot) + SAM + CLIP | Nhận ảnh, chạy pipeline nhận diện từ vựng mở, trả nhãn (bảo đảm thuộc từ điển), điểm tin cậy, bounding box và ảnh cắt nền flashcard |
 | Dictionary Source | SQLite/minhqnd dictionary import                           | Cung cấp dữ liệu từ vựng Anh-Việt, định nghĩa, phiên âm, bản dịch                                                                   |
@@ -206,8 +206,8 @@ Business rules:
 2. Learner chụp ảnh mới hoặc chọn ảnh từ thư viện.
 3. Mobile gửi ảnh tới backend; backend có thể nhận trực tiếp file hoặc cấp presigned upload URL để client upload lên object storage.
 4. Backend lưu metadata ảnh nếu cần và gọi FastAPI AI service.
-5. AI service chạy pipeline Florence-2 (đề xuất vật thể qua tác vụ `<OD>` + mô tả vùng, mở rộng độ phủ bằng tiled OD và self-grounding), lọc nhãn qua chuỗi kiểm tra ngôn ngữ (từ điển + danh từ chỉ vật cụ thể), xác thực bằng CLIP, cắt nền bằng SAM, và trả về danh sách đối tượng gồm `label`, `confidence`, `boundingBox`, `cropUrl` (mỗi từ tối đa một thẻ).
-6. Backend lọc kết quả theo ngưỡng confidence, chuẩn hóa label và ánh xạ sang từ vựng trong database.
+5. AI service chạy pipeline Florence-2 (đề xuất vật thể qua tác vụ `<OD>` + mô tả vùng, mở rộng độ phủ bằng tiled OD và self-grounding), lọc nhãn qua chuỗi kiểm tra ngôn ngữ (từ điển + danh từ chỉ vật cụ thể), xác thực bằng CLIP, cắt nền bằng SAM, và trả về danh sách đối tượng gồm `label`, `detectionSource`, `clipScore`, `boundingBox`, `cropUrl` (mỗi từ tối đa một thẻ).
+6. Backend lọc kết quả theo cặp nguồn phát hiện (detectionSource) và điểm xác thực (clipScore), chuẩn hóa label và ánh xạ sang từ vựng trong database.
 7. Backend trả cho mobile danh sách từ vựng gồm từ tiếng Anh, nghĩa tiếng Việt, phiên âm, phát âm và metadata nhận diện.
 8. Learner chọn từ muốn lưu vào danh sách học cá nhân.
 9. Flashcard, quiz và SRS sử dụng danh sách từ đã lưu để tạo hoạt động học và ôn tập.
@@ -255,10 +255,10 @@ Business rules:
 | FR-02.02 | Tải ảnh lên              | Learner chọn ảnh từ thư viện thiết bị                                                                                                                        | Must    |
 | FR-02.03 | Nút nổi quét màn hình    | (Chỉ Android) Lớp phủ nút nổi để chụp và quét màn hình tự động khi đang dùng app khác                                                                        | Could   |
 | FR-02.04 | Gửi ảnh xử lý            | Mobile gửi ảnh tới backend/AI pipeline theo flow đã cấu hình                                                                                                 | Must    |
-| FR-02.05 | Nhận diện đối tượng      | AI service trả danh sách object label, confidence, bounding box                                                                                              | Must    |
-| FR-02.06 | Lọc confidence           | Việc lọc theo ngưỡng chủ yếu diễn ra trong AI service (ngưỡng CLIP + biên độ — xem Phụ lục A); backend giữ thêm một ngưỡng cấu hình được như lớp bảo vệ cuối | Must    |
+| FR-02.05 | Nhận diện đối tượng      | AI service trả danh sách object label, detectionSource, clipScore, bounding box                                                                                              | Must    |
+| FR-02.06 | Lọc độ tin cậy           | Lọc trong AI service (ngưỡng CLIP + biên độ); backend lọc thêm dựa trên cặp (source allowlist, clipScore floor) làm lớp bảo vệ cuối | Must    |
 | FR-02.07 | Xử lý nhiều đối tượng    | Mobile hiển thị nhiều object để Learner chọn/lưu từng từ                                                                                                     | Should  |
-| FR-02.08 | No-object/low-confidence | Hệ thống trả thông báo dễ hiểu và gợi ý thử ảnh khác                                                                                                         | Must    |
+| FR-02.08 | No-object/low-reliability| Hệ thống trả thông báo dễ hiểu và gợi ý thử ảnh khác                                                                                                         | Must    |
 | FR-02.09 | Lưu kết quả scan         | Learner lưu từ được phát hiện vào danh sách học cá nhân                                                                                                      | Must    |
 | FR-02.10 | Quota scan hằng ngày     | Mỗi Learner có giới hạn lượt scan/ngày cấu hình được; API trả số lượt còn lại và lỗi `QUOTA_EXCEEDED` khi hết lượt                                          | Must    |
 | FR-02.11 | Hàng đợi xử lý AI        | Recognition request được đưa vào hàng đợi; backend trả trạng thái `QUEUED`/`PROCESSING` kèm vị trí ước tính thay vì giữ client treo                         | Must    |
@@ -531,7 +531,7 @@ Business rules:
 | NoteMeaning                       | Nghĩa/POS/example/ghi chú gắn Note                           | Đã có                                        |
 | NotePronunciation                 | IPA/audio gắn Note                                           | Đã có                                        |
 | Card                              | Thẻ học + tham số SRS (state, dueAt, stability, difficulty…) | Đã có; 1 Note → 1 Card theo template Deck    |
-| ReviewLog                         | Lịch sử từng lượt ôn (rating, time)                          | Đã có                                        |
+| ReviewLog                         | Lịch sử từng lượt ôn (rating, time)                          | Đã có                                      |
 | CardTemplate                      | Layout system/custom, interaction type                       | **Entity đầy đủ M3**; M1 seed 1 bản ghi CLASSIC hard-code, không có CRUD/UI — xem custom_card |
 | CardTemplateField                 | Field mapping front/back                                     | **Entity đầy đủ M3** (đi kèm CardTemplate CRUD)              |
 | Quiz / QuizQuestion / QuizAttempt | Kiểm tra từ trong Deck/Note                                  | Dự kiến M3                                   |
@@ -540,13 +540,9 @@ Business rules:
 
 ### 6.3 Nhóm dữ liệu cần cho nhận diện ảnh
 
-| Entity đề xuất          | Mục đích                                                                                                                             |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| ImageRecognitionRequest | Lưu request xử lý ảnh, user, object key, trạng thái xử lý                                                                            |
-| RecognitionResult       | Kết quả tổng thể của một lần nhận diện                                                                                               |
-| DetectedObject          | Label, confidence, bounding box cho từng đối tượng                                                                                   |
-| ObjectWordMapping       | Mapping từ nhãn AI pipeline sang Word trong dictionary (nhãn đã thuộc từ điển tiếng Anh; bảng này xử lý ánh xạ sang mục từ Anh-Việt) |
-| ScanHistory             | Lịch sử scan của Learner nếu sản phẩm cần hiển thị lại                                                                               |
+| `ScanRequest`           | Lưu request xử lý ảnh, user, object key, trạng thái, và thời gian xử lý (gộp ImageRecognitionRequest, RecognitionResult, ScanHistory) |
+| `DetectedObject`        | Label, detectionSource, clipScore, bounding box, cropUrl cho từng đối tượng                                                           |
+| `ObjectWordMapping`     | Mapping từ nhãn AI pipeline sang Word trong dictionary (nhãn đã thuộc từ điển tiếng Anh; bảng này xử lý ánh xạ sang mục từ Anh-Việt)  |
 
 ### 6.4 Nhóm dữ liệu cần cho gamification
 
@@ -648,7 +644,7 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | 8   | Recognition Quota       | Quota scan/ngày mặc định 20/Learner, cấu hình được; hết lượt trả `QUOTA_EXCEEDED`; job bị từ chối do queue full không trừ lượt |
 | 9   | Dictionary Performance  | Lookup word phổ biến p95 < 500ms (server, exclude mobile network); cache Redis top words khi cần                 |
 | 10  | Leaderboard Performance | Không full-scan aggregate mỗi request; Redis sorted set hoặc snapshot cache TTL rõ                               |
-| 11  | Reliability             | AI lỗi / no-object / low-confidence / upload fail / dictionary miss → error có `code` + message, app không crash |
+| 11  | Reliability             | AI lỗi / no-object / low-reliability / upload fail / dictionary miss → error có `code` + message, app không crash |
 | 12  | Scalability             | Tách mobile, backend, AI, DB, Redis, object storage scale độc lập                                                |
 | 13  | API Standard            | REST + JSON envelope thống nhất (`success/data/error/requestId`); OpenAPI cho endpoint public                    |
 | 14  | Mobile UX               | Scan-to-save ≤ 3 bước chính sau khi có ảnh; empty/error/loading có CTA rõ                                        |
@@ -690,7 +686,7 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | 7   | Learner chụp/chọn ảnh, gửi xử lý, thấy `QUEUED`/`PROCESSING` khi phải chờ và nhận object từ AI (Florence-2 pipeline). |
 | 8   | Backend kiểm tra quota scan/ngày, trả lượt còn lại/resetAt và không gọi AI khi `QUOTA_EXCEEDED`.          |
 | 9   | Backend ánh xạ label sang Word dictionary và trả word detail cho mobile.                                  |
-| 10  | No-object / low-confidence / AI lỗi / queue full trả `error.code` rõ, app không crash.                    |
+| 10  | No-object / low-reliability / AI lỗi / queue full trả `error.code` rõ, app không crash.                    |
 | 11  | Learner lưu được từ từ ảnh thành Note/Card trong Deck.                                                    |
 | 12  | Learner làm quiz từ Note/Deck và xem điểm/đúng-sai.                                                       |
 | 13  | Daily review queue lấy Card `dueAt` đến hạn; rating cập nhật lịch ôn.                                     |
@@ -747,7 +743,7 @@ Các định nghĩa dưới đây giải thích thuật ngữ theo đúng cách 
 | **Zero-shot**                       | Dùng mô hình pretrained trực tiếp, không huấn luyện lại trên dữ liệu của bài toán. Toàn bộ MVP chạy zero-shot.                                                                                                                                                                                                                                                                |
 | **Florence-2**                      | Mô hình thị giác–ngôn ngữ của Microsoft, sinh nhãn dưới dạng chuỗi văn bản; một mô hình thực hiện nhiều tác vụ qua prompt: `<OD>` (phát hiện vật thể), `<DENSE_REGION_CAPTION>` (mô tả từng vùng), `<CAPTION_TO_PHRASE_GROUNDING>` (định vị cụm từ trong ảnh).                                                                                                                |
 | **Bounding box**                    | Khung chữ nhật [x1, y1, x2, y2] bao quanh vật thể trong ảnh — đầu ra định vị của bộ phát hiện.                                                                                                                                                                                                                                                                                |
-| **Confidence / Pseudo-score**       | Điểm tin cậy của một phát hiện. Lưu ý riêng của dự án: Florence-2 sinh chuỗi nên không có xác suất thật cho từng box; hệ gán điểm giả (pseudo-score) theo nguồn phát hiện (`<OD>` 0,90 > grounding 0,85 > self 0,80 > dense 0,75 > base 0,70) để xếp hạng, và có thể thay bằng điểm CLIP thật khi bật xác thực.                                                               |
+| **Detection Source / Clip Score**   | Điểm tin cậy được bóc tách thành `detectionSource` (nguồn phát hiện từ AI pipeline như `<OD>`, `GROUNDING`) và `clipScore` (điểm xác thực CLIP nếu bật). UI phân loại High/Medium/Low theo nguồn.                                                               |
 | **Ngưỡng (threshold)**              | Mức cắt trên một điểm số: kết quả trên ngưỡng được giữ, dưới thì loại. Hệ dùng nhiều ngưỡng ở các tầng khác nhau: ngưỡng IoU 0,5 khi chấm điểm đánh giá; sàn CLIP 0,23 cho box từ vựng nền; ngưỡng diện tích mask tối thiểu của SAM (400 px). Bài học của dự án: mỗi ngưỡng là một cán cân precision ↔ recall, phải chỉnh bằng đo đạc chứ không đoán.                         |
 | **SAM (Segment Anything Model)**    | Mô hình phân đoạn của Meta: nhận bounding box làm gợi ý, trả về mặt nạ (mask) tách vật khỏi nền. Trong hệ, SAM đảm nhiệm hai việc: xác thực hình học (mask quá nhỏ so với box → phát hiện sai → loại) và cắt nền trong suốt (RGBA) cho ảnh flashcard.                                                                                                                         |
 | **CLIP**                            | Mô hình của OpenAI nhúng ảnh và văn bản vào cùng không gian vector, cho phép đo độ khớp giữa một ảnh cắt và câu "a photo of a {từ}". Trong hệ, CLIP là cửa xác thực: box từ vựng nền phải khớp với chính từ của nó (điểm ≥ sàn 0,23 VÀ không thua từ khớp nhất quá biên độ 0,02) mới được giữ.                                                                                |

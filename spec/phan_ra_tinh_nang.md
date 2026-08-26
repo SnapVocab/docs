@@ -44,16 +44,16 @@
 | F-RECOG-02 | Gallery pick                          | M   | MIME/size validate client (ảnh, ≤ 10MB) + server                                         |
 | F-RECOG-03 | Android overlay bubble                | C   | Floating widget chụp/quét từ app khác; stretch feature, không chặn MVP                   |
 | F-RECOG-04 | Submit recognition                    | M   | requestId trả ngay; kiểm tra quota trước khi nhận job; UX loading/cancel                 |
-| F-RECOG-05 | AI Florence-2 pipeline                | M   | label ∈ dict path (chuỗi lọc ngôn ngữ + cổng từ điển); confidence; bbox; cropUrl (opt.)  |
-| F-RECOG-06 | Backend confidence gate               | M   | Ngưỡng cấu hình được (lớp bảo vệ cuối); CLIP sàn 0,23 + biên độ 0,02 trong AI service    |
+| F-RECOG-05 | AI Florence-2 pipeline                | M   | label ∈ dict path; detectionSource; clipScore; bbox; cropUrl (opt.)  |
+| F-RECOG-06 | Backend recognition filter            | M   | Lọc bằng cặp (source allowlist, clipScore floor) cấu hình được (lớp bảo vệ cuối) |
 | F-RECOG-07 | Multi-object result UI                | S   | Hiển thị nhiều object; Learner chọn từng object để lưu                                   |
 | F-RECOG-08 | Label deduplication                   | M   | Gom nhiều box cùng label → 1 từ duy nhất; tránh trả từ vựng lặp                          |
-| F-RECOG-09 | No-object / low-confidence / AI error | M   | error.code + message thân thiện + CTA retry/thử ảnh khác; app không crash                |
+| F-RECOG-09 | No-object / low-reliability / AI error | M   | error.code + message thân thiện + CTA retry/thử ảnh khác; app không crash                |
 | F-RECOG-10 | Word mapping                          | M   | Ánh xạ label AI → Word dictionary (tra cứu + mapping/synonym); đánh dấu nếu thiếu mục    |
 | F-RECOG-11 | Save from scan                        | M   | Tạo Note + Card trong Deck (source=SCAN); xem BF-07, F-VOCAB                             |
-| F-RECOG-12 | Scan history                          | S   | Lưu metadata request; lịch sử scan của Learner; ảnh scan lưu nếu cần (privacy compliant) |
+| F-RECOG-12 | Scan history                          | S   | Lưu metadata request (bảng ScanRequest); lịch sử scan của Learner query từ ScanRequest; retention 30 ngày (ARC-13) |
 | F-RECOG-13 | Daily scan quota                      | M   | Mặc định 20 scan/ngày/Learner, cấu hình được; response có remaining/resetAt; hết lượt trả `QUOTA_EXCEEDED` |
-| F-RECOG-14 | Recognition queue                     | M   | Job vào hàng đợi `QUEUED`→`PROCESSING`; 1 worker/GPU mặc định; response có queuePosition/estimatedWaitMs |
+| F-RECOG-14 | Recognition queue                     | M   | Job vào in-process queue (Spring @Async); trạng thái PENDING→PROCESSING→DONE; timeout giao diện 90s |
 | F-RECOG-15 | Báo cáo thiếu từ                      | S   | Gửi nhãn từ chưa có trong từ điển vào Feedback queue cho Admin xử lý                     |
 
 **Business rules:**
@@ -61,7 +61,7 @@
 1. Nhãn từ AI service đã được chuẩn hóa và bảo đảm thuộc từ điển ngay trong pipeline; backend chỉ cần tra cứu trực tiếp, dùng bảng mapping/synonym cho trường hợp từ điển Anh-Việt thiếu mục tương ứng.
 2. Mỗi Learner có quota scan/ngày mặc định 20 lượt, cấu hình được; ảnh không hợp lệ không trừ lượt.
 3. Khi hết lượt, Recognition API trả `QUOTA_EXCEEDED`, `remainingScansToday = 0`, `resetAt`; mobile hiển thị trạng thái hết lượt và không retry tự động.
-4. Request hợp lệ được đưa vào hàng đợi AI, xử lý giới hạn theo GPU (mặc định 1 worker/GPU); client theo dõi `QUEUED`/`PROCESSING` thay vì giữ kết nối treo quá timeout.
+4. Request hợp lệ được đưa vào in-process queue (Spring `@Async`), xử lý giới hạn theo GPU (mặc định 1 worker/GPU); client poll theo dõi `PENDING`/`PROCESSING` thay vì giữ kết nối treo quá timeout.
 5. Không tự động lưu kết quả scan nếu Learner chưa xác nhận.
 6. Ảnh scan chỉ lưu khi cần; bucket private, presigned URL TTL ≤ 15 phút.
 7. Log: requestId, status, queuePosition/estimatedWaitMs, processing time, object count, errors.
@@ -75,8 +75,8 @@
 | ID        | Tính năng                     | P   | AC tóm tắt                                                                                      |
 | --------- | ----------------------------- | --- | ----------------------------------------------------------------------------------------------- |
 | F-DICT-01 | Text search                   | M   | Tìm kiếm từ tiếng Anh trong DB; p95 server < 500ms cho từ phổ biến; cache Redis top words       |
-| F-DICT-02 | Voice VI → lookup             | S   | Native STT on-device → text tiếng Việt → tra ngược (reverse-lookup) bảng nghĩa; empty/error rõ ràng |
-| F-DICT-03 | Word detail (nghĩa/IPA/audio) | M   | Hiển thị nghĩa tiếng Việt, phiên âm IPA, nút phát âm; field thiếu → label rõ, không blank crash |
+| F-DICT-02 | Voice VI → lookup             | S   | Mobile STT on-device (`expo-speech-recognition`) → text tiếng Việt → gửi `/words/search` → reverse-lookup bảng Translation; backend không gọi STT/translate API (ARC-12) |
+| F-DICT-03 | Word detail (nghĩa/IPA/TTS) | M   | Hiển thị nghĩa tiếng Việt, phiên âm IPA, nút phát âm: nếu `audioUrl` có → phát stream; nếu null → TTS on-device (`expo-speech`); field thiếu → label rõ, không blank crash (ARC-12) |
 | F-DICT-04 | Multi-sense / POS grouping    | S   | Nhiều nghĩa/loại từ → nhóm theo POS hiển thị UI rõ ràng                                         |
 | F-DICT-05 | Relations / examples          | C   | Synonym/antonym/related words + câu ví dụ nếu dữ liệu hỗ trợ                                    |
 | F-DICT-06 | Object word mapping           | M   | Bảng ánh xạ label AI → Word; hỗ trợ synonym/variant cho trường hợp từ điển Anh-Việt thiếu mục   |
@@ -294,9 +294,9 @@
 | F-STOR-03 | Private access URL         | S   | Presigned GET URL; TTL ≤ 15 phút; bucket private mặc định                               |
 | F-STOR-04 | Avatar upload flow         | M   | Upload avatar ≤ 5MB; validate MIME (image/\*); cập nhật user avatarUrl                  |
 | F-STOR-05 | Scan image storage         | S   | Lưu ảnh scan nếu cần (lịch sử/debug); tuân thủ privacy; bucket private                  |
-| F-STOR-06 | Crop image storage         | S   | Lưu ảnh cắt nền (RGBA) từ SAM cho flashcard; gắn cropUrl vào DetectedObject             |
-| F-STOR-07 | Orphan cleanup             | S   | Scheduled job xóa object không còn tham chiếu trong DB                                  |
-| F-STOR-08 | Storage metadata           | M   | DB lưu: object key, owner, MIME, size, timestamp; không public trực tiếp                |
+| F-STOR-06 | Crop image storage         | S   | Lưu ảnh cắt nền (RGBA) từ SAM cho flashcard; gắn cropKey vào DetectedObject             |
+| F-STOR-07 | Orphan cleanup             | S   | Scheduled job xóa object type=CROP, state=TEMP quá 24h                                  |
+| F-STOR-08 | Storage metadata           | M   | DB lưu: object key, owner, MIME, size, type, state (TEMP/PERMANENT), timestamp          |
 
 **Công nghệ:**
 

@@ -5,6 +5,7 @@
 > Quyết định canonical: xem bảng §66–76 trong specs.md.
 
 **Quy ước ID:** `SS-{nn}` — mỗi SS là một phân hệ/module trong kiến trúc backend hoặc hệ thống.
+**Quy ước Endpoint (REST API Naming Convention):** Tất cả các public API đều ngầm định có **Base Path là `/api/v1`**. Luôn sử dụng danh từ số nhiều (plural nouns) và gom nhóm theo prefix (VD: `/api/v1/quizzes`, `/api/v1/reviews`). Tài liệu này là Single Source of Truth cho toàn bộ URL của hệ thống.
 
 ---
 
@@ -176,6 +177,7 @@ Quản lý toàn bộ vòng đời tài khoản: đăng ký, xác thực email/O
 
 | Method | Endpoint                    | Mô tả                                    | Auth     |
 | ------ | --------------------------- | ----------------------------------------- | -------- |
+| GET    | `/app-config`               | Cấu hình app (minSupportedAppVersion)    | Public   |
 | POST   | `/auth/register`            | Đăng ký tài khoản mới                    | Public   |
 | POST   | `/auth/verify-otp`          | Xác thực OTP                              | Public   |
 | POST   | `/auth/resend-otp`          | Gửi lại OTP                               | Public   |
@@ -225,8 +227,9 @@ Quản lý cơ sở dữ liệu từ vựng Anh-Việt (357,729+ từ). Cung c�
 ### Chức năng chính
 
 - Tra cứu từ vựng bằng văn bản (text search, p95 < 500ms cho từ phổ biến)
-- Tra cứu giọng nói (Voice-to-Text tiếng Việt → dịch → lookup) — Should
+- Tra cứu giọng nói — Should: mobile dùng **STT on-device** (`expo-speech-recognition`) capture tiếng Việt → text → gửi lên `/words/search`; backend chỉ cần reverse-lookup bảng Translation (ý Việt → Word). **Không cần STT engine, translate API phía backend.** (ARC-12)
 - Xem word detail: nghĩa tiếng Việt, phiên âm IPA, phát âm, loại từ
+  - **Phát âm:** API trả `audioUrl` (nullable, từ DB minhqnd); nếu null → mobile fallback TTS on-device (`expo-speech`). Không cần TTS server, không thay đổi DB schema. (ARC-12)
 - Hiển thị nhiều nghĩa/POS theo nhóm
 - Hiển thị synonym/antonym/ví dụ (nếu dữ liệu hỗ trợ) — Could
 - Ánh xạ label từ AI service sang Word (tra cứu trực tiếp + mapping/synonym)
@@ -248,8 +251,8 @@ Quản lý cơ sở dữ liệu từ vựng Anh-Việt (357,729+ từ). Cung c�
 ```text
 Dictionary
   ├── WordSearchService         — Text search, ranking, cache Redis top words
-  ├── VoiceLookupService        — Nhận text từ native STT → reverse-lookup tiếng Việt (Should)
-  ├── WordDetailService         — Aggregate word + definitions + translations + pronunciations
+  ├── VoiceLookupService        — Reverse-lookup bảng Translation (tiếng Việt → Word); **không** gọi STT hay translate API; STT được thực hiện on-device bằng expo-speech-recognition (ARC-12)
+  ├── WordDetailService         — Aggregate word + definitions + translations + pronunciations; `audioUrl` nullable
   ├── ObjectWordMappingService  — Ánh xạ AI label → Word (synonym/mapping table)
   ├── DictionaryImportService   — Batch import CSV/Excel
   └── DictionaryAdminService    — CRUD + soft-delete
@@ -318,16 +321,12 @@ Phân hệ backend phía Spring Boot chịu trách nhiệm orchestrate luồng n
 
 ### Entities
 
-| Entity                    | Mô tả                                                                        |
-| ------------------------- | ----------------------------------------------------------------------------- |
-| `ImageRecognitionRequest` | Lưu request xử lý ảnh (userId, objectKey, status, timestamps)                |
-| `RecognitionResult`       | Kết quả tổng thể một lần nhận diện (requestId, objectCount, processingTime)  |
-| `DetectedObject`          | Từng đối tượng: label, confidence, boundingBox, cropUrl                      |
-| `ScanHistory`             | Lịch sử scan của Learner (nếu sản phẩm cần hiển thị lại)                     |
+| `ScanRequest`             | Lưu request xử lý ảnh (userId, objectKey, status, timestamps, processingTime, error) thay thế ImageRecognitionRequest + RecognitionResult |
+| `DetectedObject`          | Từng đối tượng: label, detectionSource, clipScore, boundingBox, cropUrl                      |
 
 ### Chức năng chính
 
-- Nhận ảnh từ mobile (direct upload hoặc presigned URL flow)
+- Nhận thông tin ảnh từ mobile (chỉ dùng presigned URL flow, gửi objectKey lên)
 - Gọi FastAPI AI service qua HTTP nội bộ (timeout cấu hình, mặc định 60s)
 - Nhận danh sách detected objects từ AI
 - Lọc theo ngưỡng confidence (cấu hình được — lớp bảo vệ cuối)
@@ -341,7 +340,7 @@ Phân hệ backend phía Spring Boot chịu trách nhiệm orchestrate luồng n
 
 | Method | Endpoint                           | Mô tả                                      | Auth    |
 | ------ | ---------------------------------- | ------------------------------------------- | ------- |
-| POST   | `/recognition/scan`                | Gửi ảnh nhận diện (multipart hoặc objectKey) | Learner |
+| POST   | `/recognition/scan`                | Gửi ảnh nhận diện (truyền objectKey)       | Learner |
 | GET    | `/recognition/results/{requestId}` | Lấy kết quả nhận diện                       | Learner |
 | GET    | `/recognition/history`             | Lịch sử scan của Learner (Should)           | Learner |
 
@@ -349,15 +348,15 @@ Phân hệ backend phía Spring Boot chịu trách nhiệm orchestrate luồng n
 
 ```text
 Recognition (Backend)
-  ├── RecognitionOrchestrator   — Điều phối: upload → quota → enqueue → status/result response
+  ├── RecognitionOrchestrator   — Điều phối: quota → enqueue → trả 202 Accepted + requestId
   ├── ScanQuotaService          — Kiểm tra/trừ quota scan/ngày theo Learner
-  ├── RecognitionQueueService   — Tạo job, giới hạn hàng đợi, trả QUEUED/PROCESSING + vị trí ước tính
-  ├── RecognitionWorker         — Lấy job theo worker limit/GPU và gọi AI service
+  ├── RecognitionQueueService   — In-process queue (Spring @Async + Bounded Executor), trạng thái PENDING/PROCESSING
+  ├── RecognitionWorker         — Background worker lấy job và gọi AI service
   ├── AiServiceClient           — HTTP client gọi FastAPI AI service (timeout, retry, error handling)
-  ├── ConfidenceFilterService   — Lọc kết quả theo ngưỡng cấu hình
+  ├── RecognitionFilterService  — Lọc kết quả theo cặp (source, clipScore)
   ├── LabelDeduplicationService — Gom trùng label (nhiều box → 1 từ)
   ├── WordMappingService        — Ánh xạ label → Word (delegate SS-04)
-  └── ScanHistoryService        — Lưu/truy vấn lịch sử scan
+  └── ScanRequestService        — Lưu/truy vấn lịch sử scan (query từ bảng ScanRequest)
 ```
 
 ### Trace
@@ -393,7 +392,7 @@ Service **độc lập** (Python FastAPI) chạy pipeline nhận diện từ v�
 - Xác thực CLIP: sàn 0,23 + biên độ 0,02
 - Xác thực hình học SAM: mask quá nhỏ → loại
 - Cắt nền (RGBA) bằng SAM cho ảnh flashcard
-- Trả: `label` (bảo đảm thuộc từ điển), `confidence`, `boundingBox`, `cropUrl`
+- Trả: `label` (bảo đảm thuộc từ điển), `detectionSource`, `clipScore`, `boundingBox`, `cropUrl`
 - 1 thẻ / từ (max 1 entry per unique label)
 - Giới hạn đồng thời bằng số worker/GPU do backend vận hành cấu hình; mặc định 1 worker/GPU
 - Error handling: invalid image, model error, no-object → response có cấu trúc
@@ -415,7 +414,8 @@ Service **độc lập** (Python FastAPI) chạy pipeline nhận diện từ v�
   "objects": [
     {
       "label": "cup",
-      "confidence": 0.91,
+      "detectionSource": "OD",
+      "clipScore": 0.28,
       "boundingBox": [120, 80, 350, 420],
       "cropUrl": "https://..."
     }
@@ -576,10 +576,10 @@ Sinh bài kiểm tra từ vựng từ Note/Card trong Deck của Learner. Hỗ t
 
 | Method | Endpoint                             | Mô tả                                    | Auth    |
 | ------ | ------------------------------------ | ----------------------------------------- | ------- |
-| POST   | `/decks/{id}/quiz/generate`          | Sinh quiz mới                              | Learner |
-| GET    | `/quiz/{id}`                         | Lấy quiz + câu hỏi                        | Learner |
-| POST   | `/quiz/{id}/submit`                  | Nộp bài, chấm điểm (idempotent)          | Learner |
-| GET    | `/quiz/history`                      | Lịch sử quiz attempts                     | Learner |
+| POST   | `/decks/{id}/quizzes/generate`       | Sinh quiz mới                              | Learner |
+| GET    | `/quizzes/{id}`                      | Lấy quiz + câu hỏi                        | Learner |
+| POST   | `/quizzes/{id}/submit`               | Nộp bài, chấm điểm (idempotent)          | Learner |
+| GET    | `/quizzes/history`                   | Lịch sử quiz attempts                     | Learner |
 
 ### Trace
 
@@ -609,9 +609,10 @@ Quản lý hàng đợi ôn tập theo thuật toán FSRS (Free Spaced Repetitio
 
 | Method | Endpoint                    | Mô tả                                       | Auth    |
 | ------ | --------------------------- | -------------------------------------------- | ------- |
-| GET    | `/review/queue`             | Daily review queue (due Cards)               | Learner |
-| GET    | `/review/summary`           | Tổng quan: due count, overdue count          | Learner |
+| GET    | `/reviews/queue`            | Daily review queue (due Cards)               | Learner |
+| GET    | `/reviews/summary`          | Tổng quan: due count, overdue count          | Learner |
 | POST   | `/cards/{id}/review`        | Submit rating (shared with SS-09)            | Learner |
+| POST   | `/reviews/batch`            | Sync batch rating từ local queue             | Learner |
 | POST   | `/cards/{id}/reset`         | Reset SRS về NEW (Could)                     | Learner |
 
 ### Ghi chú
@@ -712,7 +713,7 @@ Hệ thống tăng động lực học tập: điểm kinh nghiệm (XP), tiền
 | GET    | `/gamification/missions`              | Danh sách missions + progress                | Learner |
 | POST   | `/gamification/missions/{id}/claim`   | Claim reward nhiệm vụ (idempotent)           | Learner |
 | GET    | `/gamification/badges`                | Danh sách badges (earned + available)        | Learner |
-| GET    | `/leaderboard`                        | Bảng xếp hạng (period, type)                | Learner |
+| GET    | `/leaderboards`                       | Bảng xếp hạng (period, type)                | Learner |
 | GET/POST/PUT/DELETE | `/admin/missions`       | Admin CRUD missions                          | Admin   |
 | GET/POST/PUT/DELETE | `/admin/badges`         | Admin CRUD badges                            | Admin   |
 
@@ -764,8 +765,8 @@ Cửa hàng vật phẩm ảo trong ứng dụng. Learner dùng Coin mua vật p
 | --------- | ------------------------------- | ------------------------------------ | ------- |
 | GET       | `/shop/items`                   | Danh sách vật phẩm                   | Learner |
 | POST      | `/shop/items/{id}/buy`          | Mua vật phẩm                         | Learner |
-| POST      | `/user-items/{id}/equip`        | Áp dụng vật phẩm                     | Learner |
-| GET       | `/user-items`                   | Danh sách vật phẩm sở hữu           | Learner |
+| POST      | `/shop/inventory/{id}/equip`    | Áp dụng vật phẩm                     | Learner |
+| GET       | `/shop/inventory`               | Danh sách vật phẩm sở hữu           | Learner |
 | GET/POST/PUT/DELETE | `/admin/shop-items`   | Admin CRUD vật phẩm                  | Admin   |
 
 ### Trace
@@ -850,7 +851,7 @@ Quản lý lưu trữ media (ảnh scan, avatar, tài nguyên vật phẩm) qua 
 - Scan image storage (≤ 10MB, optional — tuân thủ privacy)
 - Tài nguyên vật phẩm gamification
 - Object key do backend sinh (không dùng tên file user)
-- Orphan cleanup job (xóa object không còn tham chiếu)
+- Orphan cleanup job (chỉ xóa object type=CROP, state=TEMP đã tạo quá 24h)
 
 ### API Endpoints
 
@@ -866,8 +867,8 @@ Quản lý lưu trữ media (ảnh scan, avatar, tài nguyên vật phẩm) qua 
 Storage
   ├── S3StorageService         — Ký presigned PUT/GET URL, HEAD/delete object
   ├── UploadValidationService  — Validate MIME allowlist, kích thước
-  ├── StorageMetadataService   — Lưu object key, owner, MIME, size, timestamp
-  └── OrphanCleanupJob         — Scheduled job xóa object mồ côi
+  ├── StorageMetadataService   — Lưu object key, owner, MIME, size, type, state (TEMP/PERMANENT), timestamp
+  └── OrphanCleanupJob         — Scheduled job xóa object type=CROP, state=TEMP quá 24h
 ```
 
 ### Trace
@@ -1125,8 +1126,8 @@ com.snapvocab
 │   └── dto/
 ├── recognition/                    ← SS-06
 │   ├── controller/
-│   ├── service/                   (RecognitionOrchestrator, AiServiceClient, ConfidenceFilter, LabelDedup)
-│   ├── entity/                    (ImageRecognitionRequest, RecognitionResult, DetectedObject, ScanHistory)
+│   ├── service/                   (RecognitionOrchestrator, AiServiceClient, RecognitionFilter, LabelDedup)
+│   ├── entity/                    (ScanRequest, DetectedObject)
 │   ├── repository/
 │   └── dto/
 ├── vocabulary/                     ← SS-08
