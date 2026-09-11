@@ -8,26 +8,30 @@ Tài liệu này mô tả kiến trúc cơ sở dữ liệu của hệ thống S
 
 ### 1. Encoding & Collation
 
-- **Charset:** `utf8mb4` (hỗ trợ đầy đủ Unicode, emoji, đa ngôn ngữ).
-- **Collation:** `utf8mb4_0900_ai_ci` hoặc `utf8mb4_unicode_ci` cho tất cả các bảng.
+- Charset: `utf8mb4` (hỗ trợ đầy đủ Unicode, emoji, đa ngôn ngữ).
+- Collation: `utf8mb4_unicode_ci` hoặc `utf8mb4_0900_ai_ci` cho tất cả các bảng.
 
 ### 2. Naming Convention
 
-- **Vật lý (RDBMS):** Bắt buộc sử dụng `snake_case` số nhiều cho tên bảng (ví dụ: `users`, `card_templates`) và `snake_case` cho tên cột (`card_id`, `created_at`).
-- **Tài liệu:** Tài liệu bên dưới sử dụng tên Entity (PascalCase/camelCase) hoặc tên bảng có sẵn để dễ ánh xạ với Class trong Spring Boot, nhưng khi DDL/Migration phải tuân thủ nghiêm ngặt chuẩn `snake_case`.
+- Bắt buộc sử dụng `snake_case` số nhiều cho tên bảng (ví dụ: `users`, `collections`, `topics`, `topic_items`, `templates`, `fsrs_records`).
+- Bắt buộc sử dụng `snake_case` cho tên cột (`user_id`, `created_at`, `topic_item_id`).
+- Khóa ngoại có tiền tố tên bảng tham chiếu kèm `_id` (ví dụ: `collection_id`, `topic_id`, `item_id`).
 
-### 3. Data Types & Length
-- `String`: Mặc định hiểu là `VARCHAR(255)`. Các cột mã định danh, enum dùng `VARCHAR(50)`. Nội dung dài (mô tả, JSON payload) dùng `TEXT` hoặc `JSON`.
-- `Number`: Được hiểu là kiểu số tùy ngữ cảnh (ví dụ `DECIMAL` cho tài sản, `INT` cho đếm số lượng).
+### 3. Auditing & Base Entities
+
+Các bảng trong hệ thống áp dụng cơ chế kế thừa Auditing thông qua Spring Data JPA:
+- `BaseTimeEntity`: Cung cấp 2 trường `created_at` (không cho phép update) và `updated_at` (tự động cập nhật khi sửa đổi).
+- `BaseCreatedAtEntity`: Cung cấp trường `created_at` cho các bảng dữ liệu bất biến (append-only hoặc log/mapping).
 
 ### 4. Primary Key (PK) Strategy
-- Các bảng thuộc **Core Domain, Topic, Flashcard, SRS, Recognition** dùng kiểu `Long` (Auto Increment hoặc Snowflake) tối ưu hiệu năng join.
-- Các bảng thuộc **Gamification, Mission, Quiz, Notification** dùng kiểu `UUID` (lưu dạng `VARCHAR(36)` hoặc `BINARY(16)`) vì bản chất log/event sinh ra nhiều, tần suất phân tán cao và có thể scale sang NoSQL sau này.
 
-### 5. Database Migration
-- Công cụ quản lý version: **Flyway**.
-- Format file script: `V{Milestone}_{Version}__{Description}.sql` (ví dụ: `V1_01__init_auth.sql`, `V3_05__add_quiz_tables.sql`).
-- Quy định: Cấm sửa đổi file migration cũ đã apply. Mọi thay đổi schema đều phải tạo file migration mới (append-only).
+- Các bảng dữ liệu chính sử dụng kiểu `BIGINT` (Long trong Java), khóa chính tự tăng (IDENTITY / AUTO_INCREMENT) để tối ưu hiệu năng join và đánh index.
+- Bảng `authorities` sử dụng trực tiếp tên quyền dạng `VARCHAR(50)` làm khóa chính (ROLE_USER, ROLE_ADMIN).
+
+### 5. Phạm vi chức năng
+
+- Chức năng Community (bài đăng, nhóm học, chia sẻ xã hội) đã được lược bỏ hoàn toàn khỏi phạm vi sản phẩm và cơ sở dữ liệu.
+- Hệ thống tập trung hoàn toàn vào luồng học cá nhân: Tra cứu/Quét ảnh -> Bộ sưu tập & Chủ đề (Collections/Topics) -> Thẻ học theo Template -> Lịch ôn tập Spaced Repetition (FSRS) -> Gamification cá nhân (Level, Shop, Inventory).
 
 ---
 
@@ -35,270 +39,297 @@ Tài liệu này mô tả kiến trúc cơ sở dữ liệu của hệ thống S
 
 Quản lý người dùng và hệ thống từ điển nền tảng.
 
-### Bảng `User`
+### Bảng `users`
+Kế thừa `BaseTimeEntity`.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID người dùng |
-| `password_hash` | String | Not Null | Mật khẩu (mã hóa) |
-| `first_name` | String | Not Null | Tên (First name) |
-| `last_name` | String | | Họ (Last name) |
-| `email` | String | Unique | Địa chỉ email |
-| `avatar_url` | Text | | Đường dẫn ảnh đại diện |
-| `native_language`| String | | Ngôn ngữ mẹ đẻ |
-| `learning_language`| String | | Ngôn ngữ đang học |
-| `exp` | Long | Default 0 | Điểm kinh nghiệm |
-| `coin` | Long | Default 0 | Tiền tệ trong game |
-| `streak_days` | Integer| Default 0 | Chuỗi ngày học liên tục |
-| `last_studied_at`| Instant| | Lần học gần nhất |
-| `activated` | Boolean| Not Null, Default false| Trạng thái xác thực Email |
-| `status` | Enum | ACTIVE, LOCKED, BANNED | Trạng thái tài khoản |
-| `bio` | String | | Tiểu sử |
-| `createdAt` | Instant| | Thời điểm tạo |
-| `updatedAt` | Instant| | Thời điểm cập nhật |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID người dùng |
+| `password_hash` | VARCHAR(60) | NOT NULL | Mật khẩu mã hóa BCrypt |
+| `first_name` | VARCHAR(50) | NOT NULL | Tên |
+| `last_name` | VARCHAR(50) | NULL | Họ và tên đệm |
+| `email` | VARCHAR(254) | UNIQUE, NOT NULL | Địa chỉ email đăng nhập |
+| `avatar_url` | VARCHAR(2048) | NULL | Đường dẫn ảnh đại diện |
+| `native_language` | VARCHAR(10) | NULL | Ngôn ngữ mẹ đẻ (mặc định vi) |
+| `learning_language` | VARCHAR(10) | NULL | Ngôn ngữ đang học (mặc định en) |
+| `exp` | BIGINT | DEFAULT 0 | Điểm kinh nghiệm tích lũy |
+| `coin` | BIGINT | DEFAULT 0 | Tiền tệ trong ứng dụng |
+| `streak_days` | INT | DEFAULT 0 | Chuỗi ngày học liên tục |
+| `last_studied_at` | DATETIME(6) | NULL | Thời điểm học gần nhất |
+| `activated` | BOOLEAN | DEFAULT FALSE, NOT NULL | Trạng thái kích hoạt tài khoản |
+| `bio` | TEXT | NULL | Giới thiệu ngắn |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
+| `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
 
-### Bảng `Authority`
+### Bảng `authorities`
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `name` | String | Khóa chính (PK) | Tên quyền (VD: ROLE_USER, ROLE_ADMIN) |
+| `name` | VARCHAR(50) | Khóa chính (PK) | Tên quyền (ROLE_USER, ROLE_ADMIN) |
 
-*(Lưu ý: Mối quan hệ giữa User và Authority là N-N qua bảng trung gian `user_authority`)*
+### Bảng `user_authority` (Bảng liên kết N-N)
 
-### Bảng `Word`
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID từ vựng |
-| `word` | String | Not Null | Nội dung từ vựng |
-| `langCode` | String | Not Null | Mã ngôn ngữ (VD: en, vi) |
-| `isDeleted` | Boolean| Default false | Cờ xóa mềm (soft-delete) |
-| `deletedAt` | Instant| Nullable | Thời điểm xóa |
+| `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | ID người dùng |
+| `authority_name` | VARCHAR(50) | FK -> `authorities(name)`, NOT NULL | Tên quyền |
 
-### Bảng `Definition`
+Khóa chính ghép: `(user_id, authority_name)`.
+
+### Bảng `words`
+Kế thừa `BaseCreatedAtEntity`.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID định nghĩa |
-| `definition` | String | Not Null | Nội dung định nghĩa |
-| `pos` | String | | Loại từ (Part of Speech) |
-| `subPos` | String | | Phân loại phụ của loại từ |
-| `definitionLang`| String | | Ngôn ngữ của định nghĩa |
-| `links` | String | | Các liên kết mở rộng |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID từ vựng |
+| `word` | VARCHAR(255) | NOT NULL | Nội dung từ vựng |
+| `lang_code` | VARCHAR(20) | NOT NULL | Mã ngôn ngữ (en, vi...) |
+| `is_deleted` | BOOLEAN | DEFAULT FALSE, NOT NULL | Cờ xóa mềm (soft-delete) |
+| `deleted_at` | DATETIME(6) | NULL | Thời điểm xóa |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
 
-### Bảng `WordDefinition` (Bảng trung gian)
+### Bảng `definitions`
+Kế thừa `BaseCreatedAtEntity`.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID liên kết từ - định nghĩa |
-| `word_id` | Long | FK -> `Word(id)` | Tham chiếu đến Word |
-| `definition_id`| Long | FK -> `Definition(id)` | Tham chiếu đến Definition |
-| `example` | Text | | Ví dụ minh họa cách sử dụng từ theo định nghĩa này |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID định nghĩa |
+| `definition` | LONGTEXT | NOT NULL | Nội dung định nghĩa |
+| `pos` | VARCHAR(50) | NULL | Loại từ (Part of Speech) |
+| `sub_pos` | VARCHAR(50) | NULL | Phân loại phụ của loại từ |
+| `definition_lang` | VARCHAR(10) | NULL | Ngôn ngữ của định nghĩa |
+| `links` | VARCHAR(2048) | NULL | Các liên kết mở rộng |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
 
-### Bảng `Translation`
+### Bảng `word_definitions`
+Kế thừa `BaseCreatedAtEntity`. Liên kết từ với định nghĩa kèm ví dụ minh họa.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID bản dịch |
-| `word_id` | Long | FK -> `Word(id)` | Tham chiếu đến Word |
-| `translation` | String | | Nội dung dịch nghĩa |
-| `targetLang` | String | | Ngôn ngữ đích |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID liên kết từ - định nghĩa |
+| `word_id` | BIGINT | FK -> `words(id)`, NOT NULL | Tham chiếu đến từ vựng |
+| `definition_id` | BIGINT | FK -> `definitions(id)`, NOT NULL | Tham chiếu đến định nghĩa |
+| `example` | LONGTEXT | NULL | Ví dụ minh họa sử dụng từ |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
 
-### Bảng `Pronunciation`
+### Bảng `translations`
+Kế thừa `BaseCreatedAtEntity`.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID phát âm |
-| `word_id` | Long | FK -> `Word(id)` | Tham chiếu đến Word |
-| `ipa` | String | | Phiên âm quốc tế IPA |
-| `audioUrl` | String | | Đường dẫn file audio |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID bản dịch |
+| `word_id` | BIGINT | FK -> `words(id)`, NOT NULL | Tham chiếu đến từ gốc |
+| `lang_code` | VARCHAR(20) | NOT NULL | Mã ngôn ngữ đích |
+| `translation` | VARCHAR(1024) | NULL | Nội dung dịch nghĩa |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
 
-### Bảng `WordRelation`
+### Bảng `pronunciations`
+Kế thừa `BaseCreatedAtEntity`.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID liên kết |
-| `word_id` | Long | FK -> `Word(id)` | Tham chiếu đến Word gốc |
-| `relatedWord` | String | | Từ liên quan (dạng text) |
-| `relationType` | String | | Loại quan hệ (synonym, antonym...) |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID phát âm |
+| `word_id` | BIGINT | FK -> `words(id)`, NOT NULL | Tham chiếu đến từ gốc |
+| `ipa` | VARCHAR(512) | NULL | Phiên âm quốc tế IPA |
+| `region` | VARCHAR(100) | NULL | Vùng phát âm (UK, US...) |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
+
+### Bảng `word_relations`
+Kế thừa `BaseCreatedAtEntity`.
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID liên kết quan hệ từ |
+| `word_id` | BIGINT | FK -> `words(id)`, NOT NULL | Tham chiếu đến từ gốc |
+| `related_word` | VARCHAR(255) | NULL | Từ liên quan (dạng text) |
+| `relation_type` | VARCHAR(50) | NULL | Loại quan hệ (synonym, antonym...) |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
 
 ### Ràng buộc & Indexes (Core Domain)
-- `User`: Unique index trên `email`.
-- `Word`: Unique constraint ghép trên `(word, langCode)` để tránh trùng lặp khi import dữ liệu lớn (357k từ). Kèm theo Index độc lập trên `word` (Partial Index `WHERE isDeleted = false`) để tìm kiếm.
+- `users`: Unique index trên `email`.
+- `words`: Unique constraint ghép trên `(word, lang_code)`. Kèm theo Index độc lập trên `word` (Partial Index `WHERE is_deleted = false`) để tra cứu nhanh.
 - `user_authority`: Khóa chính ghép `(user_id, authority_name)`.
-- `WordDefinition`: Unique constraint ghép trên `(word_id, definition_id)` để tránh duplicate liên kết.
-- Các FK (`word_id`, `definition_id`) cần có index để tối ưu truy vấn join.
+- `word_definitions`: Unique constraint ghép trên `(word_id, definition_id)` để tránh trùng lặp liên kết.
+- Khóa ngoại (`word_id`, `definition_id`) đều có index và thiết lập `FetchType.LAZY`.
 
-## 2. Crawler & Topic Domain
+## 2. Collections, Topics & EAV Data Engine
 
-Cấu trúc thu thập và tổ chức dữ liệu từ vựng theo chủ đề.
+Cấu trúc thu thập, tổ chức và quản lý dữ liệu từ vựng theo cấu trúc phân cấp linh hoạt: Collection -> Topic -> TopicItem. Dữ liệu chi tiết của từng từ vựng học tập được lưu theo mô hình EAV (Entity-Attribute-Value) để đáp ứng cấu trúc đa dạng của từng chủ đề.
 
 ### Bảng `collections`
+Kế thừa `BaseTimeEntity`.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID bộ sưu tập |
-| `name` | String | Unique, Not Null | Tên bộ sưu tập |
-| `translation` | String | | Tên dịch nghĩa |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID bộ sưu tập |
+| `name` | VARCHAR(255) | NOT NULL | Tên bộ sưu tập |
+| `translation` | VARCHAR(255) | NULL | Tên dịch nghĩa |
+| `type` | VARCHAR(20) | ENUM('SYSTEM', 'USER'), NOT NULL | Phân loại bộ sưu tập (hệ thống hoặc cá nhân) |
+| `owner_id` | BIGINT | FK -> `users(id)`, NULLABLE | Người tạo (nếu type = USER) |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
+| `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
 
 ### Bảng `topics`
+Kế thừa `BaseTimeEntity`.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID chủ đề |
-| `collection_id` | Long | FK -> `collections(id)` | Chủ đề thuộc bộ sưu tập nào |
-| `parent_id` | Long | FK -> `topics(id)` | Chủ đề cha (nếu là sub-topic) |
-| `name` | String | Not Null | Tên chủ đề |
-| `translation` | String | | Dịch nghĩa chủ đề |
-| `description` | Text | | Mô tả |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID chủ đề |
+| `collection_id` | BIGINT | FK -> `collections(id)`, NOT NULL | Thuộc bộ sưu tập nào |
+| `parent_id` | BIGINT | FK -> `topics(id)`, NULLABLE | Chủ đề cha (hỗ trợ phân cấp cây chủ đề) |
+| `name` | VARCHAR(255) | NOT NULL | Tên chủ đề |
+| `translation` | VARCHAR(255) | NULL | Dịch nghĩa chủ đề |
+| `description` | TEXT | NULL | Mô tả chi tiết |
+| `description_translation` | TEXT | NULL | Dịch nghĩa mô tả |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
+| `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
 
 ### Bảng `topic_attribute_groups`
+Kế thừa `BaseTimeEntity`.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID nhóm thuộc tính |
-| `topic_id` | Long | FK -> `topics(id)` | Nhóm thuộc tính của chủ đề nào |
-| `name` | String | Not Null | Tên nhóm thuộc tính |
-| `multiple` | Boolean | Not Null | Cho phép nhiều thuộc tính không |
-| `position` | SmallInt | Not Null | Vị trí hiển thị |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID nhóm thuộc tính |
+| `topic_id` | BIGINT | FK -> `topics(id)`, NOT NULL | Nhóm thuộc tính của chủ đề nào |
+| `name` | VARCHAR(255) | NOT NULL | Tên kỹ thuật của nhóm (main, examples...) |
+| `label` | VARCHAR(255) | NULL | Nhãn hiển thị của nhóm |
+| `multiple` | BOOLEAN | NOT NULL | Cho phép nhiều bản ghi lặp lại hay không |
+| `position` | SMALLINT | NOT NULL | Vị trí hiển thị |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
+| `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
 
 ### Bảng `topic_attributes`
+Kế thừa `BaseTimeEntity`.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID thuộc tính |
-| `group_id` | Long | FK -> `topic_attribute_groups(id)` | Thuộc tính thuộc nhóm nào |
-| `name` | String | Not Null | Tên thuộc tính |
-| `data_type` | String | Not Null | Kiểu dữ liệu |
-| `required` | Boolean | Not Null | Bắt buộc không |
-| `position` | SmallInt | Not Null | Vị trí hiển thị |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID thuộc tính |
+| `group_id` | BIGINT | FK -> `topic_attribute_groups(id)`, NOT NULL | Thuộc nhóm thuộc tính nào |
+| `name` | VARCHAR(255) | NOT NULL | Tên kỹ thuật của thuộc tính |
+| `label` | VARCHAR(255) | NULL | Nhãn hiển thị |
+| `data_type` | VARCHAR(50) | NOT NULL | Kiểu dữ liệu (TEXT, AUDIO, IMAGE...) |
+| `required` | BOOLEAN | NOT NULL | Bắt buộc hay không |
+| `position` | SMALLINT | NOT NULL | Vị trí hiển thị trong nhóm |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
+| `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
 
 ### Bảng `topic_items`
+Kế thừa `BaseCreatedAtEntity`. Mỗi item đại diện cho một mục từ vựng học tập trong chủ đề.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID item (thường là 1 từ) trong chủ đề |
-| `topic_id` | Long | FK -> `topics(id)` | Item thuộc chủ đề nào |
-| `word_id` | Long | FK -> `Word(id)`, Nullable | Nối trực tiếp với bảng Word gốc để hỗ trợ đẩy nhanh vào Deck |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID mục từ vựng |
+| `topic_id` | BIGINT | FK -> `topics(id)`, NOT NULL | Thuộc chủ đề nào |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
 
 ### Bảng `topic_item_attribute_groups`
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID instance của nhóm thuộc tính cho 1 item |
-| `topic_item_id` | Long | FK -> `topic_items(id)` | Item tương ứng |
-| `group_definition_id`| Long | FK -> `topic_attribute_groups(id)`| Nhóm thuộc tính gốc |
-| `position` | SmallInt| Not Null | Vị trí |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID instance của nhóm cho 1 item |
+| `topic_item_id` | BIGINT | FK -> `topic_items(id)`, NOT NULL | Item tương ứng |
+| `group_definition_id` | BIGINT | FK -> `topic_attribute_groups(id)`, NOT NULL | Nhóm định nghĩa gốc |
+| `position` | SMALLINT | NOT NULL | Thứ tự bản ghi (khi multiple = true) |
 
 ### Bảng `topic_item_attribute_values`
+Kế thừa `BaseTimeEntity`.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID giá trị thuộc tính |
-| `group_instance_id` | Long | FK -> `topic_item_attribute_groups(id)`| Instance nhóm tương ứng |
-| `topic_attribute_id`| Long | FK -> `topic_attributes(id)` | Thuộc tính gốc |
-| `value` | Text | Not Null | Giá trị thực tế được lưu |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID giá trị thuộc tính |
+| `group_instance_id` | BIGINT | FK -> `topic_item_attribute_groups(id)`, NOT NULL | Instance nhóm tương ứng |
+| `topic_attribute_id` | BIGINT | FK -> `topic_attributes(id)`, NOT NULL | Thuộc tính gốc |
+| `value` | LONGTEXT | NOT NULL | Giá trị thực tế được lưu |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
+| `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
 
-### Ràng buộc & Indexes (Crawler & Topic Domain)
-- `collections`: Unique index trên `name`.
+### Ràng buộc & Indexes (Collections, Topics & EAV)
+- `collections`: Index trên `owner_id` và `type`.
 - `topics`: Index trên `collection_id` và `parent_id`.
-- `topic_items`: Index trên `(topic_id, word_id)` để lọc item và query join sang bảng `Word` cực nhanh.
-- FK indexes cho `topic_attributes(group_id)`, `topic_items(topic_id)`.
+- `topic_items`: Index trên `topic_id` để phân trang và load item theo chủ đề.
+- `topic_item_attribute_groups`: Index trên `topic_item_id`.
+- `topic_item_attribute_values`: Index trên `group_instance_id` và `topic_attribute_id`.
 
-## 3. Flashcard & Spaced Repetition (SRS)
+## 3. Flashcard Templates & Spaced Repetition (SRS)
 
-Hỗ trợ hệ thống Card Template mới (`custom_card.md`). 1 Note chỉ có 1 Card duy nhất.
+Hệ thống Template gắn trực tiếp với từng chủ đề (`topics`). Template định nghĩa cách ánh xạ dữ liệu thuộc tính của `topic_items` thành giao diện thẻ học flashcard, gán vai trò ngữ nghĩa (`SemanticRole`) cho từng trường hiển thị.
 
-### Bảng `CardTemplate`
+Tiến trình ôn tập ngắt quãng Spaced Repetition được quản lý thông qua thuật toán FSRS trực tiếp trên từng mục từ vựng học tập của người dùng qua bảng `fsrs_records`.
+
+### Bảng `templates`
+Kế thừa `BaseTimeEntity`.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID Template |
-| `code` | String | Unique, Nullable| Mã system template (VD: CLASSIC) |
-| `name` | String | Not Null | Tên hiển thị |
-| `description` | String | | Mô tả template |
-| `isSystem` | Boolean | Not Null | Là template hệ thống (không xóa) |
-| `interactionType`| Enum | Not Null | Kiểu tương tác (FLIP, TYPE_IN, TAP_TO_REVEAL) |
-| `baseLayout` | Enum | Not Null | Bố cục cơ bản |
-| `userId` | Long | FK -> `User(id)` | Người tạo (nếu là custom), Null nếu là system |
-| `isDeleted` | Boolean | | Đánh dấu xóa mềm |
-| `createdAt` | Instant| | Thời điểm tạo |
-| `updatedAt` | Instant| | Thời điểm cập nhật |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID mẫu thẻ học |
+| `name` | VARCHAR(255) | NOT NULL | Tên mẫu thẻ (Classic, Listening, Detail...) |
+| `topic_id` | BIGINT | FK -> `topics(id)`, NOT NULL | Áp dụng cho chủ đề nào |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
+| `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
 
-### Bảng `CardTemplateField`
+### Bảng `template_elements`
+Các thành phần hiển thị trên template, sắp xếp theo thứ tự hiển thị.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID Trường template |
-| `cardTemplateId` | Long | FK -> `CardTemplate(id)` | Tham chiếu Template |
-| `fieldCode` | Enum | Not Null | Loại trường (WORD, MEANING, IPA, AUDIO, IMAGE...) |
-| `side` | Enum | Not Null | Mặt trước/sau (FRONT/BACK) |
-| `displayOrder` | Integer | Not Null | Thứ tự hiển thị |
-| `isPrimary` | Boolean | Not Null | Là trường chính (nổi bật) |
-| `fieldConfig` | JSON | | Cấu hình phụ (autoplay, maskPattern) |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID thành phần |
+| `template_id` | BIGINT | FK -> `templates(id)`, NOT NULL | Thuộc template nào |
+| `position` | INT | NOT NULL | Vị trí hiển thị trên thẻ |
+| `type` | VARCHAR(50) | ENUM, NOT NULL | Loại phần tử (FIELD, DIVIDER, BUTTON...) |
 
-### Bảng `Deck`
+Ràng buộc duy nhất: UNIQUE(`template_id`, `position`).
+
+### Bảng `template_fields`
+Cấu hình chi tiết cho phần tử dạng FIELD, ánh xạ trực tiếp thuộc tính EAV với vai trò ngữ nghĩa (SemanticRole) trên thẻ học.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID Bộ thẻ |
-| `userId` | Long | FK -> `User(id)` | Người sở hữu bộ thẻ |
-| `cardTemplateId` | Long | FK -> `CardTemplate(id)`, Not Null | Template hiển thị mặc định của bộ thẻ |
-| `name` | String | | Tên bộ thẻ |
-| `description` | String | | Mô tả |
-| `status` | Enum | ACTIVE, ARCHIVED, DELETED | Trạng thái Deck |
-| `createdAt` | Instant| | Thời điểm tạo |
-| `updatedAt` | Instant| | Thời điểm cập nhật |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID cấu hình trường |
+| `element_id` | BIGINT | FK -> `template_elements(id)`, UNIQUE, NOT NULL | Phần tử template tương ứng (quan hệ 1-1) |
+| `topic_attribute_id` | BIGINT | FK -> `topic_attributes(id)`, NOT NULL | Thuộc tính EAV được lấy dữ liệu |
+| `semantic_role` | VARCHAR(50) | ENUM, NULLABLE | Vai trò ngữ nghĩa trên thẻ học |
+| `field_label` | VARCHAR(255) | NULL | Nhãn trường khi render |
+| `hide_if_empty` | BOOLEAN | DEFAULT FALSE, NOT NULL | Tự động ẩn nếu giá trị rỗng |
+| `audio_action` | BOOLEAN | DEFAULT FALSE, NOT NULL | Cho phép bấm phát âm thanh |
+| `font_size` | INT | NULL | Cỡ chữ tùy chỉnh |
+| `alignment` | VARCHAR(20) | ENUM('LEFT', 'CENTER', 'RIGHT'), NULL | Căn lề |
+| `color` | VARCHAR(50) | NULL | Mã màu hex hiển thị |
 
-### Bảng `Note`
+#### Danh sách SemanticRole:
+- `FRONT`: Hiển thị ở mặt trước của thẻ học.
+- `BACK`: Hiển thị ở mặt sau của thẻ học.
+- `EXAMPLE`: Câu ví dụ ngữ cảnh.
+- `AUDIO`: File âm thanh phát âm.
+- `IMAGE`: Hình ảnh minh họa.
+- `PHONETIC`: Phiên âm ngữ âm học IPA.
+- `TRANSLATION`: Nghĩa dịch tiếng Việt.
+- `HINT`: Gợi ý phụ khi người học cần hỗ trợ.
+- `TAG`: Nhãn phân loại hoặc thông tin meta.
+- `EXTRA`: Thông tin bổ sung mở rộng.
+
+### Bảng `fsrs_records`
+Kế thừa `BaseTimeEntity`. Quản lý tiến trình ôn tập ngắt quãng theo thuật toán FSRS cho từng cặp (user, topic_item).
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID Note dữ liệu gốc |
-| `deckId` | Long | FK -> `Deck(id)` | Note thuộc bộ thẻ nào |
-| `wordId` | Long | FK -> `Word(id)`, Nullable | Liên kết về từ điển gốc (nếu có) |
-| `word` | String | | Từ vựng |
-| `imageObjectKey`| String | Nullable | Ảnh crop từ scan hoặc ảnh custom |
-| `audioUrl` | String | Nullable | Link audio phát âm |
-| `audioSource` | Enum | DICTIONARY/TTS/CUSTOM | Nguồn audio (từ điển, AI đọc, upload) |
-| `status` | Enum | ACTIVE, ARCHIVED, DELETED | Trạng thái Note (Archive Note -> Card khỏi queue) |
-| `createdAt` | Instant| | Thời điểm tạo |
-| `updatedAt` | Instant| | Thời điểm cập nhật |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID bản ghi FSRS |
+| `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | Người học |
+| `topic_item_id` | BIGINT | FK -> `topic_items(id)`, NOT NULL | Mục từ vựng học tập |
+| `state` | TINYINT / ENUM | NOT NULL | Trạng thái: 0:NEW, 1:LEARNING, 2:REVIEW, 3:RELEARNING, 4:SUSPENDED |
+| `due` | DATETIME(6) | NOT NULL | Thời điểm đến hạn ôn tập tiếp theo |
+| `stability` | FLOAT | NOT NULL | Độ bền trí nhớ (S) tính theo ngày |
+| `difficulty` | FLOAT | NOT NULL | Độ khó của thẻ (D) từ 1.0 đến 10.0 |
+| `reps` | INT | DEFAULT 0, NOT NULL | Tổng số lần ôn tập thành công |
+| `lapses` | INT | DEFAULT 0, NOT NULL | Số lần quên (đánh giá Again trong phase Review) |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm bắt đầu học |
+| `updated_at` | DATETIME(6) | NOT NULL | Lần cập nhật tham số SRS gần nhất |
 
-### Bảng `NoteMeaning`
-| Field | Type | Quan hệ / Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID nghĩa |
-| `noteId` | Long | FK -> `Note(id)` | Thuộc Note nào |
-| `meaning` | String | | Nội dung tiếng Việt |
-| `partOfSpeech` | String | | Loại từ |
-| `example` | String | | Câu ví dụ |
-| `personalNote` | String | | Ghi chú cá nhân |
-
-### Bảng `NotePronunciation`
-| Field | Type | Quan hệ / Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID phát âm |
-| `noteId` | Long | FK -> `Note(id)` | Thuộc Note nào |
-| `ipa` | String | Not Null | Phiên âm quốc tế |
-
-### Bảng `Card`
-| Field | Type | Quan hệ / Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID Thẻ học (Dữ liệu SRS) |
-| `userId` | Long | FK -> `User(id)` | Chuẩn hóa ngược (Denormalize) để query nóng |
-| `noteId` | Long | FK -> `Note(id)`, Unique| Tương ứng với đúng 1 Note |
-| `cardState` | Enum | | Trạng thái SRS |
-| `dueAt` | Instant| | Thời điểm đến hạn ôn tập |
-| `stability` | Double | | Chỉ số độ bền trí nhớ |
-| `difficulty` | Double | | Chỉ số độ khó thẻ |
-| `repetitions` | Integer| | Số lần ôn tập |
-| `lapses` | Integer| | Số lần quên (quét sai) |
-| `lastReviewedAt`| Instant| | Thời điểm review gần nhất |
-| `createdAt` | Instant| | Thời điểm tạo |
-| `updatedAt` | Instant| | Thời điểm cập nhật |
-
-### Bảng `ReviewLog`
-| Field | Type | Quan hệ / Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID lượt ôn tập |
-| `cardId` | Long | FK -> `Card(id)`, Index | Thẻ được ôn tập |
-| `rating` | Enum | AGAIN/HARD/GOOD/EASY | Đánh giá của người dùng |
-| `stateBefore` | Enum | Nullable | Trạng thái thẻ trước khi review (tùy chọn) |
-| `stateAfter` | Enum | Nullable | Trạng thái thẻ sau khi review (tùy chọn) |
-| `scheduledDays`| Integer| | Số ngày lên lịch tiếp theo |
-| `elapsedDays` | Integer| | Số ngày trôi qua kể từ lần review trước |
-| `durationMs` | Long | | Thời gian review (milliseconds) |
-| `reviewedAt` | Instant| | Thời điểm review |
-
-### Ràng buộc & Indexes (Flashcard & SRS)
-- `CardTemplate`: Unique index trên `code`.
-- `CardTemplateField`: Unique constraint ghép `(cardTemplateId, fieldCode, side)`.
-- `Note`: Unique constraint ghép trên `(deckId, word)` để tránh lưu trùng lặp cùng một từ vựng trong cùng một Deck (chống spam progress).
-- `Card`: Unique constraint trên `noteId`. Index ghép trên `(userId, dueAt, cardState)` để lấy danh sách review nhanh cho từng User cụ thể.
-- `ReviewLog`: Bảng append-only (chỉ thêm mới), là nguồn dữ liệu để rebuild progress. Index ghép trên `(cardId, reviewedAt)`.
-- Các FK (`userId`, `deckId`, `cardTemplateId`, `noteId`, `cardId`, `wordId`) cần có index.
+### Ràng buộc & Indexes (Templates & SRS)
+- `templates`: Index trên `topic_id`.
+- `template_elements`: Unique constraint ghép `(template_id, position)`.
+- `template_fields`: Unique constraint trên `element_id`. Index trên `topic_attribute_id`.
+- `fsrs_records`: Unique constraint ghép `(user_id, topic_item_id)` đảm bảo mỗi người học có đúng 1 tiến trình cho mỗi mục từ.
+- `fsrs_records`: Index ghép trên `(user_id, due, state)` phục vụ query lấy danh sách thẻ đến hạn ôn tập cực nhanh.
 
 ## 4. Daily Mission & Gamification
 
@@ -397,190 +428,121 @@ Thiết kế từ `daily_mission.md` nhằm thúc đẩy duy trì thói quen h�
 | `eventKey` | String | Unique | Khóa chống giao dịch trùng từ 1 event |
 | `createdAt` | DateTime| | Thời điểm giao dịch |
 
-### Bảng `Badge`
+### Bảng `levels`
+Định nghĩa các mốc cấp độ theo điểm kinh nghiệm (EXP).
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID Huy hiệu |
-| `code` | String | Unique, Not Null | Mã huy hiệu (VD: NEWBIE, STREAK_7) |
-| `name` | String | | Tên hiển thị |
-| `description` | String | | Mô tả điều kiện đạt được |
-| `iconUrl` | String | | Link ảnh huy hiệu |
-| `isActive` | Boolean| | Trạng thái hiển thị |
+| `id` | INT | Khóa chính (PK), AUTO_INCREMENT | ID cấp độ |
+| `level_number` | INT | UNIQUE, NOT NULL | Số cấp độ (1, 2, 3...) |
+| `required_exp` | BIGINT | NOT NULL | Mốc EXP cần đạt để lên cấp |
+| `title` | VARCHAR(100) | NULL | Danh hiệu người học ở cấp độ này |
 
-### Bảng `UserBadge`
+### Bảng `shop_items`
+Kế thừa `BaseTimeEntity`. Quản lý danh mục vật phẩm bày bán trong cửa hàng.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID User nhận huy hiệu |
-| `userId` | Long | FK -> `User(id)` | Người nhận |
-| `badgeId` | Long | FK -> `Badge(id)` | Huy hiệu được nhận |
-| `awardedAt` | DateTime| | Thời điểm nhận |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID vật phẩm |
+| `name` | VARCHAR(255) | NOT NULL | Tên vật phẩm |
+| `type` | VARCHAR(50) | NOT NULL | Phân loại vật phẩm (THEME, AVATAR_FRAME, STREAK_FREEZE...) |
+| `price` | BIGINT | NOT NULL | Giá bán (tính bằng Coin) |
+| `is_active` | BOOLEAN | DEFAULT TRUE, NOT NULL | Cờ kích hoạt bày bán |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
+| `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
 
-### Bảng `ShopItem`
+### Bảng `user_inventories`
+Quản lý kho đồ, tài sản vật phẩm mà người học sở hữu.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID Vật phẩm |
-| `code` | String | Unique, Not Null | Mã vật phẩm (VD: XP_BOOSTER_1H) |
-| `name` | String | | Tên hiển thị |
-| `description` | String | | Mô tả vật phẩm |
-| `type` | Enum | | BOOSTER, AVATAR_FRAME, THEME... |
-| `price` | Number | | Giá tiền (Coin) |
-| `isActive` | Boolean| | Trạng thái bày bán |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID bản ghi kho đồ |
+| `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | Người sở hữu |
+| `item_id` | BIGINT | FK -> `shop_items(id)`, NOT NULL | Vật phẩm sở hữu |
+| `quantity` | INT | DEFAULT 0, NOT NULL | Số lượng sở hữu |
+| `acquired_at` | DATETIME(6) | NOT NULL | Thời điểm nhận vật phẩm |
 
-### Bảng `UserItem`
+Ràng buộc duy nhất: UNIQUE(`user_id`, `item_id`).
+
+### Ràng buộc & Indexes (Gamification & Shop)
+- `levels`: Unique index trên `level_number`.
+- `shop_items`: Index trên `is_active` và `type`.
+- `user_inventories`: Unique index ghép trên `(user_id, item_id)`.
+- Leaderboard: Quản lý qua Redis Sorted Set với điểm số là Weekly XP, nguồn dữ liệu tham chiếu và đồng bộ từ trường `exp` trên bảng `users`.
+
+---
+
+## 5. Media & AI Recognition
+
+Quản lý lưu trữ tệp tin và tiến trình nhận diện hình ảnh.
+
+### Lưu trữ tệp tin (Object Storage)
+- Tệp tin avatar, ảnh quét gốc và tài nguyên tĩnh được lưu trữ trực tiếp trên Object Storage (MinIO cho dev/staging, Cloudflare R2 cho production).
+- Database lưu trữ trực tiếp URL truy cập hoặc object key (`avatar_url` trên bảng `users`, URL ảnh crop và âm thanh trong bảng giá trị EAV `topic_item_attribute_values`).
+
+---
+
+## 6. Notifications
+
+Quản lý thông báo trong ứng dụng gửi đến người học.
+
+### Bảng `notifications`
+Kế thừa `BaseCreatedAtEntity`. Nội dung thông báo hệ thống.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID kho đồ user |
-| `userId` | Long | FK -> `User(id)` | Người sở hữu |
-| `itemCode` | String | FK -> `ShopItem(code)` | Mã vật phẩm |
-| `quantity` | Integer| | Số lượng sở hữu |
-| `expiresAt` | DateTime| Nullable | Thời điểm hết hạn (nếu có) |
-| `updatedAt` | DateTime| | Thời điểm cập nhật lần cuối |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID thông báo |
+| `title` | VARCHAR(255) | NOT NULL | Tiêu đề thông báo |
+| `content` | LONGTEXT | NOT NULL | Nội dung thông báo |
+| `type` | VARCHAR(50) | NULL | Phân loại thông báo (SYSTEM, REMINDER, REWARD...) |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
 
-### Ràng buộc & Indexes (Daily Mission & Gamification)
-- `UserDailyMission`: Unique constraint ghép `(userId, missionDate, slot)` và `(userId, missionDate, missionTemplateId)`. Ràng buộc `currentProgress <= targetValue`.
-- `UserDailyMissionClaimLog`: Unique index trên `idempotencyKey` và Unique constraint trên `userDailyMissionId` (chặn triệt để race condition claim double ở cấp độ DB). Khi xử lý cần update có điều kiện `UPDATE UserDailyMission SET status='CLAIMED' WHERE id=? AND status='COMPLETED'` (chỉ cộng reward khi affected rows = 1).
-- `UserWeeklyMilestone`: Unique constraint ghép `(userId, weekStartDate)`.
-- `UserDailyChest`: Unique constraint ghép `(userId, chestDate)`.
-- Ràng buộc: `activityStampCount` nằm trong khoảng 0-7.
-- `ExperienceLog` & `CoinTransaction`: Unique index trên `eventKey` để đảm bảo tính idempotency, chống cộng trùng tài sản từ các luồng khác. Ledger này là nguồn để rebuild lại tổng XP/Coin trên bảng `User`.
-- `UserBadge`: Unique constraint ghép `(userId, badgeId)`.
-- `ShopItem`: Unique index trên `code`.
-- `UserItem`: Unique constraint ghép `(userId, itemCode)`.
-- **Leaderboard**: Quản lý bằng Redis Sorted Set, nguồn dữ liệu tham chiếu & rebuild là bảng `ExperienceLog`.
+### Bảng `user_notifications`
+Phân phối thông báo tới từng người học.
 
-## 5. Recognition & Storage
-
-Quản lý dữ liệu lưu trữ media và tiến trình nhận diện hình ảnh (Scan-to-Vocabulary).
-
-### Bảng `MediaObject`
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID Media |
-| `objectKey` | String | Unique, Not Null | Khóa object trên hệ thống Storage (S3/R2) |
-| `ownerId` | Long | FK -> `User(id)` | Người tải lên (nếu có) |
-| `mimeType` | String | | Định dạng file (VD: image/jpeg) |
-| `sizeBytes` | Long | | Kích thước file |
-| `purpose` | String | | Mục đích (SCAN, AVATAR...) |
-| `createdAt` | Instant| | Thời điểm tạo |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID bản ghi |
+| `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | Người nhận |
+| `notification_id` | BIGINT | FK -> `notifications(id)`, NOT NULL | Thông báo gốc |
+| `is_read` | BOOLEAN | DEFAULT FALSE, NOT NULL | Trạng thái đã đọc |
+| `read_at` | DATETIME(6) | NULL | Thời điểm đọc |
 
-### Bảng `ScanRequest`
-| Field | Type | Quan hệ / Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID lượt quét |
-| `userId` | Long | FK -> `User(id)` | Người thực hiện quét |
-| `mediaObjectId`| Long | FK -> `MediaObject(id)`| Ảnh gốc để quét |
-| `status` | Enum | | QUEUED, PROCESSING, SUCCESS, FAILED, CANCELED |
-| `quotaDate` | LocalDate | Index (`userId`, `quotaDate`) | Ngày quota bị trừ cho lượt scan này |
-| `queuePositionSnapshot` | Integer | | Vị trí hàng đợi tại thời điểm trả response (ước tính) |
-| `queuedAt` | Instant | | Thời điểm job vào hàng đợi |
-| `processingStartedAt` | Instant | | Thời điểm worker bắt đầu xử lý |
-| `completedAt` | Instant | | Thời điểm kết thúc thành công/thất bại |
-| `queueWaitMs` | Long | | Thời gian chờ trong hàng đợi |
-| `aiLatencyMs` | Long | | Độ trễ xử lý thực tế của AI |
-| `createdAt` | Instant| | Thời điểm tạo request |
+Ràng buộc duy nhất: UNIQUE(`user_id`, `notification_id`).
+Index: Ghép trên `(user_id, is_read)` và `(user_id, notification_id)`.
 
-### Bảng `DetectedObject`
-| Field | Type | Quan hệ / Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID đối tượng nhận diện |
-| `scanRequestId`| Long | FK -> `ScanRequest(id)`| Thuộc lượt quét nào |
-| `label` | String | | Tên vật thể (nhãn AI trả về) |
-| `confidence` | Double | | Độ tin cậy (0-1) |
-| `bbox` | JSON | | Tọa độ bounding box |
-| `cropObjectKey`| String | | Object key của ảnh đã crop |
-| `wordId` | Long | FK -> `Word(id)` | ID từ vựng map với label (nullable) |
+---
 
-### Bảng `ObjectWordMapping`
-| Field | Type | Quan hệ / Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID mapping |
-| `label` | String | Unique, Not Null | Nhãn AI trả về |
-| `wordId` | Long | FK -> `Word(id)` | ID từ vựng map chuẩn |
+## 7. Các truy vấn nóng & Chiến lược tối ưu (Hot Queries)
 
-### Ràng buộc & Indexes (Recognition & Storage)
-- `MediaObject`: Unique index trên `objectKey`.
-- `ObjectWordMapping`: Unique index trên `label`.
-- `DetectedObject`: Các FK (`scanRequestId`, `wordId`) cần index.
-- `ScanRequest`: FK (`userId`, `mediaObjectId`) cần index. Index thêm trên `userId` và `status` để load lịch sử scan nhanh.
+Các truy vấn có tần suất gọi cao được thiết kế index và mô hình tối ưu:
 
-## 6. Quiz & Assessment
+1. **Lấy hàng đợi ôn tập FSRS của người dùng:**
+   - Mục đích: Lấy danh sách các mục từ vựng đến hạn ôn tập cho buổi học Spaced Repetition.
+   - Query:
+     ```sql
+     SELECT * FROM fsrs_records 
+     WHERE user_id = ? AND due <= ? AND state IN (1, 2, 3) 
+     ORDER BY due ASC;
+     ```
+   - Tối ưu: Index ghép `(user_id, due, state)` trên bảng `fsrs_records`. Truy vấn đọc trực tiếp từ 1 bảng duy nhất, không cần join lồng nhiều tầng.
 
-Lưu trữ kết quả kiểm tra định kỳ và quiz ngắn để đánh giá tiến độ học (hỗ trợ các Gamification Mission liên quan đến Quiz).
+2. **Lấy dữ liệu phân trang EAV cho Topic (Two-step EAV Pagination):**
+   - Thách thức: Mô hình EAV với các nhóm lặp (multiple attribute groups) nếu dùng JOIN 1 câu duy nhất sẽ sinh ra Cartesian product khổng lồ và sai lệch số lượng phân trang.
+   - Giải pháp:
+     - Bước 1: Query phân trang chỉ lấy danh sách `id` từ `topic_items` theo `topic_id`.
+     - Bước 2: Batch query danh sách phẳng các thuộc tính từ `topic_item_attribute_groups` và `topic_item_attribute_values` theo danh sách `topic_item_id` của trang hiện tại, sau đó gom nhóm trực tiếp trên memory backend.
 
-### Bảng `QuizAttempt`
-| Field | Type | Quan hệ / Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | UUID | Khóa chính (PK) | ID lượt làm bài |
-| `userId` | Long | FK -> `User(id)` | Người làm bài |
-| `quizType` | Enum | | Loại quiz (QUICK_TEST, MINI_GAME...) |
-| `score` | Double | | Điểm số đạt được (0-100) |
-| `accuracy` | Double | | Tỷ lệ chính xác (0-1) |
-| `totalQuestions`| Integer| | Tổng số câu hỏi |
-| `correctCount` | Integer| | Số câu đúng |
-| `timeSpentMs` | Long | | Thời gian làm bài |
-| `createdAt` | DateTime| | Thời điểm bắt đầu |
-| `completedAt` | DateTime| | Thời điểm nộp bài |
+3. **Tra cứu từ vựng từ điển nhanh (Dictionary Lookup):**
+   - Query:
+     ```sql
+     SELECT * FROM words WHERE word = ? AND lang_code = 'en' AND is_deleted = false;
+     ```
+   - Tối ưu: Unique index ghép trên `(word, lang_code)` trên bảng `words`.
 
-### Bảng `QuizAttemptAnswer`
-| Field | Type | Quan hệ / Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | UUID | Khóa chính (PK) | ID câu trả lời |
-| `quizAttemptId` | UUID | FK -> `QuizAttempt(id)` | Thuộc lượt làm bài nào |
-| `cardId` | Long | FK -> `Card(id)`, Nullable | Thẻ được hỏi (nếu có) |
-| `isCorrect` | Boolean| | Trả lời đúng hay sai |
-| `userAnswer` | String | | Nội dung user trả lời |
-| `timeSpentMs` | Long | | Thời gian trả lời câu này |
-
-## 7. Notification & Device
-
-Quản lý thông báo In-app và Push notification để giữ chân người dùng.
-
-### Bảng `DeviceToken`
-| Field | Type | Quan hệ / Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | Long | Khóa chính (PK) | ID thiết bị |
-| `userId` | Long | FK -> `User(id)` | Chủ thiết bị |
-| `token` | String | Unique, Not Null | FCM / APNs Token |
-| `platform` | Enum | iOS, Android, Web | Nền tảng |
-| `isActive` | Boolean| | Cờ token còn hợp lệ không |
-| `lastActiveAt`| DateTime| | Lần cuối hoạt động |
-
-### Bảng `Notification`
-| Field | Type | Quan hệ / Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | UUID | Khóa chính (PK) | ID thông báo |
-| `userId` | Long | FK -> `User(id)` | Người nhận thông báo |
-| `type` | Enum | | SYSTEM, REMINDER, PROMO, SOCIAL |
-| `title` | String | | Tiêu đề |
-| `body` | String | | Nội dung |
-| `payload` | JSON | | Dữ liệu đính kèm (deeplink, action) |
-| `readAt` | DateTime| Nullable | Thời điểm đọc (null = chưa đọc) |
-| `createdAt` | DateTime| | Thời điểm gửi |
-
-### Ràng buộc & Indexes (Quiz, Notification & Progress)
-- `QuizAttempt`: Index trên `(userId, quizType, completedAt)` để query nhanh lịch sử và hỗ trợ đánh giá `IMPROVE_QUIZ_SCORE`.
-- `QuizAttemptAnswer`: Index trên `quizAttemptId`.
-- `DeviceToken`: Unique index trên `token`.
-- `Notification`: Index ghép trên `(userId, createdAt)` để sort danh sách thông báo theo user.
-- **Progress & Streak**: Không dùng bảng LearningEvent riêng. Chiến lược aggregate: Tính toán và rebuild streak/progress dựa trên thao tác append-only của 2 bảng `ReviewLog` (khi review thẻ SRS) và `QuizAttempt` (khi làm bài quiz).
-
-## 8. Hot Queries & Optimization
-
-Các truy vấn nóng (chạy liên tục, tần suất cao) đã được thiết kế và tối ưu bằng Index/Denormalization:
-
-1. **Lấy danh sách Card đến hạn ôn tập của User X:**
-   - **Thách thức:** Cấu trúc gốc `Card -> Note -> Deck -> User` bắt buộc phải JOIN 3 bảng để lọc được theo `userId`.
-   - **Giải pháp:** Chuẩn hóa ngược (Denormalize) trường `userId` thẳng vào bảng `Card`.
-   - **Query:** `SELECT * FROM Card WHERE userId = ? AND dueAt <= ? AND cardState IN (?, ?)`
-   - **Index phục vụ:** Index ghép `(userId, dueAt, cardState)` trên bảng `Card` để lấy dữ liệu O(1) hoặc quét range hẹp, tránh table scan.
-
-2. **Lấy lịch sử claim rương/nhiệm vụ (Gamification):**
-   - **Index phục vụ:** Unique constraint `(userId, chestDate)` trên `UserDailyChest` và `(userId, missionDate, missionTemplateId)` trên `UserDailyMission`.
-
-3. **Ghi log EXP/Coin an toàn (Idempotent):**
-   - **Thách thức:** Tránh bùng nổ tài sản do gọi API 2 lần (lỗi client hoặc network).
-   - **Index phục vụ:** Unique Index `eventKey` trên `ExperienceLog` và `CoinTransaction`. Mọi lỗi `ConstraintViolation` đều được xử lý êm (return existing data).
-
-4. **Lookup Dictionary khi nhận diện hình ảnh (M2):**
-   - **Thách thức:** Cần map cực nhanh từ nhãn AI trả về sang từ vựng hệ thống.
-   - **Index phục vụ:** Unique Index `label` trên `ObjectWordMapping`. Lỗi import từ vựng (chạy job 2 lần) được chặn bằng Unique Constraint `(word, langCode)` trên `Word`.
+4. **Lấy danh sách bộ sưu tập người dùng (My Collections):**
+   - Query:
+     ```sql
+     SELECT * FROM collections WHERE (type = 'SYSTEM' OR (type = 'USER' AND owner_id = ?)) ORDER BY id ASC;
+     ```
+   - Tối ưu: Index trên `(type, owner_id)`. Thêm caching ở tầng Spring Cache / Redis.

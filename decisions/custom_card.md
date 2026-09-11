@@ -1,6 +1,6 @@
-# Đặc tả Chức năng: Custom Card
+# Đặc tả Kiến trúc: Topic Template & Thẻ Flashcard Tùy chỉnh (Custom Card)
 
-Tài liệu này mô tả chi tiết chức năng **Custom Card** — cho phép Learner tùy chỉnh cách hiển thị thẻ flashcard khi học, sử dụng các card template do hệ thống cung cấp sẵn kết hợp với khả năng tùy chỉnh nội dung cá nhân.
+Tài liệu này mô tả chi tiết kiến trúc **Topic Template** — giải pháp cho phép hệ thống và người học tùy biến cách thức hiển thị thẻ flashcard khi ôn tập các mục từ vựng (`TopicItem`) trong từng chủ đề (`Topic`), dựa trên cấu trúc thuộc tính động kết hợp các vai trò ngữ nghĩa (`SemanticRole`).
 
 ---
 
@@ -8,419 +8,339 @@ Tài liệu này mô tả chi tiết chức năng **Custom Card** — cho phép 
 
 ### 1.1. Vấn đề cần giải quyết
 
-Hệ thống flashcard hiện tại ([Card.java](file:///c:/Project/snap-vocab/snap-vocab-backend/src/main/java/vn/ptit/snapvocab/domain/Card.java)) chỉ hỗ trợ 2 kiểu thẻ cố định qua enum [CardType](file:///c:/Project/snap-vocab/snap-vocab-backend/src/main/java/vn/ptit/snapvocab/domain/enumeration/CardType.java):
+Hệ thống flashcard dạng truyền thống thường áp dụng cấu trúc cứng nhắc: mặt trước luôn là từ vựng, mặt sau luôn là định nghĩa cố định. Cách tiếp cận này bộc lộ những hạn chế lớn:
 
-- `WORD_TO_MEANINGS`: Mặt trước hiển thị từ → Mặt sau hiển thị nghĩa
-- `MEANINGS_TO_WORD`: Mặt trước hiển thị nghĩa → Mặt sau hiển thị từ
+1. **Không thích ứng với thuộc tính động**: Mỗi chủ đề học tập (`Topic`) có thể có bộ thuộc tính riêng (phiên âm, giải nghĩa tiếng Việt, câu ví dụ, ngữ cảnh, hình ảnh minh họa, file phát âm...). Cấu trúc cứng không thể phản ánh đầy đủ mô hình dữ liệu EAV của hệ thống.
+2. **Thiếu linh hoạt trong trải nghiệm học**: Người học hoặc chủ đề khác nhau đòi hỏi các kiểu hiển thị khác nhau (học nhận diện mặt chữ, học nghe - phát hiện từ, học đoán nghĩa qua câu ví dụ, học qua hình ảnh).
+3. **Phụ thuộc triển khai client**: Nếu không có cơ chế template động từ backend, mỗi khi thay đổi cách bố trí hiển thị lại đòi hỏi cập nhật code ứng dụng di động.
 
-Cách tiếp cận này có **ba hạn chế lớn**:
+### 1.2. Giải pháp: Topic Template System
 
-1. **Thiếu đa dạng**: Không tận dụng được dữ liệu phong phú của Note (phiên âm, audio, ảnh scan, ví dụ, ghi chú cá nhân) cho các kiểu học khác nhau.
-2. **Không cá nhân hóa**: Mọi Learner đều thấy cùng một layout thẻ, không thể tùy biến theo phong cách học riêng.
-3. **Khó mở rộng**: Muốn thêm kiểu thẻ mới (ví dụ: nghe audio → đoán từ) phải sửa code backend và mobile.
+SnapVocab áp dụng mô hình template gắn trực tiếp với từng chủ đề (`Topic`):
 
-### 1.2. Giải pháp: Card Template System
+- **Template theo chủ đề**: Mỗi `Topic` sở hữu một `Template` quy định cách hiển thị flashcard cho toàn bộ các `TopicItem` thuộc chủ đề đó.
+- **Phân rã thành phần tử (`TemplateElement`)**: Mỗi template chứa danh sách các phần tử hiển thị theo thứ tự vị trí (`position`), phân loại theo kiểu phần tử (`FIELD`, `DIVIDER`, `BUTTON`).
+- **Ánh xạ thuộc tính & vai trò ngữ nghĩa (`TemplateField`)**: Với phần tử kiểu `FIELD`, cấu hình liên kết trực tiếp tới một thuộc tính `TopicAttribute`, đồng thời gán vai trò ngữ nghĩa `SemanticRole` (`FRONT`, `BACK`, `EXAMPLE`, `AUDIO`, `IMAGE`, `PHONETIC`, `TRANSLATION`, `HINT`, `TAG`, `EXTRA`) kèm định dạng hiển thị (`font_size`, `alignment`, `color`, `audio_action`, `hide_if_empty`).
+- **Tối giản cho Learner**: Không yêu cầu viết mã HTML/CSS. Ứng dụng di động dựa vào `semantic_role` và thứ tự `position` để render thẻ trực quan, mượt mà trên màn hình cảm ứng.
 
-Lấy cảm hứng từ hệ thống Note Type + Card Template của Anki, nhưng **đơn giản hóa triệt để** — Learner **không cần viết HTML/CSS**, mọi thứ được thao tác qua giao diện trực quan:
-
-| Khía cạnh | Anki | SnapVocab Custom Card |
+| Khía cạnh | Mô hình cũ (Cố định) | Mô hình Topic Template hiện tại |
 | :--- | :--- | :--- |
-| Tạo template | Viết HTML + CSS + placeholder `{{field}}` | Chọn layout preset, kéo thả/bật tắt field |
-| Tạo field | Tự khai báo tên field, kiểu dữ liệu | Hệ thống cung cấp sẵn danh sách field từ Note data |
-| Styling | CSS tùy ý | Chọn theme/color scheme có sẵn |
-| Số card/note | Tùy ý, do template sinh | Tối đa theo số template được gán vào Deck |
-| Độ phức tạp | Cao (power user) | Thấp (mobile-friendly) |
+| Phạm vi áp dụng | Toàn bộ thẻ chung một khuôn | Từng `Topic` có template riêng |
+| Nguồn dữ liệu | Cột cố định trong bảng note | Thuộc tính động từ `TopicAttribute` và `TopicItemAttributeValue` |
+| Bố cục hiển thị | Cố định 2 mặt trước / sau | Sắp xếp theo `position` với các vai trò ngữ nghĩa `SemanticRole` |
+| Quản lý tiến độ | Bảng Card riêng lẻ | `FsrsRecord` gắn với cặp `(user_id, topic_item_id)` |
+| Độ phức tạp | Cứng nhắc, khó mở rộng | Động, mở rộng linh hoạt theo dữ liệu EAV |
 
-### 1.3. Thuộc Milestone nào?
+### 1.3. Vị trí trong hệ thống
 
-Chức năng này nằm trong **Milestone 3 — Learning Engine**, mở rộng từ FR-05 (Flashcard) trong [specs.md](file:///c:/Project/snap-vocab/docs/spec/specs.md). Cụ thể, nó bổ sung khả năng tùy chỉnh thẻ học mà Milestone 1 (flashcard cơ bản) chưa bao phủ.
+Chức năng này thuộc phân hệ **Learning Engine**, cung cấp cấu hình hiển thị cho module Flashcard và thuật toán lặp lại ngắt quãng FSRS (`FsrsRecord`).
 
 ---
 
 ## 2. Khái niệm cốt lõi
 
-### 2.1. Card Field (Trường dữ liệu)
+### 2.1. Cấu trúc Thuộc tính động của Topic (`TopicAttribute`)
 
-Mỗi **Card Field** đại diện cho một phần tử thông tin có thể hiển thị trên thẻ. Hệ thống cung cấp sẵn danh sách field dựa trên dữ liệu của [Note](file:///c:/Project/snap-vocab/snap-vocab-backend/src/main/java/vn/ptit/snapvocab/domain/Note.java) và các entity liên quan:
+Mỗi chủ đề (`Topic`) tổ chức dữ liệu theo mô hình động:
+- Một `Topic` có các nhóm thuộc tính (`TopicAttributeGroup`).
+- Mỗi nhóm chứa các thuộc tính (`TopicAttribute`) xác định tên thuộc tính, nhãn hiển thị (`label`), kiểu dữ liệu (`dataType`), thứ tự (`position`) và trạng thái bắt buộc (`required`).
+- Các mục từ trong chủ đề (`TopicItem`) lưu giá trị thực tế tương ứng trong bảng `topic_item_attribute_values`.
 
-| Field Code | Tên hiển thị | Loại dữ liệu | Nguồn |
-| :--- | :--- | :--- | :--- |
-| `WORD` | Từ vựng | Text | `Note.word` |
-| `MEANING` | Nghĩa tiếng Việt | Text | `NoteMeaning.meaning` |
-| `PART_OF_SPEECH` | Loại từ | Text | `NoteMeaning.partOfSpeech` |
-| `EXAMPLE` | Câu ví dụ | Text | `NoteMeaning.example` |
-| `PERSONAL_NOTE` | Ghi chú cá nhân | Text | `NoteMeaning.personalNote` |
-| `IPA` | Phiên âm IPA | Text | `NotePronunciation.ipa` |
-| `AUDIO` | Phát âm | Audio playable | Audio URL từ Dictionary hoặc TTS |
-| `IMAGE` | Ảnh minh họa | Image | Ảnh scan crop (cropUrl) hoặc ảnh user upload |
+### 2.2. Vai trò Ngữ nghĩa (`SemanticRole`)
 
-> **Mở rộng tương lai**: Khi hệ thống bổ sung thêm dữ liệu (synonym, antonym, collocation...), chỉ cần thêm Card Field mới mà không ảnh hưởng kiến trúc template.
+Để ứng dụng di động hiểu được ý nghĩa hiển thị mà không cần hardcode tên trường, mỗi `TemplateField` được gán một `SemanticRole`:
 
-### 2.2. Card Template (Mẫu thẻ)
+| SemanticRole | Ý nghĩa | Ứng dụng hiển thị trên thẻ |
+| :--- | :--- | :--- |
+| `FRONT` | Nội dung câu hỏi chính ở mặt trước | Từ vựng, cụm từ, thuật ngữ chính cần ghi nhớ |
+| `BACK` | Đáp án chính ở mặt sau | Giải nghĩa, định nghĩa từ vựng |
+| `EXAMPLE` | Câu ví dụ hoặc ngữ cảnh sử dụng | Câu ví dụ minh họa kèm bản dịch (nếu có) |
+| `AUDIO` | Dữ liệu âm thanh / phát âm | Tích hợp nút nghe hoặc tự động phát âm |
+| `IMAGE` | Hình ảnh minh họa | Render hình ảnh ở vị trí nổi bật của thẻ |
+| `PHONETIC` | Ký âm ngữ âm | Hiển thị phiên âm quốc tế (IPA) |
+| `TRANSLATION` | Bản dịch nghĩa tiếng mẹ đẻ | Hiển thị nghĩa tiếng Việt bổ trợ |
+| `HINT` | Gợi ý khi người học gặp khó khăn | Hiển thị dạng ẩn, mở khi người học bấm nút gợi ý |
+| `TAG` | Thẻ phân loại hoặc cấp độ | Cấp độ CEFR, nhãn ngữ pháp (noun, verb...) |
+| `EXTRA` | Thông tin bổ sung | Ghi chú cá nhân, từ đồng nghĩa, trái nghĩa |
 
-Mỗi **Card Template** định nghĩa:
+### 2.3. Bố cục Template (`Template` & `TemplateElement`)
 
-- **Layout**: Cách bố trí các field trên mặt trước (front) và mặt sau (back) của thẻ.
-- **Kiểu tương tác**: Flip (lật thẻ), Type-in (gõ đáp án), Tap-to-reveal (chạm từng phần).
-- **Field mapping**: Field nào hiển thị ở đâu, với vai trò gì (chính, phụ, gợi ý).
-
-Hệ thống cung cấp **hai loại template**:
-
-#### A. System Templates (Template hệ thống)
-
-Các template được thiết kế sẵn, bảo đảm trải nghiệm tốt trên mobile:
-
-| Template Code | Tên | Mặt trước (Front) | Mặt sau (Back) | Tương tác |
-| :--- | :--- | :--- | :--- | :--- |
-| `CLASSIC` | Từ → Nghĩa (Classic) | `WORD`, `IPA` | `MEANING`, `PART_OF_SPEECH`, `EXAMPLE`, `AUDIO` | Flip |
-| `REVERSE` | Nghĩa → Từ | `MEANING`, `PART_OF_SPEECH` | `WORD`, `IPA`, `AUDIO` | Flip |
-| `LISTENING` | Nghe → Đoán từ | `AUDIO` (auto-play) | `WORD`, `MEANING`, `IPA` | Flip |
-| `IMAGE_VOCAB` | Ảnh → Từ | `IMAGE` | `WORD`, `MEANING`, `IPA`, `AUDIO` | Flip |
-| `SPELLING` | Nghe → Viết từ | `AUDIO` (auto-play), `MEANING` (gợi ý) | `WORD`, `IPA` | Type-in |
-| `CONTEXT` | Đoán từ trong ngữ cảnh | `EXAMPLE` (từ chính bị ẩn `___`) | `WORD`, `MEANING`, `IPA`, `AUDIO` | Tap-to-reveal |
-
-#### B. Custom Templates (Template tùy chỉnh)
-
-Learner có thể **tạo template riêng** bằng cách:
-
-1. **Chọn base layout** từ danh sách layout preset (1 cột, 2 cột, ảnh trên-text dưới...).
-2. **Kéo thả / bật tắt field** vào mặt trước và mặt sau.
-3. **Sắp xếp thứ tự** hiển thị các field.
-4. **Chọn field chính (primary)**: Field được hiển thị nổi bật nhất (font lớn, vị trí trung tâm).
-5. **Chọn interaction type**: Flip, Type-in hoặc Tap-to-reveal.
-
-### 2.3. Cấu hình Template cho Deck
-
-Mỗi [Deck](file:///c:/Project/snap-vocab/snap-vocab-backend/src/main/java/vn/ptit/snapvocab/domain/Deck.java) chỉ được gán **duy nhất 1 Card Template**. Khi Learner tạo Deck, họ sẽ chọn template mặc định cho Deck đó. Bất cứ Note nào được thêm vào Deck cũng sẽ được hiển thị dưới dạng 1 Card tuân theo khuôn mẫu của Template này.
-
-Ví dụ: Deck "Luyện Nghe IELTS" được gán template `LISTENING` → mỗi Note được thêm vào sẽ chỉ sinh ra đúng 1 Card luyện nghe.
+Một `Template` liên kết với `Topic` qua trường `topic_id`. Template bao gồm:
+- **`TemplateElement`**: Đại diện cho một khối phần tử trên giao diện flashcard.
+  - `position`: Thứ tự hiển thị tăng dần từ trên xuống dưới.
+  - `type`: Phân loại phần tử gồm `FIELD` (trường dữ liệu), `DIVIDER` (đường phân tách giữa các phần), hoặc `BUTTON` (nút tương tác như nút nghe, nút lật thẻ).
+- **`TemplateField`**: Cấu hình chi tiết cho phần tử kiểu `FIELD`.
+  - `topic_attribute_id`: Khóa ngoại tham chiếu đến thuộc tính cần lấy dữ liệu.
+  - `semantic_role`: Vai trò ngữ nghĩa nêu trên.
+  - `field_label`: Nhãn tuỳ chỉnh hiển thị trước giá trị (nếu có).
+  - `hide_if_empty`: Nếu giá trị của thuộc tính rỗng thì ẩn hoàn toàn phần tử khỏi thẻ.
+  - `audio_action`: Kích hoạt tương tác phát âm thanh khi nhấn vào trường này.
+  - `font_size`, `alignment` (`LEFT`, `CENTER`, `RIGHT`), `color`: Các thuộc tính định dạng giao diện.
 
 ---
 
 ## 3. Cơ chế hoạt động
 
-### 3.1. Luồng tạo và sử dụng Custom Card
+### 3.1. Luồng cấu hình Template cho Topic
 
 ```
-Learner tạo Deck
-        │
-        ▼
-Chọn 1 Card Template cho Deck
-   (System hoặc Custom)
-        │
-        ▼
-Thêm Note vào Deck
-   (từ scan, dictionary, hoặc nhập thủ công)
-        │
-        ▼
-Hệ thống tự động sinh Card
-   (1 Note = 1 Card duy nhất)
-        │
-        ▼
-Learner học Flashcard
-   (Card render theo template của Deck)
-        │
-        ▼
-SRS cập nhật lịch ôn cho Card
+Quản trị viên / Người dùng tạo Topic
+                 │
+                 ▼
+Khai báo TopicAttributeGroup & TopicAttribute
+(Định nghĩa schema thuộc tính: từ, ipa, nghĩa, ví dụ, audio)
+                 │
+                 ▼
+Khởi tạo Template cho Topic
+(Hệ thống tự động sinh template mặc định hoặc người dùng tùy chỉnh)
+                 │
+                 ▼
+Tạo danh sách TemplateElement & TemplateField
+(Gán position, kiểu phần tử, ánh xạ attribute và semantic_role)
+                 │
+                 ▼
+Nhập dữ liệu các TopicItem
+(Giá trị thuộc tính được lưu vào topic_item_attribute_values)
 ```
 
-### 3.2. Luồng tạo Custom Template
+### 3.2. Luồng render thẻ trong phiên học Flashcard
 
 ```
-Learner vào "Quản lý Template"
-        │
-        ▼
-Nhấn "Tạo Template mới"
-        │
-        ▼
-Chọn Base Layout
-   (1-col, 2-col, image-top, ...)
-        │
-        ▼
-Cấu hình Mặt trước (Front Side)
-   ├─ Chọn/bỏ field từ danh sách
-   ├─ Sắp xếp thứ tự
-   └─ Đánh dấu field chính (primary)
-        │
-        ▼
-Cấu hình Mặt sau (Back Side)
-   ├─ Chọn/bỏ field
-   ├─ Sắp xếp thứ tự
-   └─ Đánh dấu field chính
-        │
-        ▼
-Chọn Interaction Type
-   (Flip / Type-in / Tap-to-reveal)
-        │
-        ▼
-Xem Preview (dùng Note mẫu)
-        │
-        ▼
-Lưu Template
+Learner mở phiên ôn tập cho Topic
+                 │
+                 ▼
+Backend truy vấn FSRS Records đến hạn ôn
+(WHERE user_id = :userId AND topic_item_id IN (...) AND due <= NOW())
+                 │
+                 ▼
+Backend tải cấu hình Template của Topic
+(Kèm danh sách TemplateElement và TemplateField theo position ASC)
+                 │
+                 ▼
+Backend gộp giá trị thuộc tính của TopicItem vào Response
+                 │
+                 ▼
+Mobile Client render Flashcard:
+├─ Mặt trước (Front): Các element có semantic_role = FRONT, PHONETIC, AUDIO...
+├─ Đường phân cách / nút lật (DIVIDER / BUTTON)
+└─ Mặt sau (Back): Các element có semantic_role = BACK, TRANSLATION, EXAMPLE...
+                 │
+                 ▼
+Learner đánh giá độ nhớ (Again, Hard, Good, Easy)
+                 │
+                 ▼
+Backend cập nhật FsrsRecord (stability, difficulty, due, reps, lapses)
 ```
 
-### 3.3. Card Rendering Logic
+### 3.3. Xử lý dữ liệu khuyết thiếu & Thay đổi thuộc tính
 
-Khi Learner mở phiên học flashcard, mobile app nhận từ backend:
-
-1. **Card data**: Thông tin SRS (dueAt, state, stability, difficulty...).
-2. **Template config**: Layout, field mapping, interaction type.
-3. **Note data**: Giá trị thực tế của các field (word, meanings, ipa, audio, image...).
-
-Mobile app **render card theo template config**, ánh xạ field code vào giá trị từ Note data. Nếu một field trong template không có dữ liệu trong Note (ví dụ: Note không có `IMAGE`), field đó bị ẩn và layout tự điều chỉnh.
-
-### 3.4. Xử lý khi Template thay đổi
-
-| Hành động | Ảnh hưởng |
-| :--- | :--- |
-| Learner chỉnh sửa Custom Template | Card hiện có render theo config mới trong phiên học tiếp theo. Dữ liệu SRS **không bị ảnh hưởng**. |
-| Learner đổi Template của Deck | Toàn bộ Card hiện có trong Deck sẽ được render theo form của Template mới. Không sinh Card mới, dữ liệu điểm SRS cũ vẫn giữ nguyên. |
-| Learner xóa Custom Template | Template bị soft-delete. Các Deck đang dùng template này sẽ fallback về template `CLASSIC`. |
+1. **Ẩn trường trống (`hide_if_empty = true`)**: Khi một `TopicItem` không có giá trị cho một thuộc tính tùy chọn (ví dụ không có ví dụ hay hình ảnh), ứng dụng tự động bỏ qua khối element đó, giao diện thẻ tự động co giãn tự nhiên.
+2. **Thay đổi cấu hình Template**: Khi cập nhật Template của Topic (thay đổi thứ tự `position`, đổi vai trò `semantic_role` hoặc màu sắc, kích cỡ chữ), toàn bộ các `TopicItem` thuộc Topic lập tức được áp dụng giao diện mới trong phiên học tiếp theo mà không cần cập nhật dữ liệu từng item.
+3. **Tiến độ FSRS độc lập**: Trạng thái học tập của từng từ (`fsrs_records`) hoàn toàn độc lập với việc thay đổi giao diện thẻ, bảo đảm dữ liệu ghi nhớ không bị ảnh hưởng khi tinh chỉnh layout.
 
 ---
 
 ## 4. Mô hình Dữ liệu
 
-### 4.1. Entity mới
+### 4.1. Chi tiết các bảng liên quan
 
-#### `CardTemplate`
+#### Bảng `templates`
 
-Lưu trữ cấu hình một card template.
+Lưu cấu hình template của chủ đề.
 
-| Trường | Kiểu | Mô tả |
-| :--- | :--- | :--- |
-| `id` | `Long` (PK) | ID tự sinh |
-| `code` | `String` (unique, nullable) | Mã template cho system template (VD: `CLASSIC`, `LISTENING`). `null` nếu là custom template. |
-| `name` | `String` (not null) | Tên hiển thị (VD: "Từ → Nghĩa", "Nghe đoán từ") |
-| `description` | `String` | Mô tả ngắn về cách hoạt động |
-| `isSystem` | `Boolean` (not null) | `true` = system template (không thể sửa/xóa), `false` = custom template |
-| `interactionType` | `Enum` (not null) | `FLIP`, `TYPE_IN`, `TAP_TO_REVEAL` |
-| `baseLayout` | `Enum` (not null) | `SINGLE_COLUMN`, `TWO_COLUMN`, `IMAGE_TOP`, `AUDIO_CENTER` |
-| `user` | `User` (FK, nullable) | Người tạo. `null` nếu là system template. |
-| `isDeleted` | `Boolean` | Soft delete flag |
-| `createdAt` | `Instant` | Thời điểm tạo |
-| `updatedAt` | `Instant` | Thời điểm cập nhật |
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `bigint(20)` | PK, AUTO_INCREMENT | Định danh template |
+| `topic_id` | `bigint(20)` | FK -> `topics(id)`, NOT NULL | Chủ đề sở hữu template |
+| `name` | `varchar(255)` | NOT NULL | Tên template (ví dụ: "Template Từ vựng Cơ bản", "Template Nghe đoán từ") |
+| `created_at` | `datetime(6)` | NOT NULL | Thời điểm tạo |
+| `updated_at` | `datetime(6)` | NOT NULL | Thời điểm cập nhật |
 
-#### `CardTemplateField`
+#### Bảng `template_elements`
 
-Định nghĩa field nào hiển thị trên mặt nào của template, với thứ tự và vai trò.
+Lưu các phần tử thành phần của một template theo thứ tự hiển thị.
 
-| Trường | Kiểu | Mô tả |
-| :--- | :--- | :--- |
-| `id` | `Long` (PK) | ID tự sinh |
-| `cardTemplate` | `CardTemplate` (FK, not null) | Template chứa field này |
-| `fieldCode` | `Enum` (not null) | `WORD`, `MEANING`, `IPA`, `AUDIO`, `IMAGE`, `EXAMPLE`, `PART_OF_SPEECH`, `PERSONAL_NOTE` |
-| `side` | `Enum` (not null) | `FRONT`, `BACK` |
-| `displayOrder` | `Integer` (not null) | Thứ tự hiển thị trên mặt tương ứng (0-based) |
-| `isPrimary` | `Boolean` (not null) | `true` = field chính, font lớn, vị trí nổi bật |
-| `fieldConfig` | `JSON` (nullable) | Config bổ sung (VD: `{"autoPlay": true}` cho AUDIO, `{"maskPattern": "___"}` cho EXAMPLE ở chế độ CONTEXT) |
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `bigint(20)` | PK, AUTO_INCREMENT | Định danh phần tử |
+| `template_id` | `bigint(20)` | FK -> `templates(id)`, NOT NULL | Template chứa phần tử |
+| `position` | `int(11)` | NOT NULL | Thứ tự vị trí xuất hiện (0, 1, 2...) |
+| `type` | `varchar(50)` | NOT NULL | Kiểu phần tử: `FIELD`, `DIVIDER`, `BUTTON` |
 
-**Unique constraint:** `(cardTemplate, fieldCode, side)` — mỗi field chỉ xuất hiện tối đa 1 lần trên mỗi mặt.
+> Ràng buộc duy nhất: `uk_template_element_position (template_id, position)`.
 
-### 4.2. Thay đổi Entity hiện có
+#### Bảng `template_fields`
 
-#### `Deck` — Bổ sung FK tới `CardTemplate`
+Lưu chi tiết cấu hình hiển thị cho các phần tử kiểu `FIELD`.
 
-Do mỗi Deck chỉ dùng 1 Template, ta liên kết trực tiếp Template vào Deck.
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `bigint(20)` | PK, AUTO_INCREMENT | Định danh cấu hình field |
+| `element_id` | `bigint(20)` | FK -> `template_elements(id)`, NOT NULL, UNIQUE | Phần tử tương ứng (quan hệ 1-1) |
+| `topic_attribute_id` | `bigint(20)` | FK -> `topic_attributes(id)`, NOT NULL | Thuộc tính dữ liệu được hiển thị |
+| `semantic_role` | `varchar(50)` | NULLABLE | Vai trò ngữ nghĩa (`FRONT`, `BACK`, `EXAMPLE`, `AUDIO`, `IMAGE`, v.v.) |
+| `field_label` | `varchar(255)` | NULLABLE | Nhãn tuỳ chỉnh hiển thị trước giá trị |
+| `hide_if_empty` | `bit(1)` | NOT NULL, DEFAULT 0 | Ẩn trường nếu giá trị rỗng |
+| `audio_action` | `bit(1)` | NOT NULL, DEFAULT 0 | Kích hoạt chức năng phát âm khi nhấn vào trường |
+| `font_size` | `int(11)` | NULLABLE | Kích cỡ chữ tương đối (pixel hoặc đơn vị giao diện) |
+| `alignment` | `varchar(50)` | NULLABLE | Căn chỉnh văn bản: `LEFT`, `CENTER`, `RIGHT` |
+| `color` | `varchar(50)` | NULLABLE | Mã màu văn bản (Hex code hoặc tên màu chuẩn) |
 
-```diff
- @Entity
- @Table(name = "deck")
- public class Deck {
-     // ... existing fields ...
+#### Bảng `fsrs_records`
 
-+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-+    @JoinColumn(name = "card_template_id", nullable = false)
-+    private CardTemplate cardTemplate;
- }
-```
+Lưu trữ trạng thái ôn tập FSRS của từng người dùng đối với từng mục trong chủ đề.
 
-#### `Card` — Loại bỏ `CardType` và không lưu Template
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `bigint(20)` | PK, AUTO_INCREMENT | Định danh bản ghi ôn tập |
+| `user_id` | `bigint(20)` | FK -> `users(id)`, NOT NULL | Người học |
+| `topic_item_id` | `bigint(20)` | FK -> `topic_items(id)`, NOT NULL | Mục từ vựng đang học |
+| `card_state` | `varchar(50)` | NOT NULL | Trạng thái: `NEW`, `LEARNING`, `REVIEW`, `RELEARNING`, `SUSPENDED` |
+| `due` | `datetime(6)` | NOT NULL | Thời điểm đến hạn ôn tiếp theo |
+| `stability` | `double` | NOT NULL | Độ bền trí nhớ (S) |
+| `difficulty` | `double` | NOT NULL | Độ khó của thẻ (D) |
+| `reps` | `int(11)` | NOT NULL | Số lượt ôn tập thành công |
+| `lapses` | `int(11)` | NOT NULL | Số lần quên thẻ |
+| `last_review` | `datetime(6)` | NULLABLE | Thời điểm ôn tập gần nhất |
+| `created_at` | `datetime(6)` | NOT NULL | Thời điểm tạo bản ghi |
+| `updated_at` | `datetime(6)` | NOT NULL | Thời điểm cập nhật |
 
-`CardType` (kiểu enum cũ) không còn cần thiết. `Card` chỉ lưu trạng thái SRS của Note trong Deck; cách hiển thị luôn lấy từ `Deck.cardTemplate`. Không lưu dư thừa `card_template_id` ở `Card` để tránh mâu thuẫn khi Deck đổi Template.
+> Ràng buộc duy nhất: `uk_user_topic_item (user_id, topic_item_id)`.
 
-```diff
- @Entity
- @Table(name = "card")
- public class Card {
-     // ... existing fields ...
-
--    @Enumerated(EnumType.STRING)
--    @Column(name = "card_type", nullable = false)
--    private CardType cardType;
- }
-```
-
-> **Migration**: Sau migration, `CardType` bị loại bỏ. Template mặc định của Deck hiện có được gán ở `Deck.cardTemplate`, không map từng Card sang Template riêng.
-
-#### `Card` — Cập nhật unique constraint
-
-Vì mô hình mới chốt **1 Note = 1 Card**, unique constraint của `Card` không còn phụ thuộc vào template.
-
-```diff
- @Table(
-     name = "card",
-     uniqueConstraints = {
--        @UniqueConstraint(
--            name = "uq_card_note_type",
--            columnNames = {"note_id", "card_type"}
--        )
-+        @UniqueConstraint(
-+            name = "uq_card_note",
-+            columnNames = {"note_id"}
-+        )
-     }
- )
-```
-
-### 4.3. Sơ đồ quan hệ
+### 4.2. Sơ đồ quan hệ thực thể
 
 ```mermaid
 erDiagram
-    User ||--o{ Deck : owns
-    User ||--o{ CardTemplate : creates
-    CardTemplate ||--o{ CardTemplateField : has
-    CardTemplate ||--o{ Deck : "is selected by"
-    Deck ||--o{ Note : contains
-    Note ||--|| Card : generates
-    Note ||--o{ NoteMeaning : has
-    Note ||--o{ NotePronunciation : has
+    users ||--o{ collections : "owns (type=USER)"
+    collections ||--o{ topics : contains
+    topics ||--o{ topics : "parent-child"
+    topics ||--o{ topic_attribute_groups : defines
+    topic_attribute_groups ||--o{ topic_attributes : contains
+    topics ||--o{ topic_items : contains
+    topic_items ||--o{ topic_item_attribute_groups : has
+    topic_item_attribute_groups ||--o{ topic_item_attribute_values : contains
+    topic_attributes ||--o{ topic_item_attribute_values : "defines schema for"
+    topics ||--o{ templates : "configures"
+    templates ||--o{ template_elements : contains
+    template_elements ||--o| template_fields : "specifies (type=FIELD)"
+    topic_attributes ||--o{ template_fields : "mapped to"
+    users ||--o{ fsrs_records : reviews
+    topic_items ||--o{ fsrs_records : "tracked by"
 
-    User {
-        Long id PK
+    templates {
+        bigint id PK
+        bigint topic_id FK
+        varchar name
+        datetime created_at
+        datetime updated_at
     }
 
-    CardTemplate {
-        Long id PK
-        String code UK
-        String name
-        String description
-        Boolean isSystem
-        Enum interactionType
-        Enum baseLayout
-        Long userId FK
-        Boolean isDeleted
-        Instant createdAt
-        Instant updatedAt
+    template_elements {
+        bigint id PK
+        bigint template_id FK
+        int position
+        varchar type "FIELD, DIVIDER, BUTTON"
     }
 
-    CardTemplateField {
-        Long id PK
-        Long cardTemplateId FK
-        Enum fieldCode
-        Enum side
-        Integer displayOrder
-        Boolean isPrimary
-        JSON fieldConfig
+    template_fields {
+        bigint id PK
+        bigint element_id FK_UK
+        bigint topic_attribute_id FK
+        varchar semantic_role "FRONT, BACK, EXAMPLE, AUDIO..."
+        varchar field_label
+        bit hide_if_empty
+        bit audio_action
+        int font_size
+        varchar alignment "LEFT, CENTER, RIGHT"
+        varchar color
     }
 
-    Deck {
-        Long id PK
-        Long userId FK
-        Long cardTemplateId FK
-        String name
-        String description
-        Instant createdAt
-        Instant updatedAt
-    }
-
-    Note {
-        Long id PK
-        Long deckId FK
-        String word
-        Instant createdAt
-        Instant updatedAt
-    }
-
-    NoteMeaning {
-        Long id PK
-        Long noteId FK
-        String meaning
-        String partOfSpeech
-        String example
-        String personalNote
-    }
-
-    NotePronunciation {
-        Long id PK
-        Long noteId FK
-        String ipa
-    }
-
-    Card {
-        Long id PK
-        Long noteId FK
-        Enum cardState
-        Instant dueAt
-        Double stability
-        Double difficulty
-        Integer repetitions
-        Integer lapses
-        Instant lastReviewedAt
-        Instant createdAt
-        Instant updatedAt
+    fsrs_records {
+        bigint id PK
+        bigint user_id FK
+        bigint topic_item_id FK
+        varchar card_state "NEW, LEARNING, REVIEW..."
+        datetime due
+        double stability
+        double difficulty
+        int reps
+        int lapses
+        datetime last_review
+        datetime created_at
+        datetime updated_at
     }
 ```
 
-#### Vai trò từng bảng trong mô hình
+#### Vai trò các bảng trong mô hình Template & Học tập
 
 | Bảng | Vai trò | Ghi chú |
 | :--- | :--- | :--- |
-| `User` | Chủ sở hữu dữ liệu học tập | Sở hữu Deck và custom template. System template có `userId = null`. |
-| `Deck` | Bộ từ vựng và ngữ cảnh học | Mỗi Deck chọn đúng 1 `CardTemplate` qua `cardTemplateId`; đây là nguồn sự thật cho cách render Card. |
-| `CardTemplate` | Công thức hiển thị thẻ | Định nghĩa interaction type và layout tổng thể, ví dụ `CLASSIC`, `LISTENING`, `IMAGE_VOCAB`. |
-| `CardTemplateField` | Các field xuất hiện trên template | Quy định field nào nằm ở mặt `FRONT`/`BACK`, thứ tự hiển thị, field chính và config phụ. |
-| `Note` | Dữ liệu từ vựng gốc trong Deck | Lưu từ chính (`word`) và nối tới các dữ liệu chi tiết như nghĩa/phát âm. |
-| `NoteMeaning` | Các nghĩa của một Note | Một Note có thể có nhiều nghĩa; mỗi nghĩa có thể có loại từ, ví dụ và ghi chú cá nhân riêng. |
-| `NotePronunciation` | Các phiên âm của một Note | Một Note có thể có nhiều phiên âm IPA. Audio có thể lấy từ Dictionary/TTS theo rule rendering, không nhất thiết nằm trực tiếp trong bảng này. |
-| `Card` | Trạng thái học/SRS của Note | Mỗi Note sinh đúng 1 Card. Card không lưu template; khi học, backend lấy template qua `Card.note.deck.cardTemplate`. |
+| `topics` | Đơn vị tổ chức kiến thức | Sở hữu schema thuộc tính riêng và liên kết với template thẻ học. |
+| `topic_attributes` | Định nghĩa thuộc tính | Tên trường, nhãn, kiểu dữ liệu, thứ tự hiển thị cơ bản. |
+| `topic_items` | Mục từ vựng thực tế | Từng mục kiến thức trong chủ đề, mang các giá trị thuộc tính tương ứng. |
+| `templates` | Cấu hình giao diện thẻ của Topic | Mỗi topic có thể có template xác định cách render flashcard cho toàn bộ các item. |
+| `template_elements` | Khối phần tử trên thẻ | Lưu thứ tự `position` và phân loại phần tử (`FIELD`, `DIVIDER`, `BUTTON`). |
+| `template_fields` | Thiết lập trường hiển thị | Map phần tử với `topic_attribute_id`, gán `semantic_role` và các thuộc tính styling. |
+| `fsrs_records` | Trạng thái ghi nhớ FSRS | Theo dõi độ ổn định (stability), độ khó (difficulty) và lịch ôn tập `due` cho từng `(user_id, topic_item_id)`. |
 
 ---
 
-## 5. Enumeration mới
+## 5. Enumeration trong Mã nguồn Backend
 
-### `InteractionType`
+### `SemanticRole`
+
+Định nghĩa vai trò ngữ nghĩa của từng trường dữ liệu khi hiển thị trên thẻ flashcard:
 
 ```java
-public enum InteractionType {
-    FLIP,           // Lật thẻ xem đáp án
-    TYPE_IN,        // Gõ đáp án, hệ thống so khớp
-    TAP_TO_REVEAL   // Chạm từng phần để lộ dần đáp án
+public enum SemanticRole {
+    FRONT,          // Mặt trước thẻ (từ khóa chính, câu hỏi)
+    BACK,           // Mặt sau thẻ (giải nghĩa chính, câu trả lời)
+    EXAMPLE,        // Câu ví dụ hoặc ngữ cảnh
+    AUDIO,          // Âm thanh phát âm
+    IMAGE,          // Ảnh minh họa
+    PHONETIC,       // Phiên âm ngữ âm (IPA)
+    TRANSLATION,    // Bản dịch nghĩa tiếng Việt bổ trợ
+    HINT,           // Gợi ý khi cần
+    TAG,            // Nhãn phân loại hoặc cấp độ
+    EXTRA           // Thông tin phụ hoặc ghi chú
 }
 ```
 
-### `BaseLayout`
+### `TemplateElementType`
+
+Phân loại phần tử bố cục trong template:
 
 ```java
-public enum BaseLayout {
-    SINGLE_COLUMN,  // 1 cột, field xếp dọc (mặc định)
-    TWO_COLUMN,     // 2 cột song song (VD: trái word, phải image)
-    IMAGE_TOP,      // Ảnh phía trên, text phía dưới
-    AUDIO_CENTER    // Nút audio lớn ở giữa, text phụ xung quanh
+public enum TemplateElementType {
+    FIELD,          // Trường dữ liệu hiển thị (liên kết 1-1 với TemplateField)
+    DIVIDER,        // Đường kẻ phân tách bố cục (ví dụ ngăn cách Front và Back)
+    BUTTON          // Nút tương tác (nút lật thẻ, nút nghe âm thanh)
 }
 ```
 
-### `CardFieldCode`
+### `Alignment`
+
+Căn lề văn bản của trường hiển thị:
 
 ```java
-public enum CardFieldCode {
-    WORD,
-    MEANING,
-    PART_OF_SPEECH,
-    EXAMPLE,
-    PERSONAL_NOTE,
-    IPA,
-    AUDIO,
-    IMAGE
+public enum Alignment {
+    LEFT,
+    CENTER,
+    RIGHT
 }
 ```
 
-### `CardSide`
+### `CardState`
+
+Trạng thái học tập của thẻ theo thuật toán FSRS:
 
 ```java
-public enum CardSide {
-    FRONT,
-    BACK
+public enum CardState {
+    NEW,            // Thẻ mới chưa học
+    LEARNING,       // Đang học lần đầu
+    REVIEW,         // Đang trong chu kỳ ôn tập định kỳ
+    RELEARNING,     // Bị quên, đang học lại
+    SUSPENDED       // Tạm dừng học
 }
 ```
 
@@ -428,192 +348,180 @@ public enum CardSide {
 
 ## 6. Quy tắc Nghiệp vụ (Business Rules)
 
-### 6.1. Template
+### 6.1. Quản lý Template & Bố cục
 
-1. **System template không thể sửa/xóa**: Learner chỉ có thể sử dụng hoặc không sử dụng. Hệ thống seed system template khi khởi tạo database.
-2. **Custom template thuộc về user**: Learner chỉ xem/sửa/xóa template do mình tạo.
-3. **Giới hạn số lượng**: Mỗi Learner tối đa tạo **20 custom templates** (tránh spam, giá trị có thể cấu hình).
-4. **Template phải có ít nhất 1 field mỗi mặt**: Front side và back side đều phải có ít nhất 1 field.
-5. **Field chính (primary) tối đa 1 per side**: Mỗi mặt chỉ được đánh dấu tối đa 1 field là primary.
-6. **Thứ tự hiển thị hợp lệ**: `displayOrder` phải là số nguyên không âm, không trùng trong cùng một cặp `(cardTemplate, side)`. Backend normalize lại thứ tự thành dãy liên tục 0-based khi lưu template.
-7. **Type-in interaction bắt buộc**: Nếu `interactionType = TYPE_IN`, mặt back **phải** chứa field `WORD` (vì đó là đáp án Learner cần gõ). Nếu chưa có, backend reject và trả lỗi validation.
-8. **Xóa mềm (Soft delete)**: Xóa custom template không xóa vật lý, chỉ đánh flag `isDeleted = true`. Các Deck đang dùng template bị xóa sẽ tự động fallback về system template `CLASSIC`; Card và dữ liệu SRS không bị suspend hoặc reset.
+1. **Gắn kết theo Topic**: Mỗi `Topic` có một `Template` quy định layout flashcard cho toàn bộ các `TopicItem` thuộc chủ đề đó.
+2. **Tính toàn vẹn của thứ tự (`position`)**: Trường `position` trong `template_elements` phải là số nguyên không âm và là duy nhất trong phạm vi một template (ràng buộc `uk_template_element_position`). Khi client hiển thị, các phần tử được sắp xếp theo thứ tự `position ASC`.
+3. **Quan hệ 1-1 giữa Element và Field**: Mỗi phần tử có kiểu `type = FIELD` bắt buộc phải có đúng một bản ghi `template_fields` tương ứng; các kiểu `DIVIDER` hoặc `BUTTON` không chứa `template_fields`.
+4. **Tính hợp lệ của thuộc tính**: `topic_attribute_id` trong `template_fields` phải thuộc về danh mục thuộc tính của chính `Topic` đó (thông qua `topic_attribute_groups`).
+5. **Xóa tầng (Cascade delete)**: Khi xóa một `Topic`, hệ thống cascade xóa `Template`, toàn bộ `TemplateElement`, `TemplateField` và `TopicItem` liên quan.
 
-### 6.2. Deck & Card Generation
+### 6.2. Hiển thị & Rendering trên Ứng dụng Di động
 
-1. **Deck mặc định**: Khi Learner tạo Deck mới mà không chọn template, hệ thống tự gán system template `CLASSIC`.
-2. **1 Note = 1 Card**: Khi Learner thêm Note vào Deck, hệ thống chỉ sinh ra duy nhất 1 Card.
-3. **Thay đổi Template**: Khi Learner cập nhật Template của Deck (VD: đổi từ CLASSIC sang LISTENING), các Card cũ KHÔNG bị mất. Chúng chỉ thay đổi "vỏ bọc" (cách render) ở phiên ôn tiếp theo. Điểm SRS được giữ nguyên.
+1. **Phân định hai mặt thẻ dựa theo `SemanticRole`**:
+   - Mặt trước (Front): Hiển thị các trường có `semantic_role` là `FRONT`, kèm theo các trường hỗ trợ như `PHONETIC`, `AUDIO` (nếu có).
+   - Mặt sau (Back): Hiển thị các trường có `semantic_role` là `BACK`, `TRANSLATION`, `EXAMPLE`, `EXTRA`, `HINT`.
+2. **Ẩn trường trống (`hide_if_empty = true`)**: Nếu một mục từ không có dữ liệu cho thuộc tính tương ứng, ứng dụng di động sẽ tự động bỏ qua khối hiển thị đó mà không để lại khoảng trống bất thường.
+3. **Hành vi âm thanh (`audio_action = true`)**: Khi người dùng nhấn vào trường có cờ này hoặc trường có vai trò `AUDIO`, ứng dụng sẽ kích hoạt phát file âm thanh phát âm.
+4. **Định dạng linh hoạt**: Các thuộc tính `font_size`, `alignment`, `color` trên `template_fields` cho phép giao diện ứng dụng tự động áp dụng styling mà không cần can thiệp mã nguồn ứng dụng di động.
 
-### 6.3. Hiển thị & Rendering
+### 6.3. Quản lý Ôn tập FSRS
 
-1. **Graceful fallback**: Nếu Note thiếu dữ liệu cho một field trong template (VD: không có `IMAGE`), field đó bị ẩn, layout tự điều chỉnh. Không hiển thị placeholder rỗng gây khó chịu.
-2. **Type-in matching**: So khớp không phân biệt hoa/thường, bỏ dấu cách thừa đầu/cuối. Cho phép cấu hình strict mode (phân biệt hoa thường) trong field config.
-3. **Audio autoplay**: Chỉ auto-play khi template config có `{"autoPlay": true}` và field ở mặt FRONT. Tôn trọng cài đặt âm thanh của thiết bị.
-4. **Field nhiều giá trị**: Với các field lấy từ collection (`MEANING`, `PART_OF_SPEECH`, `EXAMPLE`, `PERSONAL_NOTE`, `IPA`), renderer dùng bản ghi được đánh dấu primary của Note nếu có. Nếu không có primary, dùng bản ghi đầu tiên theo thứ tự lưu trữ ổn định. Mobile có thể hiển thị thêm các giá trị còn lại ở mặt Back khi template field có `fieldConfig: { "showAll": true }`.
-
-### 6.4. SRS & Review
-
-1. **SRS độc lập per Note**: Vì 1 Note = 1 Card, trạng thái SRS gắn liền với Note đó trong Deck.
-2. Không còn cơ chế **Sibling Burial** (do không còn thẻ anh em).
-3. Không còn cơ chế **Suspend cascade** (do không thể tắt template khỏi Deck, chỉ có thể đổi sang template khác).
+1. **Theo dõi tiến trình trực tiếp**: Trạng thái ôn tập của từng người học được lưu tại bảng `fsrs_records` cho từng cặp `(user_id, topic_item_id)`.
+2. **Độc lập giao diện**: Thay đổi cấu hình template của Topic chỉ làm thay đổi cách hiển thị thẻ, hoàn toàn không làm gián đoạn hoặc sai lệch các tham số FSRS (`stability`, `difficulty`, `due`, `reps`, `lapses`).
 
 ---
 
-## 7. API Endpoints
+## 7. Thiết kế API Endpoints
 
-### 7.1. Card Template Management
+### 7.1. Quản lý Topic Template
 
-| Method | Endpoint | Mô tả | Auth |
+| Phương thức | Đường dẫn | Mô tả | Quyền truy cập |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/card-templates` | Lấy danh sách template (system + custom của user) | Bearer JWT |
-| `GET` | `/api/v1/card-templates/{id}` | Xem chi tiết template + fields | Bearer JWT |
-| `POST` | `/api/v1/card-templates` | Tạo custom template mới | Bearer JWT |
-| `PUT` | `/api/v1/card-templates/{id}` | Cập nhật custom template | Bearer JWT |
-| `DELETE` | `/api/v1/card-templates/{id}` | Soft-delete custom template | Bearer JWT |
+| `GET` | `/api/v1/topics/{topicId}/template` | Lấy thông tin template và danh sách elements, fields của chủ đề | Bearer JWT |
+| `PUT` | `/api/v1/topics/{topicId}/template` | Cập nhật cấu hình template cho chủ đề | Bearer JWT |
 
-#### Request: Tạo Custom Template
-
-```json
-{
-  "name": "Ảnh + Nghĩa → Từ",
-  "description": "Xem ảnh kèm nghĩa tiếng Việt, đoán từ tiếng Anh",
-  "interactionType": "FLIP",
-  "baseLayout": "IMAGE_TOP",
-  "fields": [
-    {
-      "fieldCode": "IMAGE",
-      "side": "FRONT",
-      "displayOrder": 0,
-      "isPrimary": true,
-      "fieldConfig": null
-    },
-    {
-      "fieldCode": "MEANING",
-      "side": "FRONT",
-      "displayOrder": 1,
-      "isPrimary": false,
-      "fieldConfig": null
-    },
-    {
-      "fieldCode": "WORD",
-      "side": "BACK",
-      "displayOrder": 0,
-      "isPrimary": true,
-      "fieldConfig": null
-    },
-    {
-      "fieldCode": "IPA",
-      "side": "BACK",
-      "displayOrder": 1,
-      "isPrimary": false,
-      "fieldConfig": null
-    },
-    {
-      "fieldCode": "AUDIO",
-      "side": "BACK",
-      "displayOrder": 2,
-      "isPrimary": false,
-      "fieldConfig": { "autoPlay": true }
-    }
-  ]
-}
-```
-
-#### Response: Chi tiết Template
+#### Response mẫu: Cấu hình Template của Topic
 
 ```json
 {
   "statusCode": 200,
   "data": {
-    "id": 15,
-    "code": null,
-    "name": "Ảnh + Nghĩa → Từ",
-    "description": "Xem ảnh kèm nghĩa tiếng Việt, đoán từ tiếng Anh",
-    "isSystem": false,
-    "interactionType": "FLIP",
-    "baseLayout": "IMAGE_TOP",
-    "fields": [
+    "id": 12,
+    "topicId": 45,
+    "name": "Template Từ vựng Tiếng Anh Chuẩn",
+    "elements": [
       {
         "id": 101,
-        "fieldCode": "IMAGE",
-        "side": "FRONT",
-        "displayOrder": 0,
-        "isPrimary": true,
-        "fieldConfig": null
+        "position": 0,
+        "type": "FIELD",
+        "field": {
+          "id": 201,
+          "topicAttributeId": 5,
+          "semanticRole": "FRONT",
+          "fieldLabel": "Từ vựng",
+          "hideIfEmpty": false,
+          "audioAction": false,
+          "fontSize": 24,
+          "alignment": "CENTER",
+          "color": "#1F2937"
+        }
       },
       {
         "id": 102,
-        "fieldCode": "MEANING",
-        "side": "FRONT",
-        "displayOrder": 1,
-        "isPrimary": false,
-        "fieldConfig": null
+        "position": 1,
+        "type": "FIELD",
+        "field": {
+          "id": 202,
+          "topicAttributeId": 6,
+          "semanticRole": "PHONETIC",
+          "fieldLabel": "Phiên âm",
+          "hideIfEmpty": true,
+          "audioAction": true,
+          "fontSize": 16,
+          "alignment": "CENTER",
+          "color": "#6B7280"
+        }
       },
       {
         "id": 103,
-        "fieldCode": "WORD",
-        "side": "BACK",
-        "displayOrder": 0,
-        "isPrimary": true,
-        "fieldConfig": null
+        "position": 2,
+        "type": "DIVIDER",
+        "field": null
+      },
+      {
+        "id": 104,
+        "position": 3,
+        "type": "FIELD",
+        "field": {
+          "id": 203,
+          "topicAttributeId": 7,
+          "semanticRole": "BACK",
+          "fieldLabel": "Nghĩa",
+          "hideIfEmpty": false,
+          "audioAction": false,
+          "fontSize": 20,
+          "alignment": "LEFT",
+          "color": "#111827"
+        }
+      },
+      {
+        "id": 105,
+        "position": 4,
+        "type": "FIELD",
+        "field": {
+          "id": 204,
+          "topicAttributeId": 8,
+          "semanticRole": "EXAMPLE",
+          "fieldLabel": "Ví dụ",
+          "hideIfEmpty": true,
+          "audioAction": false,
+          "fontSize": 15,
+          "alignment": "LEFT",
+          "color": "#4B5563"
+        }
       }
     ],
-    "createdAt": "2026-08-20T03:00:00Z",
-    "updatedAt": "2026-08-20T03:00:00Z"
+    "createdAt": "2026-09-01T08:00:00Z",
+    "updatedAt": "2026-09-01T08:00:00Z"
   }
 }
 ```
 
-### 7.2. Deck Management (Cập nhật)
+### 7.2. Phiên Học Flashcard (Study Session)
 
-Các API quản lý Deck hiện tại (`POST /api/v1/decks`, `PUT /api/v1/decks/{id}`) cần được bổ sung thêm trường `cardTemplateId` trong request body để cho phép người dùng gán template cho Deck.
+| Phương thức | Đường dẫn | Mô tả | Quyền truy cập |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/topics/{topicId}/study-session` | Tải phiên ôn tập: bao gồm template và các mục đến hạn kèm dữ liệu thuộc tính | Bearer JWT |
+| `POST` | `/api/v1/fsrs-records/{id}/review` | Gửi kết quả đánh giá thẻ (Again, Hard, Good, Easy) | Bearer JWT |
 
-### 7.3. Flashcard Session (mở rộng)
-
-API flashcard session hiện có cần bổ sung trả về **template config** để mobile render đúng:
+#### Response mẫu: Dữ liệu phiên học Flashcard
 
 ```json
 {
   "statusCode": 200,
   "data": {
-    "cards": [
-      {
-        "cardId": 1001,
-        "cardState": "REVIEW",
-        "dueAt": "2026-08-20T00:00:00Z",
-        "template": {
-          "id": 1,
-          "code": "CLASSIC",
-          "interactionType": "FLIP",
-          "baseLayout": "SINGLE_COLUMN",
-          "frontFields": [
-            { "fieldCode": "WORD", "isPrimary": true, "displayOrder": 0 },
-            { "fieldCode": "IPA", "isPrimary": false, "displayOrder": 1 }
-          ],
-          "backFields": [
-            { "fieldCode": "MEANING", "isPrimary": true, "displayOrder": 0 },
-            { "fieldCode": "PART_OF_SPEECH", "isPrimary": false, "displayOrder": 1 },
-            { "fieldCode": "EXAMPLE", "isPrimary": false, "displayOrder": 2 },
-            { "fieldCode": "AUDIO", "isPrimary": false, "displayOrder": 3, "fieldConfig": { "autoPlay": false } }
-          ]
+    "topicId": 45,
+    "template": {
+      "id": 12,
+      "name": "Template Từ vựng Tiếng Anh Chuẩn",
+      "elements": [
+        {
+          "position": 0,
+          "type": "FIELD",
+          "semanticRole": "FRONT",
+          "attributeId": 5,
+          "fontSize": 24,
+          "alignment": "CENTER"
         },
-        "noteData": {
-          "word": "perseverance",
-          "meanings": [
-            {
-              "meaning": "sự kiên trì, sự bền bỉ",
-              "partOfSpeech": "noun",
-              "example": "Success requires perseverance.",
-              "personalNote": null
-            }
-          ],
-          "pronunciations": [
-            { "ipa": "/ˌpɜːrsəˈvɪərəns/" }
-          ],
-          "imageUrl": null,
-          "audioUrl": "https://storage.example.com/audio/perseverance.mp3"
+        {
+          "position": 1,
+          "type": "FIELD",
+          "semanticRole": "BACK",
+          "attributeId": 7,
+          "fontSize": 20,
+          "alignment": "LEFT"
         }
+      ]
+    },
+    "items": [
+      {
+        "topicItemId": 801,
+        "fsrsRecord": {
+          "id": 1501,
+          "cardState": "REVIEW",
+          "due": "2026-09-11T09:00:00Z",
+          "stability": 4.5,
+          "difficulty": 5.2,
+          "reps": 3,
+          "lapses": 0
+        },
+        "values": [
+          { "attributeId": 5, "attributeName": "word", "value": "perseverance" },
+          { "attributeId": 6, "attributeName": "ipa", "value": "/ˌpɜːrsəˈvɪərəns/" },
+          { "attributeId": 7, "attributeName": "meaning", "value": "sự kiên trì, bền bỉ" },
+          { "attributeId": 8, "attributeName": "example", "value": "Success requires perseverance." }
+        ]
       }
     ]
   }
@@ -622,78 +530,63 @@ API flashcard session hiện có cần bổ sung trả về **template config** 
 
 ---
 
-## 8. Seed Data — System Templates
+## 8. Dữ liệu Mẫu (Seed Data)
 
-Khi khởi tạo database, backend seed 6 system templates:
+Dưới đây là kịch bản SQL mẫu khởi tạo template cơ bản cho một chủ đề từ vựng:
 
 ```sql
--- 1. CLASSIC: Từ → Nghĩa
-INSERT INTO card_template (code, name, description, is_system, interaction_type, base_layout, user_id, is_deleted)
-VALUES ('CLASSIC', 'Từ → Nghĩa', 'Xem từ tiếng Anh, lật để xem nghĩa tiếng Việt', true, 'FLIP', 'SINGLE_COLUMN', null, false);
+-- 1. Khởi tạo template cho topic_id = 1
+INSERT INTO templates (id, topic_id, name, created_at, updated_at)
+VALUES (1, 1, 'Mẫu Thẻ Từ Vựng Cơ Bản', NOW(), NOW());
 
--- Front: WORD (primary), IPA
--- Back: MEANING (primary), PART_OF_SPEECH, EXAMPLE, AUDIO
+-- 2. Khởi tạo các phần tử TemplateElement
+INSERT INTO template_elements (id, template_id, position, type) VALUES
+(1, 1, 0, 'FIELD'),
+(2, 1, 1, 'FIELD'),
+(3, 1, 2, 'DIVIDER'),
+(4, 1, 3, 'FIELD'),
+(5, 1, 4, 'FIELD');
 
--- 2. REVERSE: Nghĩa → Từ
--- 3. LISTENING: Nghe → Đoán từ
--- 4. IMAGE_VOCAB: Ảnh → Từ
--- 5. SPELLING: Nghe → Viết từ
--- 6. CONTEXT: Đoán từ trong ngữ cảnh
+-- 3. Cấu hình chi tiết TemplateField
+INSERT INTO template_fields (element_id, topic_attribute_id, semantic_role, field_label, hide_if_empty, audio_action, font_size, alignment, color) VALUES
+(1, 1, 'FRONT', 'Từ vựng', 0, 0, 24, 'CENTER', '#111827'),
+(2, 2, 'PHONETIC', 'Phiên âm', 1, 1, 16, 'CENTER', '#6B7280'),
+(4, 3, 'BACK', 'Giải nghĩa', 0, 0, 20, 'LEFT', '#1F2937'),
+(5, 4, 'EXAMPLE', 'Ví dụ', 1, 0, 15, 'LEFT', '#4B5563');
 ```
 
-> Chi tiết field mapping cho từng system template xem bảng ở mục 2.2.
+---
+
+## 9. Chuyển dịch Kiến trúc & Tương thích
+
+Hệ thống đã hoàn tất tái cấu trúc, thay thế hoàn toàn mô hình thực thể cũ (`decks`, `notes`, `cards`, `card_templates`) sang mô hình mới:
+
+1. **Từ vựng & Thư mục**: Thay thế `Deck` bằng `Collection` (hỗ trợ phân loại `SYSTEM` hoặc `USER`) và `Topic` (hỗ trợ quan hệ phân cấp cha - con).
+2. **Nội dung thẻ**: Thay thế bảng `Note` cứng bằng `TopicItem` kết hợp thuộc tính động EAV (`topic_attributes`, `topic_item_attribute_values`).
+3. **Mẫu hiển thị**: Thay thế `CardTemplate` cũ bằng bộ ba `templates`, `template_elements`, `template_fields` gắn liền với `Topic`.
+4. **Theo dõi ôn tập**: Thay thế bảng `Card` bằng `fsrs_records` kết nối trực tiếp `users` và `topic_items`.
 
 ---
 
-## 9. Migration Plan
+## 10. Tương tác với các Phân hệ Khác
 
-### Giai đoạn 1: Backward-compatible
-
-1. Tạo các bảng mới: `card_template`, `card_template_field`.
-2. Seed 6 system templates: `CLASSIC`, `REVERSE`, `LISTENING`, `IMAGE_VOCAB`, `SPELLING`, `CONTEXT`.
-3. Thêm cột `card_template_id` vào bảng `deck` (nullable tạm thời).
-4. Migration script: gán template mặc định cho Deck hiện có. Nếu Deck đang chứa Card có `CardType.MEANINGS_TO_WORD` là chủ đạo thì gán `REVERSE`, các trường hợp còn lại gán `CLASSIC`.
-5. Cập nhật API học flashcard để lấy template config từ `Deck.cardTemplate` khi trả về Card.
-
-### Giai đoạn 2: Cleanup
-
-1. Đặt `deck.card_template_id` thành `NOT NULL`.
-2. Xóa cột `card_type` khỏi `card` (hoặc giữ tạm làm reference, deprecated).
-3. Xóa unique constraint cũ `uq_card_note_type`, thay bằng `uq_card_note` theo `note_id`.
-
----
-
-## 10. Tương tác với các chức năng khác
-
-| Chức năng | Ảnh hưởng |
+| Phân hệ | Mối liên hệ và tương tác |
 | :--- | :--- |
-| **SRS / Review Queue** | Review queue trả về Card kèm template config lấy từ Deck. Thuật toán SRS không thay đổi (vẫn dựa trên FSRS parameters trên Card). Không cần xử lý sibling/interleave vì 1 Note chỉ sinh 1 Card. |
-| **Quiz** | Quiz engine hoạt động độc lập với Card Template, không bị ảnh hưởng. |
-| **Daily Mission** | Nhiệm vụ "Học X thẻ Flashcard" đếm theo Card, không phân biệt template. |
-| **Progress Tracking** | Progress ghi nhận per Card. Dashboard có thể nhóm hiển thị theo template type nếu muốn phân tích sâu hơn. |
-| **Scan-to-Learn** | Khi lưu từ scan vào Deck, Card được sinh theo template đã gán cho Deck đó. Nếu Note có `IMAGE` (crop URL từ scan), template `IMAGE_VOCAB` sẽ tận dụng được dữ liệu này. |
+| **Thuật toán SRS FSRS** | FSRS tính toán lịch ôn tập và lưu trữ trực tiếp trên bảng `fsrs_records`. Template chỉ quyết định lớp hiển thị của thẻ, không làm thay đổi các biến số tính toán của thuật toán. |
+| **Quét từ vựng (Scan-to-Vocabulary)** | Dữ liệu từ vựng nhận diện qua OCR/LLM sau khi xác nhận sẽ được lưu thành `TopicItem` thuộc một `Topic` đã chọn. Mục từ này ngay lập tức thừa hưởng template hiển thị của Topic đó. |
+| **Gamification & Thống kê** | Mỗi lượt gửi kết quả đánh giá FSRS thành công được tính vào chỉ số hoàn thành mục tiêu học tập hàng ngày và tích lũy điểm kinh nghiệm (XP) cho người học. |
 
 ---
 
-## 11. Câu hỏi mở / Quyết định cần xác nhận
+## 11. Phụ lục: Lịch sử Quyết định Thiết kế
 
-| # | Câu hỏi | Gợi ý |
-| :--- | :--- | :--- |
-| 1 | Có cần hỗ trợ **theme/color scheme** cho template không? | Có thể thêm field `theme` (`LIGHT`, `DARK`, `OCEAN`, `SUNSET`...) vào CardTemplate. Nên để mở rộng sau M4 (Shop/theme). |
-| 2 | **Type-in matching** nên dùng thuật toán so khớp nào? | Gợi ý: Levenshtein distance ≤ 1 cho phép 1 lỗi chính tả nhỏ, hiển thị "Gần đúng!" thay vì "Sai". |
-| 3 | Có cần **analytics** cho từng template type không? | VD: "Bạn nhớ tốt hơn 23% khi học bằng template Listening so với Classic". Nên để mở rộng sau M3 (Progress analytics). |
+Trong quá trình xây dựng hệ thống flashcard, bài toán quản lý giao diện thẻ học đã được cân nhắc qua các phương án:
 
----
+1. **Phương án cấu hình cố định trên từng thẻ**: Lưu loại thẻ cố định trên từng bản ghi. Bị loại bỏ vì không đáp ứng được yêu cầu mở rộng thuộc tính linh hoạt theo chủ đề.
+2. **Phương án cấu hình template độc lập tự do**: Cho phép người dùng tạo template rời và gán nhiều template vào một danh mục từ. Bị loại bỏ do gây phức tạp hóa trải nghiệm trên ứng dụng di động và làm phát sinh bài toán trùng lặp thẻ anh em (sibling cards).
+3. **Phương án Topic Template gắn thuộc tính ngữ nghĩa (`SemanticRole`)**: Mỗi `Topic` quản lý một bộ thuộc tính (`TopicAttribute`) và có một `Template` định nghĩa bố cục cùng vai trò ngữ nghĩa của các thuộc tính đó. Đây là **phương án được phê duyệt chính thức**.
 
-## 12. Phụ lục: Lịch sử Quyết định Thiết kế (Design Decision)
-
-Trong quá trình thiết kế, bài toán **Gán Template** đã trải qua các vòng lặp cân nhắc sau:
-
-1. **Cách 1 (Linh hoạt tối đa):** Gán Template cho từng Note riêng biệt. Bị loại vì UX quá nặng nề khi thêm từ số lượng lớn, không phù hợp cho Mobile App.
-2. **Cách 2 (1 Deck = Nhiều Template):** Gán danh sách Template vào Deck, 1 Note tự sinh ra nhiều Card (Giống logic của ứng dụng Anki). Bị loại do làm phình to dữ liệu không cần thiết và phức tạp hóa thuật toán ôn tập (đòi hỏi xử lý logic giãn cách thẻ anh em - Sibling Burial).
-3. **Cách 3 (1 Deck = 1 Template):** Gán duy nhất 1 Template mặc định cho Deck. Đây là **hướng được chốt cuối cùng**.
-
-**Lý do chốt Cách 3 (1 Deck = 1 Template):**
-- **Tối giản hóa kiến trúc:** Xóa bỏ bảng trung gian, phương trình sinh thẻ đơn giản tuyệt đối: `1 Note = 1 Card`. Loại bỏ hoàn toàn gánh nặng cho Database.
-- **UX cực kỳ thân thiện:** Người dùng chỉ cần phân loại từ vựng thành các Deck theo kỹ năng (VD: Deck "IELTS Reading", Deck "TOEIC Listening"). Mỗi Deck đóng vai trò như một thư mục với một lăng kính học tập chuyên biệt.
-- **Phù hợp định hướng Mobile-first:** Tối giản luồng thao tác. Người dùng hoàn toàn thoát khỏi các khái niệm rối rắm, phức tạp, chỉ việc "Tạo Deck -> Chọn cách học -> Ném từ vào -> Bắt đầu học".
+**Lợi ích của thiết kế hiện tại:**
+- **Nhất quán mô hình dữ liệu**: Tương thích hoàn toàn với mô hình EAV của `TopicItem`, dữ liệu không bị nhân bản thừa thãi.
+- **Tách bạch giao diện và thuật toán**: Bố cục thẻ (`Template`) độc lập với trạng thái ghi nhớ của người học (`fsrs_records`).
+- **Tối ưu trải nghiệm di động**: Ứng dụng di động chỉ cần đọc cấu hình `position` và `semantic_role` để hiển thị giao diện mượt mà, không yêu cầu phân tích cú pháp HTML/CSS phức tạp.

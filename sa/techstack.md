@@ -3,7 +3,7 @@
 > Tài liệu tổng hợp công nghệ sử dụng trong SnapVocab, được xây dựng dựa trên [specs.md](../spec/specs.md), [sa.md](./sa.md), [server.md](./server.md), [phan_ra_phan_he_he_thong.md](../spec/phan_ra_phan_he_he_thong.md), [phan_ra_tinh_nang.md](../spec/phan_ra_tinh_nang.md) và [phan_ra_man_hinh.md](../spec/phan_ra_man_hinh.md).
 
 >
-> **Canonical sync (2026-08-23):** Source = [`../spec/specs.md`](../spec/specs.md). AI = Florence-2+SAM+CLIP (F2-v13) zero-shot · Learning = Deck/Note/Card · SRS = FSRS · Actors = Guest/Learner/Admin · FR: Game=09, Noti=10, Storage=11, OpenAPI=12, Admin=13 · 4 milestones.
+> **Canonical sync (2026-08-23):** Source = [`../spec/specs.md`](../spec/specs.md). AI = Florence-2+SAM+CLIP (F2-v13) zero-shot · Learning = Collection/Topic/TopicItem + Template + FsrsRecord · SRS = FSRS · Actors = Guest/Learner/Admin · FR: Game=09, Noti=10, Storage=11, OpenAPI=12, Admin=13 · 4 milestones.
 
 ---
 
@@ -87,7 +87,7 @@ SnapVocab sử dụng kiến trúc mobile-first cho Learner, web admin riêng ch
 | **Recognition** | Camera Scan, Detection Result | Recognition, Storage, Word API (SS-06) | M2 |
 | **Dictionary** | Search, Word Detail, Voice Search | Dictionary API (SS-04) | M1 |
 | **Topic** | Collections, Topic Items | Topic API (SS-05) | M1 |
-| **Vocabulary** | My Vocabulary (Deck List), Deck Detail | Vocabulary API (SS-08) | M1–M2 |
+| **Vocabulary** | My Vocabulary (Personal Topics), Topic Detail | Vocabulary API (SS-08) | M1–M2 |
 | **Learning** | Flashcards, Quiz Setup/Play/Result, SRS Review, Template Management | Flashcard, Quiz, SRS API (SS-09/10/11) | M1, M3 |
 | **Progress** | Stats, Level Progress | Progress API (SS-12) | M3 |
 | **Gamification** | Missions, Achievements, Leaderboard | Gamification API (SS-13) | M4 |
@@ -113,8 +113,8 @@ App Root
     │   ├── missions
     │   └── stats
     ├── learn                       ← Learn Hub
-    │   ├── decks/[deckId]          ← Deck Detail
-    │   ├── flashcards/[deckId]     ← Flashcard Session
+    │   ├── topics/[topicId]        ← Topic Detail
+    │   ├── flashcards/[topicId]    ← Flashcard Session
     │   ├── quiz/setup
     │   ├── quiz/play
     │   ├── quiz/result
@@ -146,8 +146,8 @@ API Client Layer:
   │   └── Response interceptor      ← Catch 401 → auto refresh token → retry original request
   ├── TanStack Query hooks          ← useQuery / useMutation per API group
   │   ├── useWords()                ← Dictionary search/detail
-  │   ├── useDecks()                ← Vocabulary CRUD
-  │   ├── useCards()                ← Flashcard/SRS
+  │   ├── useTopics()               ← Vocabulary / Topics CRUD
+  │   ├── useFlashcards()           ← Flashcard/SRS (TopicItem + Template)
   │   ├── useQuiz()                 ← Quiz lifecycle
   │   ├── useProgress()             ← Stats/summary
   │   ├── useRecognition()          ← Scan flow
@@ -160,7 +160,7 @@ API Client Layer:
 | Quyết định | Lý do |
 | --- | --- |
 | React Native / Expo | Đa nền tảng iOS/Android; phù hợp thời gian đồ án; Expo hỗ trợ camera/image picker nhanh |
-| TypeScript | Type safety cho API response phức tạp (Word, Note, Card, Quiz); giảm lỗi runtime |
+| TypeScript | Type safety cho API response phức tạp (Word, TopicItem, Template, Quiz); giảm lỗi runtime |
 | Expo Router | File-based routing tự nhiên cho app nhiều màn hình (30 MH); deep linking dễ |
 | TanStack Query | Phù hợp dữ liệu remote: words, progress, leaderboard — cache, background refetch, pagination |
 | Zustand + MMKV | Client state nhẹ; MMKV nhanh hơn AsyncStorage cho preferences/cache; secret ưu tiên SecureStore |
@@ -201,7 +201,7 @@ Web Admin CMS là frontend riêng dành cho `ROLE_ADMIN`, chạy trên browser v
 | **Dictionary CMS** | Tìm kiếm, xem/sửa word, definition, translation, pronunciation | Dictionary/Admin API | M4 |
 | **Topic CMS** | Quản lý collection/topic/topic item/attributes | Topic/Admin API | M4 |
 | **Object Mapping** | Mapping AI label/synonym → Word, xử lý dictionary miss | Recognition/Dictionary Admin API | M4 (Ngoài MVP) |
-| **Learning Content** | Card template, quiz template/rule cơ bản | Flashcard/Quiz Admin API | M4 (Ngoài MVP) |
+| **Learning Content** | Topic template (elements/fields), quiz rule cơ bản | Flashcard/Quiz Admin API | M4 (Ngoài MVP) |
 | **Gamification CMS** | Mission, badge, shop item, item asset | Gamification/Economy/Storage Admin API | M4 |
 | **Notification CMS** | Gửi/thử nghiệm thông báo, xem log gửi | Notification Admin API | M4 (Ngoài MVP) |
 | **Storage Management** | Xem metadata media, cleanup orphan, kiểm tra upload lỗi | Storage Admin API | M4 (Ngoài MVP) |
@@ -293,22 +293,22 @@ Admin API Client Layer:
 
 ### 4.2 Module backend (mapping SS → package)
 
-| Module | Package | SS | Công nghệ/Service chính | Milestone |
+| Module | Package / Layer | SS | Công nghệ/Service chính | Milestone |
 | --- | --- | --- | --- | --- |
-| **Identity** | `com.snapvocab.identity` | SS-03 | Spring Security, JWT, Mail/OTP | M1 |
-| **Dictionary** | `com.snapvocab.dictionary` | SS-04 | JPA repositories, indexed queries, Redis cache | M1 |
-| **Topic** | `com.snapvocab.topic` | SS-05 | JPA, EAV model (Collection/Topic/TopicItem) | M1 |
-| **Recognition** | `com.snapvocab.recognition` | SS-06 | Spring @Async queue, HTTP client → FastAPI, RecognitionFilter, LabelDedup | M2 |
-| **Vocabulary** | `com.snapvocab.vocabulary` | SS-08 | JPA transaction, Deck/Note CRUD | M1–M2 |
-| **Flashcard** | `com.snapvocab.flashcard` | SS-09 | CardService, StudySessionService, FsrsService, CardTemplateService | M1, M3 |
-| **Quiz** | `com.snapvocab.quiz` | SS-10 | Quiz generation, scoring, idempotent submit | M3 |
-| **SRS** | `com.snapvocab.srs` | SS-11 | ReviewQueueService (dùng Card/ReviewLog từ flashcard) | M3 |
-| **Progress** | `com.snapvocab.progress` | SS-12 | Aggregate service, LearningEvent processing | M3 |
-| **Gamification** | `com.snapvocab.gamification` | SS-13+14 | XP/Coin/Mission/Badge/Leaderboard/ShopService | M4 |
-| **Notification** | `com.snapvocab.notification` | SS-15 | PushService (Expo/FCM), InAppService, DeviceTokenService | M3 |
-| **Storage** | `com.snapvocab.storage` | SS-16 | S3StorageService, UploadValidation, OrphanCleanup | M1, M2, M4 |
-| **Admin** | `com.snapvocab.admin` | SS-17 | Admin controllers delegating to domain services | M4 |
-| **Common** | `com.snapvocab.common` | — | ApiResponse envelope, GlobalExceptionHandler, JwtUtils, domain events | M1 (ongoing) |
+| **Identity** | `vn.ptit.snapvocab.service` | SS-03 | Spring Security, JWT, Mail/OTP (AuthService, UserService) | M1 |
+| **Dictionary** | `vn.ptit.snapvocab.service` | SS-04 | JPA repositories, indexed queries, Redis cache (WordService) | M1 |
+| **Topic** | `vn.ptit.snapvocab.service` | SS-05 | JPA, EAV model (CollectionService, TopicService, TopicItemService) | M1 |
+| **Recognition** | `vn.ptit.snapvocab.service` | SS-06 | Spring @Async queue, HTTP client → FastAPI, RecognitionService | M2 |
+| **Vocabulary** | `vn.ptit.snapvocab.service` | SS-08 | JPA transaction, Topic cá nhân & TopicItem CRUD | M1–M2 |
+| **Flashcard** | `vn.ptit.snapvocab.service` | SS-09 | FlashcardStudyService, TemplateService | M1, M3 |
+| **Quiz** | `vn.ptit.snapvocab.service` | SS-10 | Quiz generation, scoring, idempotent submit (QuizService) | M3 |
+| **SRS** | `vn.ptit.snapvocab.service` | SS-11 | FsrsService, ReviewQueueService (dùng FsrsRecord) | M3 |
+| **Progress** | `vn.ptit.snapvocab.service` | SS-12 | Aggregate service, LearningEvent processing (ProgressService) | M3 |
+| **Gamification** | `vn.ptit.snapvocab.service` | SS-13+14 | XP/Coin/Mission/Badge/Leaderboard/ShopService | M4 |
+| **Notification** | `vn.ptit.snapvocab.service` | SS-15 | PushService (Expo/FCM), InAppService, DeviceTokenService | M3 |
+| **Storage** | `vn.ptit.snapvocab.service` | SS-16 | S3StorageService, UploadValidation, OrphanCleanup | M1, M2, M4 |
+| **Admin** | `vn.ptit.snapvocab.controller` | SS-17 | Admin controllers delegating to domain services | M4 |
+| **Common** | `vn.ptit.snapvocab.config / util` | — | ApiResponse envelope, GlobalExceptionHandler, JwtUtils | M1 (ongoing) |
 
 ### 4.3 Kiến trúc layer
 
@@ -322,7 +322,7 @@ Controller Layer
 Service Layer
   ├── Business logic                    ← Orchestration, validation, rules
   ├── Transaction boundary (@Transactional)
-  ├── Domain events (publish NoteCreated, ReviewCompleted, QuizSubmitted...)
+  ├── Domain events (publish TopicItemCreated, ReviewCompleted, QuizSubmitted...)
   └── Integration calls (AI client, S3 client, mail client, Redis client)
 
 Repository Layer
@@ -359,7 +359,7 @@ Security Layer
 | --- | --- |
 | Spring Boot | Phù hợp backend nghiệp vụ nhiều module; ecosystem mạnh cho security, validation, JPA, OpenAPI |
 | Spring Security + JWT | Stateless API cho mobile; role-based access; refresh token flow |
-| JPA/Hibernate | Mô hình hóa domain phức tạp (Word, Deck/Note/Card, Quiz, Gamification) nhanh; relationship mapping |
+| JPA/Hibernate | Mô hình hóa domain phong phú (Word, Collection/Topic/TopicItem, Template, FsrsRecord, Quiz, Gamification); relationship mapping |
 | Springdoc OpenAPI | Mobile/backend thống nhất contract qua Swagger UI tự động |
 | MapStruct | Compile-time DTO mapping nhanh hơn reflection-based; type-safe |
 
@@ -416,16 +416,15 @@ Security Layer
 | --- | --- | --- | --- |
 | **Identity** | `users`, `authorities`, `refresh_tokens`, `otp_tokens` | SS-03 | M1 |
 | **Dictionary** | `words`, `definitions`, `translations`, `pronunciations`, `word_relations`, `object_word_mappings` | SS-04 | M1 |
-| **Topic** | `collections`, `topics`, `topic_items`, `topic_attribute_groups`, `topic_attributes`, `topic_item_attribute_values` | SS-05 | M1 |
+| **Topic & Vocabulary** | `collections`, `topics`, `topic_items`, `topic_attribute_groups`, `topic_attributes`, `topic_item_attribute_groups`, `topic_item_attribute_values` | SS-05, SS-08 | M1 |
 | **Recognition** | `image_recognition_requests`, `recognition_results`, `detected_objects`, `scan_histories` | SS-06 | M2 |
-| **Vocabulary** | `decks`, `notes`, `note_meanings`, `note_pronunciations` | SS-08 | M1–M2 |
-| **Flashcard** | `cards`, `review_logs`, `card_templates`, `card_template_fields` | SS-09 | M1, M3 |
+| **Template & SRS** | `templates`, `template_elements`, `template_fields`, `fsrs_records` | SS-09, SS-11 | M1, M3 |
 | **Quiz** | `quizzes`, `quiz_questions`, `quiz_attempts` | SS-10 | M3 |
 | **Progress** | `learning_events`, `learning_progress` | SS-12 | M3 |
 | **Gamification** | `missions`, `mission_progress`, `badges`, `user_badges`, `experience_logs`, `coin_transactions`, `leaderboard_entries` | SS-13 | M4 |
-| **Economy** | `shop_items`, `user_items` | SS-14 | M4 |
+| **Economy** | `shop_items`, `user_inventories`, `levels` | SS-14 | M4 |
 | **Media** | `storage_metadata` | SS-16 | M1 |
-| **Notification** | `notifications`, `device_tokens` | SS-15 | M3 |
+| **Notification** | `notifications`, `user_notifications` | SS-15 | M3 |
 
 ### 6.3 Index quan trọng
 
@@ -433,13 +432,13 @@ Security Layer
 | --- | --- | --- |
 | Login | UNIQUE `users.email` | Lookup nhanh + chống trùng |
 | Dictionary search | INDEX `words.word` normalized; FULLTEXT nếu phù hợp | Lookup p95 < 500ms |
-| Personal vocabulary | UNIQUE `(user_id, word_id, deck_id)` trên `notes` | Chống trùng Note/Deck |
-| SRS review queue | INDEX `(user_id, due_at, state)` trên `cards` | Daily review query |
+| Personal vocabulary | UNIQUE `(topic_id, word_id)` trên `topic_items` | Chống trùng từ vựng trong cùng một Topic |
+| SRS review queue | INDEX `(user_id, due_at, card_state)` trên `fsrs_records` | Daily review query |
 | Quiz history | INDEX `(user_id, created_at)` trên `quiz_attempts` | Pagination |
 | Learning events | INDEX `(user_id, event_type, created_at)` | Progress aggregate |
 | Object-word mapping | INDEX `(label)` trên `object_word_mappings` | AI label → Word lookup |
 | Media owner | INDEX `(owner_id, media_type)` trên `storage_metadata` | User media lookup |
-| Notifications | INDEX `(user_id, read_at, created_at)` | Notification list |
+| Notifications | INDEX `(user_id, is_read, created_at)` trên `user_notifications` | Notification list |
 | Leaderboard | INDEX `(scope, score)` hoặc Redis sorted set | Ranking query |
 
 ### 6.4 Dictionary import
@@ -659,8 +658,8 @@ Backend sử dụng kết hợp `(sourceAllowlist, clipScoreFloor)` để làm l
 | `topic` | Topic | Collections, topics, topic items |
 | `storage` | Storage | Presigned upload, upload complete, access URL |
 | `recognition` | Recognition | Submit scan, detection result |
-| `vocabulary` | Vocabulary | Deck/Note CRUD |
-| `flashcard` | Flashcard | Cards, study session, recall rating, templates |
+| `vocabulary` | Vocabulary | Topic cá nhân, TopicItem CRUD |
+| `flashcard` | Flashcard | Study session theo Template, recall rating |
 | `quiz` | Quiz | Quiz setup, play, result, history |
 | `srs` | SRS | Review queue, FSRS rating submit |
 | `progress` | Progress | Stats, home summary, streak, accuracy |
@@ -775,13 +774,13 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 | # | Flow | Modules liên quan | Priority |
 | --- | --- | --- | --- |
 | 1 | Register → OTP verify → Login → Refresh → Logout | Identity | Critical |
-| 2 | Search word → Word detail → Save to Deck | Dictionary, Vocabulary | Critical |
-| 3 | Camera/detection → AI detect → Map word → Save Note/Card | Recognition, AI, Vocabulary | Critical |
-| 4 | Flashcard session → FSRS rating → ReviewLog | Flashcard, SRS | Critical |
+| 2 | Search word → Word detail → Save to personal Topic | Dictionary, Vocabulary | Critical |
+| 3 | Camera/detection → AI detect → Map word → Save TopicItem | Recognition, AI, Vocabulary | Critical |
+| 4 | Flashcard session → FSRS rating → FsrsRecord update | Flashcard, SRS | Critical |
 | 5 | Quiz setup → Play → Submit → Result | Quiz | High |
-| 6 | SRS due queue → Review → Rating → Card update | SRS, Flashcard | High |
+| 6 | SRS due queue → Review → Rating → FsrsRecord update | SRS, Flashcard | High |
 | 7 | Avatar upload (presigned) → Upload complete → Profile update | Storage, Identity | High |
-| 8 | Topic browse → Save from topic → Note created | Topic, Vocabulary | Medium |
+| 8 | Topic browse → Save from topic → TopicItem created | Topic, Vocabulary | Medium |
 | 9 | Reward idempotency (retry claim → no duplicate XP/coin) | Gamification | High |
 | 10 | No-object / low-reliability / AI timeout → error state | Recognition, AI | High |
 | 11 | Admin login → dashboard → dictionary/topic edit | Web Admin, Identity, Dictionary/Topic | High |
@@ -926,7 +925,7 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 | --- | --- |
 | **M1 — Core Auth & Vocabulary** | React Native/Expo, Expo SecureStore, Spring Boot, Spring Security/JWT, MySQL/MariaDB (dictionary import 357K+), MinIO/S3 (avatar), Spring Mail (OTP), Swagger |
 | **M2 — Camera/Recognition** | Expo Camera/Image Picker/Image Manipulator, Storage scan image, FastAPI + Florence-2 + SAM + CLIP (GPU T4), Recognition API, ObjectWordMapping |
-| **M3 — Learning Engine** | Flashcard/Quiz/SRS backend services, CardTemplate, Progress aggregate, Notification (Expo Push/FCM), TanStack Query learning screens, biometric unlock optional, tests SRS/quiz |
+| **M3 — Learning Engine** | Flashcard/Quiz/SRS backend services, Template management, Progress aggregate, Notification (Expo Push/FCM), TanStack Query learning screens, biometric unlock optional, tests SRS/quiz |
 | **M4 — Gamification & Admin Production** | Redis leaderboard sorted set, Mission/Badge/Coin/Shop services, Next.js Admin CMS, shadcn/ui, TanStack Table, Playwright smoke, Cloudflare R2 production, Observability hardening, CI/CD |
 
 ---
@@ -944,7 +943,7 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 | 7 | Redis bị dùng như DB chính | Mất dữ liệu khi Redis reset | Chỉ dùng Redis làm cache, rebuild từ DB/events |
 | 8 | Reward cộng trùng (retry) | Sai coin/XP/leaderboard | Idempotency key + unique transaction + distributed lock |
 | 9 | R2/MinIO khác biệt config | Upload lỗi giữa dev/prod | S3-compatible abstraction, smoke test upload per env |
-| 10 | AI label không khớp dictionary Anh-Việt | Không tạo được Note từ scan | ObjectWordMapping + synonym table, dictionary miss state UI |
+| 10 | AI label không khớp dictionary Anh-Việt | Không tạo được TopicItem từ scan | ObjectWordMapping + synonym table, dictionary miss state UI |
 | 11 | Expo SDK breaking changes | Mobile build fail | Pin Expo SDK version, test upgrade trên branch riêng |
 | 12 | Web admin expose secret qua biến public hoặc bundle | Lộ credential/API config nhạy cảm | Chỉ dùng `NEXT_PUBLIC_*` cho cấu hình public; secret nằm backend/server env; review build env trước deploy |
 | 13 | Biometric bị hiểu nhầm là xác thực backend | Thiết kế auth sai, khó audit | Biometric chỉ unlock local secret; backend vẫn dùng JWT/refresh; passkey/WebAuthn là optional riêng cho admin |
@@ -983,7 +982,7 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 - [x] Stack chia theo milestone M1→M4 để triển khai tuần tự, không chặn MVP cốt lõi.
 - [x] Thư viện mã nguồn mở đề xuất đã chia theo mobile/web admin/backend/AI/testing và có nguyên tắc chọn.
 - [x] Rủi ro tech stack đã nhận diện và có phương án kiểm soát.
-- [x] Canonical model: Deck → Note → Card + ReviewLog. Không `SavedWord`/`UserWord`.
+- [x] Canonical model: Collection → Topic → TopicItem + Template + FsrsRecord. Không dùng model cũ (Deck/Note/Card, ReviewLog, SavedWord).
 - [x] AI pipeline: Florence-2 + SAM + CLIP zero-shot. Không YOLO.
-- [x] SRS: FSRS trên Card.
+- [x] SRS: FSRS trên FsrsRecord (theo topic_item_id).
 - [x] Actors: Guest, Learner, Admin (CMS web riêng).

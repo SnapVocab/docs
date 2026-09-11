@@ -36,7 +36,7 @@ Hệ thống SnapVocab được chia thành **18 phân hệ** thuộc 5 lớp ch
 │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────────────────┘              │
 │         │                 │                  │                                            │
 │  ┌──────┴─────────────────┴──────────────────┴────────────────────────────┐               │
-│  │  SS-08: VOCABULARY (Deck / Note / Card — Personal Vocabulary)          │               │
+│  │  SS-08: VOCABULARY (Topic / TopicItem — Personal Vocabulary)           │               │
 │  └───────────────────────────┬────────────────────────────────────────────┘               │
 │                               │                                                          │
 │  ═══════════════════════ LỚP LEARNING ENGINE ════════════════════════════════            │
@@ -59,7 +59,7 @@ Hệ thống SnapVocab được chia thành **18 phân hệ** thuộc 5 lớp ch
 │  │  SS-17:      │  │  SS-18:      │                                                      │
 │  │  ADMIN       │  │  API DOCS    │                                                      │
 │  │  (Dashboard) │  │  (OpenAPI)   │                                                      │
-│  └──────────────┘  └──────────────┘                                                      │
+│  │  └──────────────┘  └──────────────┘                                                      │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -88,8 +88,8 @@ Giao diện người dùng chính của hệ thống. Cung cấp trải nghiệm
 - Camera capture, gallery pick, gửi ảnh nhận diện
 - Nút nổi quét màn hình (Android overlay bubble — Could)
 - Tra cứu từ điển (text + voice), duyệt Collection/Topic
-- My Vocabulary (Deck/Note list), word detail
-- Flashcard study session, render theo CardTemplate config
+- My Vocabulary (danh sách Topic/TopicItem cá nhân), word detail
+- Flashcard study session, render theo cấu hình Topic Template
 - Quiz (MCQ, matching, fill blank)
 - SRS review session, FSRS rating
 - Progress dashboard, streak, accuracy
@@ -130,7 +130,7 @@ Web application nội bộ (tách biệt với Mobile App) dành cho Admin quả
 - Quản lý từ điển: CRUD Word/Definition/Translation/Pronunciation, soft-delete
 - Quản lý Collection/Topic: cấu trúc chủ đề, TopicItem, thuộc tính EAV
 - Import dữ liệu từ vựng hàng loạt (CSV/Excel)
-- Quản lý System Card Template
+- Quản lý Topic Template hệ thống
 - Quản lý gamification: Missions, Badges, Shop Items, XP config
 - Xem Feedback/báo lỗi từ người dùng
 - Dashboard thống kê: users active, lượt dùng AI, dung lượng R2/S3
@@ -289,7 +289,7 @@ Quản lý bộ sưu tập (Collections) và chủ đề (Topics) từ vựng th
 - Duyệt danh sách Collections
 - Xem Topics theo Collection (hỗ trợ phân cấp parent/child)
 - Xem TopicItems kèm thuộc tính EAV (nghĩa, phiên âm, ví dụ, audio)
-- Lưu TopicItem → Note cá nhân (source = TOPIC)
+- Sao chép/lưu TopicItem vào Topic cá nhân (source = TOPIC)
 - Admin CRUD Collection/Topic/TopicItem và thuộc tính
 
 ### API Endpoints
@@ -440,43 +440,45 @@ Service **độc lập** (Python FastAPI) chạy pipeline nhận diện từ v�
 
 ---
 
-## SS-08: Vocabulary — Từ vựng cá nhân (Deck / Note)
+## SS-08: Vocabulary — Từ vựng cá nhân (Topic / TopicItem)
 
 ### Mô tả
 
-Phân hệ quản lý từ vựng cá nhân của Learner theo canonical model `Deck → Note → Card`. UI "My Vocabulary / từ đã lưu" = danh sách Note. **Không** duy trì entity song song `SavedWord`/`UserWord`.
+Phân hệ quản lý từ vựng cá nhân của Learner theo mô hình `Collection (loại USER) → Topic → TopicItem`. UI "My Vocabulary / từ đã lưu" = danh sách TopicItem trong Topic của Learner. Không duy trì entity song song `Deck`/`Note`/`Card`/`SavedWord`/`UserWord`.
 
 ### Entities
 
-| Entity              | Mô tả                                                                          |
-| ------------------- | ------------------------------------------------------------------------------- |
-| `Deck`              | Bộ thẻ của Learner; gán 1 CardTemplate                                         |
-| `Note`              | Đơn vị từ vựng cá nhân (wordId, userId, source, createdAt)                     |
-| `NoteMeaning`       | Nghĩa/POS/example/ghi chú gắn Note                                             |
-| `NotePronunciation` | IPA/audio gắn Note                                                              |
+| Entity                         | Mô tả                                                                         |
+| ------------------------------ | ----------------------------------------------------------------------------- |
+| `Collection`                   | Bộ sưu tập chủ đề (type USER hoặc SYSTEM)                                    |
+| `Topic`                        | Chủ đề học tập cá nhân của Learner, có thể phân cấp cha-con                  |
+| `TopicItem`                    | Đơn vị từ vựng lưu vào Topic (wordId, text, phonetic, audio, meaning...)     |
+| `TopicItemAttributeValue`      | Giá trị thuộc tính động EAV của TopicItem                                     |
 
 ### Chức năng chính
 
-- Tạo/xem/xóa Deck (owner-only)
-- Lưu từ → tạo Note (từ scan, dictionary, topic) + auto tạo Card (SS-09)
-- Unique per Deck: không Note trùng Word trong cùng Deck
-- Xem danh sách Note (My Vocabulary)
-- Lọc/sắp xếp theo UI state (new/learning/reviewing/mastered) suy từ FSRS + interval, ngày lưu, độ khó, ngày ôn
-- Xóa/archive Note (Card gắn Note ẩn/archive, Word gốc không bị xóa)
+- Tạo/xem/xóa Topic trong Collection cá nhân (owner-only)
+- Lưu từ → tạo TopicItem (từ scan, dictionary, hoặc topic hệ thống) + tự động khởi tạo FsrsRecord (SS-09/SS-11)
+- Unique per Topic: không lưu từ trùng trong cùng Topic
+- Xem danh sách từ (My Vocabulary)
+- Lọc/sắp xếp theo UI state (new/learning/reviewing/mastered) suy từ FSRS, ngày lưu, độ khó, ngày ôn
+- Xóa/archive TopicItem (FsrsRecord tương ứng bị xóa/ẩn, Word gốc trong từ điển không bị xóa)
 - Gắn nguồn (source): SCAN, DICT, TOPIC
 
 ### API Endpoints
 
-| Method | Endpoint                    | Mô tả                                  | Auth    |
-| ------ | --------------------------- | --------------------------------------- | ------- |
-| GET    | `/decks`                    | Danh sách Deck của Learner              | Learner |
-| POST   | `/decks`                    | Tạo Deck mới                            | Learner |
-| PUT    | `/decks/{id}`               | Cập nhật Deck (tên, template)           | Learner |
-| DELETE | `/decks/{id}`               | Xóa Deck                                | Learner |
-| GET    | `/decks/{id}/notes`         | Danh sách Note trong Deck (filter/sort) | Learner |
-| POST   | `/decks/{id}/notes`         | Lưu từ mới (tạo Note + Card)           | Learner |
-| GET    | `/notes/{id}`               | Chi tiết Note                            | Learner |
-| DELETE | `/notes/{id}`               | Xóa/archive Note                        | Learner |
+| Method | Endpoint                    | Mô tả                                      | Auth    |
+| ------ | --------------------------- | ------------------------------------------ | ------- |
+| GET    | `/collections`              | Danh sách Collection của Learner           | Learner |
+| POST   | `/collections`              | Tạo Collection mới                         | Learner |
+| GET    | `/topics`                   | Danh sách Topic của Learner                | Learner |
+| POST   | `/topics`                   | Tạo Topic mới                              | Learner |
+| PUT    | `/topics/{id}`              | Cập nhật Topic                             | Learner |
+| DELETE | `/topics/{id}`              | Xóa Topic                                  | Learner |
+| GET    | `/topics/{id}/items`        | Danh sách TopicItem trong Topic (lọc/sắp xếp) | Learner |
+| POST   | `/topics/{id}/items`        | Lưu từ mới (tạo TopicItem + FsrsRecord)    | Learner |
+| GET    | `/topic-items/{id}`         | Chi tiết TopicItem                         | Learner |
+| DELETE | `/topic-items/{id}`         | Xóa TopicItem                              | Learner |
 
 ### Trace
 
@@ -487,56 +489,50 @@ Phân hệ quản lý từ vựng cá nhân của Learner theo canonical model `
 
 ---
 
-## SS-09: Flashcard & Template — Thẻ học & Mẫu thẻ
+## SS-09: Flashcard & Template — Thẻ học & Topic Template
 
 ### Mô tả
 
-Quản lý Card (thẻ học gắn với Note), CardTemplate (mẫu thẻ hệ thống/tùy chỉnh) và phiên học flashcard. Mỗi Note sinh 1 Card theo template của Deck. Card chứa tham số SRS (state, dueAt, stability, difficulty).
+Quản lý cấu hình hiển thị thẻ học thông qua `Template` gắn với `Topic` (loại `TOPIC_CUSTOM` hoặc kế thừa từ hệ thống `SYSTEM`), bao gồm các phần tử giao diện `TemplateElement` và trường dữ liệu `TemplateField` với vai trò ngữ nghĩa `SemanticRole` (FRONT, BACK, EXAMPLE, AUDIO, IMAGE, PHONETIC, TRANSLATION, HINT, TAG, EXTRA). Phiên học flashcard nạp các TopicItem và cập nhật FsrsRecord theo đánh giá của Learner.
 
 ### Entities
 
-| Entity              | Mô tả                                                                              |
-| ------------------- | ----------------------------------------------------------------------------------- |
-| `Card`              | Thẻ học + tham số SRS (noteId, state, dueAt, stability, difficulty, interval, reps) |
-| `ReviewLog`         | Lịch sử từng lượt ôn (cardId, rating, reviewedAt, elapsed)                         |
-| `CardTemplate`      | Layout system/custom, interaction type (Flip, Type-in, Listening)                   |
-| `CardTemplateField` | Field mapping front/back cho template                                               |
+| Entity            | Mô tả                                                                             |
+| ----------------- | ---------------------------------------------------------------------------------- |
+| `Template`        | Mẫu thẻ học gắn theo Topic (`topic_id`), loại SYSTEM hoặc TOPIC_CUSTOM             |
+| `TemplateElement` | Phần tử giao diện (type: FIELD, DIVIDER, BUTTON; order_index, flex, alignment)    |
+| `TemplateField`   | Trường dữ liệu ánh xạ TopicAttribute với SemanticRole và cấu hình hiển thị         |
+| `FsrsRecord`      | Trạng thái và tham số SRS của từ học (card_state, due, stability, difficulty...)  |
 
 ### Chức năng chính
 
-- Auto sinh 1 Card per Note (theo template Deck)
+- Khởi tạo FsrsRecord (card_state=NEW) khi TopicItem được tạo trong Topic
 - System Templates: Classic, Listening, Spelling, Image Vocab... (seeded, không sửa/xóa)
-- Custom Templates: Learner tự tạo (layout, field mapping, interaction type) — Should
-- Gán Template → Deck (đổi template không mất Card, chỉ đổi render, SRS giữ nguyên)
-- Render flashcard theo config (ẩn field thiếu dữ liệu, không lỗi layout)
-- Study session: hiển thị Card → Learner tương tác → submit FSRS rating
-- Ghi ReviewLog (rating, time)
-- Cập nhật tham số SRS trên Card (state, dueAt, stability, difficulty)
-- Admin quản lý System Templates
+- Custom Templates: Cấu hình phần tử giao diện (TemplateElement) và trường dữ liệu (TemplateField) với SemanticRole gắn cho Topic
+- Render thẻ học linh hoạt theo cấu hình template của Topic (ẩn field thiếu dữ liệu, không vỡ layout)
+- Study session: hiển thị TopicItem theo template → Learner tương tác → submit FSRS rating
+- Cập nhật trực tiếp thông số FSRS trên FsrsRecord (card_state, due, stability, difficulty, reps, lapses)
+- Hỗ trợ học hàng loạt và sync queue cục bộ (batch rating)
 
 ### API Endpoints
 
-| Method    | Endpoint                                 | Mô tả                                       | Auth    |
-| --------- | ---------------------------------------- | -------------------------------------------- | ------- |
-| GET       | `/decks/{id}/cards`                      | Danh sách Card trong Deck                    | Learner |
-| GET       | `/decks/{id}/study-session`              | Lấy batch Card để học (new + due)            | Learner |
-| POST      | `/cards/{id}/review`                     | Submit FSRS rating cho Card                  | Learner |
-| GET       | `/card-templates`                        | Danh sách templates (system + custom)        | Learner |
-| POST      | `/card-templates`                        | Tạo custom template                          | Learner |
-| PUT       | `/card-templates/{id}`                   | Cập nhật custom template                     | Learner |
-| DELETE    | `/card-templates/{id}`                   | Soft-delete custom template                  | Learner |
-| GET/POST/PUT/DELETE | `/admin/card-templates`        | Admin quản lý System Templates               | Admin   |
+| Method | Endpoint                                  | Mô tả                                        | Auth    |
+| ------ | ----------------------------------------- | -------------------------------------------- | ------- |
+| GET    | `/topics/{id}/templates`                  | Lấy cấu hình template gắn với Topic          | Learner |
+| PUT    | `/topics/{id}/templates`                  | Cập nhật cấu hình template cho Topic         | Learner |
+| GET    | `/topics/{id}/items/study-session`        | Lấy danh sách TopicItem cần học (new + due)  | Learner |
+| POST   | `/topic-items/{id}/review`                | Submit FSRS rating cho TopicItem             | Learner |
+| POST   | `/reviews/batch`                          | Sync batch rating từ local queue             | Learner |
+| GET    | `/admin/templates`                        | Admin quản lý System Templates               | Admin   |
 
 ### Sub-components
 
 ```text
 Flashcard & Template
-  ├── CardService             — Auto sinh Card, CRUD, batch query
-  ├── StudySessionService     — Build study queue (new + due), session logic
-  ├── FsrsService             — Tính toán FSRS: state, dueAt, stability, difficulty
-  ├── ReviewLogService        — Ghi và truy vấn review history
-  ├── CardTemplateService     — CRUD system/custom templates
-  └── CardRendererConfig      — Field mapping, interaction type config cho mobile
+  ├── TemplateService         — Quản lý Template, TemplateElement, TemplateField (SemanticRole)
+  ├── StudySessionService     — Build study queue (new + due), quản lý phiên học
+  ├── FsrsService             — Thuật toán FSRS: card_state, due, stability, difficulty
+  └── CardRendererConfig      — Ánh xạ SemanticRole sang UI elements cho mobile
 ```
 
 ### Trace
@@ -552,22 +548,23 @@ Flashcard & Template
 
 ### Mô tả
 
-Sinh bài kiểm tra từ vựng từ Note/Card trong Deck của Learner. Hỗ trợ nhiều dạng câu hỏi, chấm điểm và lưu lịch sử attempt.
+Sinh bài kiểm tra từ vựng từ TopicItem trong Topic của Learner hoặc Topic hệ thống. Hỗ trợ nhiều dạng câu hỏi, chấm điểm và lưu lịch sử attempt.
 
 ### Entities
 
-| Entity         | Mô tả                                                             |
-| -------------- | ------------------------------------------------------------------ |
-| `Quiz`         | Bài kiểm tra (deckId, type, questionCount, createdAt)              |
-| `QuizQuestion` | Câu hỏi trong quiz (type, noteId, correctAnswer, distractors)     |
+| Entity         | Mô tả                                                                                   |
+| -------------- | ---------------------------------------------------------------------------------------- |
+| `Quiz`         | Bài kiểm tra (topicId, type, questionCount, createdAt)                                  |
+| `Question`     | Câu hỏi trong quiz (type, topicItemId, correctAnswer, distractors)                      |
 | `QuizAttempt`  | Lượt làm quiz (quizId, userId, score, correctCount, wrongCount, duration, completedAt) |
+| `QuizAnswer`   | Chi tiết câu trả lời của người dùng trong lượt làm                                      |
 
 ### Chức năng chính
 
-- Sinh quiz từ Note/Card trong Deck
+- Sinh quiz từ TopicItem trong Topic
 - Dạng câu hỏi: Multiple choice (Must), Matching (Should), Fill blank (Could)
-- Sinh đáp án nhiễu (lấy từ Note cùng Deck/POS, không trùng nghĩa)
-- Yêu cầu số Note tối thiểu để sinh quiz
+- Sinh đáp án nhiễu (lấy từ TopicItem cùng Topic/POS, không trùng nghĩa)
+- Yêu cầu số từ tối thiểu để sinh quiz
 - Chấm điểm: score, correctCount, wrongCount, accuracy
 - Lưu QuizAttempt (idempotent — event key, retry không cộng trùng)
 - Cập nhật Progress, XP nếu gamification bật (qua event)
@@ -576,7 +573,7 @@ Sinh bài kiểm tra từ vựng từ Note/Card trong Deck của Learner. Hỗ t
 
 | Method | Endpoint                             | Mô tả                                    | Auth    |
 | ------ | ------------------------------------ | ----------------------------------------- | ------- |
-| POST   | `/decks/{id}/quizzes/generate`       | Sinh quiz mới                              | Learner |
+| POST   | `/topics/{id}/quizzes/generate`      | Sinh quiz mới từ Topic                   | Learner |
 | GET    | `/quizzes/{id}`                      | Lấy quiz + câu hỏi                        | Learner |
 | POST   | `/quizzes/{id}/submit`               | Nộp bài, chấm điểm (idempotent)          | Learner |
 | GET    | `/quizzes/history`                   | Lịch sử quiz attempts                     | Learner |
@@ -594,31 +591,31 @@ Sinh bài kiểm tra từ vựng từ Note/Card trong Deck của Learner. Hỗ t
 
 ### Mô tả
 
-Quản lý hàng đợi ôn tập theo thuật toán FSRS (Free Spaced Repetition Scheduler). Tính toán lịch ôn dựa trên kết quả recall, ưu tiên từ quá hạn.
+Quản lý hàng đợi ôn tập theo thuật toán FSRS (Free Spaced Repetition Scheduler). Tính toán lịch ôn dựa trên kết quả recall của FsrsRecord, ưu tiên từ quá hạn.
 
 ### Chức năng chính
 
-- Tính Daily Review Queue: Card có `dueAt ≤ now`, ưu tiên overdue
+- Tính Daily Review Queue: FsrsRecord có `due <= now`, ưu tiên overdue
 - Learner đánh giá recall (Again, Hard, Good, Easy)
-- Cập nhật FSRS trên Card: state, dueAt, stability, difficulty, interval
+- Cập nhật FSRS trên FsrsRecord: card_state, due, stability, difficulty, reps, lapses
 - Recall tốt → interval tăng; recall kém → interval giảm hoặc đưa về LEARNING/RELEARNING theo FSRS
 - Hiển thị số từ cần ôn trên Home (daily due count)
-- Reset/archive Card (Could)
+- Reset/archive từ vựng (Could)
 
 ### API Endpoints
 
-| Method | Endpoint                    | Mô tả                                       | Auth    |
-| ------ | --------------------------- | -------------------------------------------- | ------- |
-| GET    | `/reviews/queue`            | Daily review queue (due Cards)               | Learner |
-| GET    | `/reviews/summary`          | Tổng quan: due count, overdue count          | Learner |
-| POST   | `/cards/{id}/review`        | Submit rating (shared with SS-09)            | Learner |
-| POST   | `/reviews/batch`            | Sync batch rating từ local queue             | Learner |
-| POST   | `/cards/{id}/reset`         | Reset SRS về NEW (Could)                     | Learner |
+| Method | Endpoint                             | Mô tả                                       | Auth    |
+| ------ | ------------------------------------ | -------------------------------------------- | ------- |
+| GET    | `/reviews/queue`                     | Daily review queue (due FsrsRecords)         | Learner |
+| GET    | `/reviews/summary`                   | Tổng quan: due count, overdue count          | Learner |
+| POST   | `/topic-items/{id}/review`           | Submit rating (shared with SS-09)            | Learner |
+| POST   | `/reviews/batch`                     | Sync batch rating từ local queue             | Learner |
+| POST   | `/topic-items/{id}/reset`            | Reset SRS về NEW (Could)                     | Learner |
 
 ### Ghi chú
 
-- SRS logic tích hợp chặt với SS-09 (Card entity + FsrsService). Tách SS vì trách nhiệm nghiệp vụ khác nhau: SS-09 quản lý study session / template, SS-11 quản lý review scheduling.
-- FSRS parameters: state (NEW/LEARNING/REVIEW/RELEARNING), dueAt, stability, difficulty, elapsed_days, scheduled_days, reps, lapses.
+- SRS logic tích hợp chặt với SS-09 (FsrsRecord entity + FsrsService). Tách SS vì trách nhiệm nghiệp vụ khác nhau: SS-09 quản lý study session / template, SS-11 quản lý review scheduling.
+- FSRS parameters: card_state (NEW/LEARNING/REVIEW/RELEARNING/SUSPENDED), due, stability, difficulty, reps, lapses.
 - UI/progress state dùng map chuẩn FR-04: NEW→new; LEARNING/RELEARNING→learning; REVIEW interval <21 ngày→reviewing; REVIEW interval ≥21 ngày→mastered.
 
 ### Trace
@@ -634,14 +631,14 @@ Quản lý hàng đợi ôn tập theo thuật toán FSRS (Free Spaced Repetitio
 
 ### Mô tả
 
-Tổng hợp và hiển thị tiến độ học tập cá nhân: số từ, streak, accuracy, lịch sử hoạt động. Dữ liệu aggregate từ ReviewLog, QuizAttempt, Note count.
+Tổng hợp và hiển thị tiến độ học tập cá nhân: số từ, streak, accuracy, lịch sử hoạt động. Dữ liệu aggregate từ FsrsRecord, QuizAttempt, TopicItem count.
 
 ### Entities
 
 | Entity             | Mô tả                                                                     |
 | ------------------ | -------------------------------------------------------------------------- |
-| `LearningProgress` | Aggregate: totalNotes, learnedCount, dueCount, masteredCount, streak, accuracy theo learning-state map |
-| `LearningEvent`    | Sự kiện học (type, timestamp, metadata) — rebuild từ ReviewLog/QuizAttempt |
+| `LearningProgress` | Aggregate: totalWords, learnedCount, dueCount, masteredCount, streak, accuracy theo learning-state map |
+| `LearningEvent`    | Sự kiện học (type, timestamp, metadata) — rebuild từ review event / QuizAttempt |
 
 ### Chức năng chính
 
@@ -655,9 +652,9 @@ Tổng hợp và hiển thị tiến độ học tập cá nhân: số từ, str
 
 Quy tắc aggregate:
 
-- `learnedCount` = số Card có UI state khác `new` (`learning + reviewing + mastered`).
-- `dueCount` / đang ôn = số Card có `dueAt <= now`.
-- `masteredCount` = số Card có FSRS `state = REVIEW` và `interval >= 21 ngày`.
+- `learnedCount` = số TopicItem có UI state khác `new` (`learning + reviewing + mastered`).
+- `dueCount` / đang ôn = số FsrsRecord có `due <= now`.
+- `masteredCount` = số FsrsRecord có `card_state = REVIEW` và interval ≥ 21 ngày.
 
 ### API Endpoints
 
@@ -892,7 +889,7 @@ API backend phục vụ CMS/Dashboard quản trị. Cung cấp các endpoint qu�
 - Quản lý từ điển: CRUD Word/Definition (soft-delete)
 - Quản lý Collection/Topic
 - Import dữ liệu hàng loạt
-- Quản lý System Card Template
+- Quản lý Topic Template hệ thống
 - Quản lý gamification config
 - Xem Feedback/báo lỗi từ Learner
 - Dashboard thống kê: users active, AI usage, R2/S3 storage
@@ -963,41 +960,41 @@ Cung cấp Swagger/OpenAPI tự động cho toàn bộ backend API, phục vụ 
                               └───┬──┬──┬──┬───┘
            ┌──────────────────────┘  │  │  └──────────────────────┐
            ▼                         ▼  ▼                          ▼
-   ┌───────────────┐       ┌──────────────────┐          ┌────────────────┐
-   │   SS-04:      │       │    SS-06:         │          │   SS-08:       │
-   │  DICTIONARY   │◄──────│  RECOGNITION     │─────────►│  VOCABULARY    │
-   │               │       │  (Orchestrator)   │          │  (Deck/Note)   │
-   └───────┬───────┘       └────────┬──────────┘          └──┬──────┬─────┘
-           │                        │                         │      │
-   ┌───────┴───────┐       ┌────────▼──────────┐     ┌───────▼──┐  ┌▼────────────┐
-   │   SS-05:      │       │    SS-07:         │     │ SS-09:   │  │ SS-10:      │
-   │   TOPIC       │       │  AI SERVICE      │     │ FLASHCARD│  │ QUIZ        │
-   │               │       │  (Florence-2)     │     │ &TEMPLATE│  │             │
-   └───────────────┘       └───────────────────┘     └──┬───────┘  └──┬──────────┘
-                                                         │             │
-                                                    ┌────▼─────────────▼──┐
-                                                    │       SS-11:        │
-                                                    │    SRS (FSRS)       │
-                                                    └─────────┬───────────┘
-                                                              │
-                                                    ┌─────────▼───────────┐
-                                                    │       SS-12:        │
-                                                    │    PROGRESS         │
-                                                    └─────────┬───────────┘
-                                                              │
-                              ┌────────────────┐    ┌─────────▼───────────┐
-                              │    SS-14:       │◄───│       SS-13:        │
-                              │    SHOP         │    │   GAMIFICATION      │
-                              └────────────────┘    └─────────┬───────────┘
-                                                              │
-                              ┌────────────────┐    ┌─────────▼───────────┐
-                              │    SS-16:       │    │       SS-15:        │
-                              │    STORAGE      │    │   NOTIFICATION      │
-                              └────────────────┘    └─────────────────────┘
+    ┌───────────────┐       ┌──────────────────┐          ┌────────────────┐
+    │   SS-04:      │       │    SS-06:         │          │   SS-08:       │
+    │  DICTIONARY   │◄──────│  RECOGNITION     │─────────►│  VOCABULARY    │
+    │               │       │  (Orchestrator)   │          │  (Topic/Item)  │
+    └───────┬───────┘       └────────┬──────────┘          └──┬──────┬─────┘
+            │                        │                         │      │
+    ┌───────┴───────┐       ┌────────▼──────────┐     ┌───────▼──┐  ┌▼────────────┐
+    │   SS-05:      │       │    SS-07:         │     │ SS-09:   │  │ SS-10:      │
+    │   TOPIC       │       │  AI SERVICE      │     │ FLASHCARD│  │ QUIZ        │
+    │               │       │  (Florence-2)     │     │ &TEMPLATE│  │             │
+    └───────────────┘       └───────────────────┘     └──┬───────┘  └──┬──────────┘
+                                                          │             │
+                                                     ┌────▼─────────────▼──┐
+                                                     │       SS-11:        │
+                                                     │    SRS (FSRS)       │
+                                                     └─────────┬───────────┘
+                                                               │
+                                                     ┌─────────▼───────────┐
+                                                     │       SS-12:        │
+                                                     │    PROGRESS         │
+                                                     └─────────┬───────────┘
+                                                               │
+                               ┌────────────────┐    ┌─────────▼───────────┐
+                               │    SS-14:       │◄───│       SS-13:        │
+                               │    SHOP         │    │   GAMIFICATION      │
+                               └────────────────┘    └─────────┬───────────┘
+                                                               │
+                               ┌────────────────┐    ┌─────────▼───────────┐
+                               │    SS-16:       │    │       SS-15:        │
+                               │    STORAGE      │    │   NOTIFICATION      │
+                               └────────────────┘    └─────────────────────┘
 
-   Crosscutting: SS-16 (Storage) ← SS-03, SS-06, SS-09, SS-14
-                 SS-17 (Admin) → SS-03, SS-04, SS-05, SS-09, SS-13, SS-14
-                 SS-18 (API Docs) → All backend SS
+    Crosscutting: SS-16 (Storage) ← SS-03, SS-06, SS-09, SS-14
+                  SS-17 (Admin) → SS-03, SS-04, SS-05, SS-09, SS-13, SS-14
+                  SS-18 (API Docs) → All backend SS
 ```
 
 ### Mermaid Dependency Diagram
@@ -1047,15 +1044,15 @@ graph TD
 | Admin CMS → Identity   | SS-02 → SS-03         | CMS dùng JWT với ROLE_ADMIN                                                                |
 | Recognition → AI       | SS-06 → SS-07         | Recognition worker gọi FastAPI AI service qua HTTP nội bộ (timeout 60s); mobile theo dõi job bằng requestId |
 | Recognition → Dictionary | SS-06 → SS-04       | Ánh xạ label AI → Word qua ObjectWordMappingService                                        |
-| Recognition → Vocabulary | SS-06 → SS-08       | Learner lưu kết quả scan → tạo Note/Card                                                  |
+| Recognition → Vocabulary | SS-06 → SS-08       | Learner lưu kết quả scan → tạo TopicItem + FsrsRecord                                     |
 | Recognition → Storage  | SS-06 → SS-16         | Upload/access ảnh scan qua Object Storage                                                  |
-| Dictionary → Vocabulary | SS-04 → SS-08       | Từ dictionary tra cứu → lưu thành Note                                                    |
-| Topic → Vocabulary     | SS-05 → SS-08         | Từ topic → lưu thành Note (source=TOPIC)                                                   |
-| Vocabulary → Flashcard | SS-08 → SS-09         | Note → auto sinh Card; Deck gán Template                                                   |
-| Vocabulary → Quiz      | SS-08 → SS-10         | Note/Card là nguồn câu hỏi quiz                                                           |
-| Flashcard → SRS        | SS-09 → SS-11         | Review session ghi ReviewLog → cập nhật FSRS Card                                         |
-| Quiz → SRS             | SS-10 → SS-11         | Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP)      |
-| SRS → Progress         | SS-11 → SS-12         | ReviewLog/Card state → aggregate progress                                                  |
+| Dictionary → Vocabulary | SS-04 → SS-08       | Từ dictionary tra cứu → lưu thành TopicItem                                                |
+| Topic → Vocabulary     | SS-05 → SS-08         | Từ topic hệ thống → sao chép/lưu thành TopicItem cá nhân (source=TOPIC)                    |
+| Vocabulary → Flashcard | SS-08 → SS-09         | TopicItem là nguồn nạp thẻ học; Topic gán Template cấu hình render                         |
+| Vocabulary → Quiz      | SS-08 → SS-10         | TopicItem là nguồn câu hỏi quiz                                                           |
+| Flashcard → SRS        | SS-09 → SS-11         | Review session cập nhật trực tiếp FsrsRecord (card_state, due, stability, difficulty)      |
+| Quiz → SRS             | SS-10 → SS-11         | Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP)          |
+| SRS → Progress         | SS-11 → SS-12         | FsrsRecord state/due → aggregate progress                                                  |
 | Quiz → Progress        | SS-10 → SS-12         | QuizAttempt → aggregate accuracy, XP                                                       |
 | Flashcard → Progress   | SS-09 → SS-12         | Study session → cập nhật streak, learned count                                             |
 | Progress → Gamification | SS-12 → SS-13       | Learning events trigger XP/coin/mission/badge rules                                       |
@@ -1069,8 +1066,8 @@ graph TD
 
 ### Ghi chú coupling
 
-- **Loose coupling qua events:** Các phân hệ nên dùng domain event nội bộ (VD: `NoteCreated`, `ReviewCompleted`, `QuizSubmitted`, `MissionCompleted`) để tránh coupling trực tiếp.
-- **Shared entities:** Card entity được chia sẻ giữa SS-08 (owner), SS-09 (study/template) và SS-11 (SRS). Trách nhiệm tách rõ qua service layer.
+- **Loose coupling qua events:** Các phân hệ nên dùng domain event nội bộ (VD: `TopicItemCreated`, `ReviewCompleted`, `QuizSubmitted`, `MissionCompleted`) để tránh coupling trực tiếp.
+- **Shared entities:** `TopicItem` và `FsrsRecord` được chia sẻ giữa SS-05/SS-08 (Topic & Item), SS-09 (Flashcard & Template) và SS-11 (SRS). Trách nhiệm tách rõ qua service layer.
 - **AI Service tách deploy:** SS-07 là service độc lập (Python FastAPI), giao tiếp HTTP. Không chia sẻ database với backend Spring Boot.
 - **Storage crosscutting:** SS-16 là infrastructure service, được nhiều domain sử dụng qua cùng interface.
 
@@ -1087,7 +1084,7 @@ graph TD
 | SS-05 | Topic                      | FR-14                        | M1            |
 | SS-06 | Recognition (Orchestrator) | FR-02                        | M2            |
 | SS-07 | AI Service                 | FR-02.05, FR-02.06           | M2            |
-| SS-08 | Vocabulary (Deck/Note)     | FR-04, FR-05.01              | M1–M2         |
+| SS-08 | Vocabulary (Topic/Item)    | FR-04, FR-05.01              | M1–M2         |
 | SS-09 | Flashcard & Template       | FR-05, FR-13.07              | M1, M3        |
 | SS-10 | Quiz                       | FR-06                        | M3            |
 | SS-11 | SRS (FSRS)                 | FR-07                        | M3            |
@@ -1104,87 +1101,24 @@ graph TD
 ## Mapping với Package Structure (Backend — Spring Boot)
 
 ```text
-com.snapvocab
-├── identity/                       ← SS-03
-│   ├── controller/
-│   ├── service/
-│   ├── entity/                    (User, Authority, RefreshToken, OtpToken)
-│   ├── repository/
-│   ├── dto/
-│   └── security/                  (JwtFilter, SecurityConfig)
-├── dictionary/                     ← SS-04
-│   ├── controller/
-│   ├── service/
-│   ├── entity/                    (Word, Definition, Translation, Pronunciation, WordRelation, ObjectWordMapping)
-│   ├── repository/
-│   └── dto/
-├── topic/                          ← SS-05
-│   ├── controller/
-│   ├── service/
-│   ├── entity/                    (Collection, Topic, TopicItem, TopicAttribute*, TopicItemAttributeValue)
-│   ├── repository/
-│   └── dto/
-├── recognition/                    ← SS-06
-│   ├── controller/
-│   ├── service/                   (RecognitionOrchestrator, AiServiceClient, RecognitionFilter, LabelDedup)
-│   ├── entity/                    (ScanRequest, DetectedObject)
-│   ├── repository/
-│   └── dto/
-├── vocabulary/                     ← SS-08
-│   ├── controller/
-│   ├── service/
-│   ├── entity/                    (Deck, Note, NoteMeaning, NotePronunciation)
-│   ├── repository/
-│   └── dto/
-├── flashcard/                      ← SS-09
-│   ├── controller/
-│   ├── service/                   (CardService, StudySessionService, FsrsService, ReviewLogService)
-│   ├── entity/                    (Card, ReviewLog, CardTemplate, CardTemplateField)
-│   ├── repository/
-│   └── dto/
-├── quiz/                           ← SS-10
-│   ├── controller/
-│   ├── service/
-│   ├── entity/                    (Quiz, QuizQuestion, QuizAttempt)
-│   ├── repository/
-│   └── dto/
-├── srs/                            ← SS-11
-│   ├── service/                   (ReviewQueueService — dùng Card/ReviewLog từ flashcard)
-│   └── dto/
-├── progress/                       ← SS-12
-│   ├── controller/
-│   ├── service/
-│   ├── entity/                    (LearningProgress, LearningEvent)
-│   ├── repository/
-│   └── dto/
-├── gamification/                   ← SS-13 + SS-14
-│   ├── controller/
-│   ├── service/                   (XpService, CoinService, MissionService, BadgeService, LeaderboardService, ShopService)
-│   ├── entity/                    (Mission, MissionProgress, Badge, UserBadge, ExperienceLog, CoinTransaction, LeaderboardEntry, ShopItem, UserItem)
-│   ├── repository/
-│   └── dto/
-├── notification/                   ← SS-15
-│   ├── controller/
-│   ├── service/                   (PushService, InAppService, DeviceTokenService)
-│   ├── entity/                    (Notification, DeviceToken)
-│   ├── repository/
-│   └── dto/
-├── storage/                        ← SS-16
-│   ├── controller/
-│   ├── service/                   (S3StorageService, UploadValidation, OrphanCleanup)
-│   ├── entity/                    (StorageMetadata)
-│   ├── repository/
-│   └── dto/
-├── admin/                          ← SS-17
-│   ├── controller/                (AdminUserController, AdminDashboardController, AdminFeedbackController)
-│   ├── service/
-│   └── dto/
-└── common/                         ← Shared utilities
-    ├── config/                    (AppConfig, RedisConfig, S3Config)
-    ├── exception/                 (GlobalExceptionHandler, BusinessException)
-    ├── security/                  (JwtUtils, CurrentUser)
-    ├── dto/                       (ApiResponse — success/data/error/requestId envelope)
-    └── event/                     (Domain events: NoteCreated, ReviewCompleted, QuizSubmitted...)
+vn.ptit.snapvocab
+├── config/                         (SecurityConfig, ApplicationProperties, CloudflareR2Properties, CorsConfig...)
+├── controller/                     (AuthenticationController, CollectionController, TopicController, WordController, ScanController, StorageController...)
+├── domain/                         (Entity definitions & mappings)
+│   ├── Authority, User, RefreshToken
+│   ├── Word, Definition, Translation, Pronunciation, WordDefinition, WordRelation
+│   ├── Collection, Topic, TopicItem, TopicAttributeGroup, TopicAttribute, TopicItemAttributeValue
+│   ├── Template, TemplateElement, TemplateField
+│   ├── FsrsRecord, Level, ShopItem, UserInventory, Notification, UserNotification
+│   ├── common/                    (BaseTimeEntity, BaseCreatedAtEntity)
+│   ├── enumeration/               (CardState, ReviewRating, SemanticRole, TemplateElementType, CollectionType...)
+│   └── mapper/                    (Entity mappers & DTO converters)
+├── repository/                    (JPA Repositories cho 25 entity tables)
+├── security/                      (JwtTokenProvider, CustomUserDetailsService, SecurityUtils)
+├── service/                       (AuthenticationService, CollectionService, TopicService, WordService, ScanService, StorageService...)
+│   ├── dto/                       (Request/Response DTOs)
+│   └── impl/                      (Service implementations)
+└── util/                          (StringUtil, HeaderUtil, PaginationUtil...)
 ```
 
 ---
@@ -1194,9 +1128,9 @@ com.snapvocab
 - [x] 18 phân hệ bao phủ toàn bộ FR-01 → FR-14 trong [specs.md](./specs.md).
 - [x] Mỗi SS có: mô tả, entities, chức năng chính, API endpoints, trace, milestone.
 - [x] Actor đúng canonical: Guest, Learner, Admin.
-- [x] Canonical model: Deck → Note → Card + ReviewLog (không `SavedWord`/`UserWord`).
+- [x] Canonical model: Collection → Topic → TopicItem + Template + FsrsRecord. Không `SavedWord`/`UserWord`/`Deck`/`Note`/`Card`.
 - [x] AI pipeline: Florence-2 + SAM + CLIP (không YOLO).
-- [x] SRS: FSRS trên Card.
+- [x] SRS: FSRS trên FsrsRecord gắn cặp (user_id, topic_item_id).
 - [x] SS-07 (AI Service) tách deploy, giao tiếp HTTP nội bộ.
 - [x] Dependency graph + coupling notes.
 - [x] Package structure mapping.

@@ -24,11 +24,11 @@ Các tài liệu trong thư mục này cần bám theo các quyết định cano
 | Source of truth | [spec/specs.md](./spec/specs.md) |
 | AI pipeline | Florence-2 + SAM + CLIP, cấu hình F2-v13 zero-shot |
 | Actor | Guest, Learner, Admin |
-| Learning domain | Deck → Note → Card + ReviewLog |
-| Saved vocabulary | Note trong Deck của Learner; không dùng SavedWord/UserWord song song |
-| SRS | FSRS trên Card |
+| Learning domain | Collection (system/user) → Topic → TopicItem (mô hình EAV); đã lược bỏ hoàn toàn Deck, Note, Card, ReviewLog cũ |
+| Flashcard Template | Template gắn với Topic, gồm TemplateElement và TemplateField mang SemanticRole |
+| SRS | Thuật toán FSRS quản lý qua bảng fsrs_records cho từng cặp (user, topic_item) |
 | Milestone | M1 Auth+Dict → M2 Scan → M3 Learning → M4 Game+Prod |
-| Community scope | Không có community/study group; chỉ giữ leaderboard cá nhân |
+| Community scope | Lược bỏ hoàn toàn chức năng community/study group; chỉ giữ leaderboard cá nhân |
 
 ## Cấu trúc tài liệu
 
@@ -75,7 +75,7 @@ docs/
 
 ### 4. Decision records
 
-- [decisions/custom_card.md](./decisions/custom_card.md): thiết kế Card Template System, custom template, system template, 1 Deck dùng 1 template và 1 Note sinh 1 Card.
+- [decisions/custom_card.md](./decisions/custom_card.md): thiết kế hệ thống Template cho Topic, thành phần TemplateElement và TemplateField mang SemanticRole ánh xạ thuộc tính EAV thành thẻ học.
 - [decisions/daily_mission.md](./decisions/daily_mission.md): thiết kế Daily Mission, Daily Chest, Weekly Milestone, mission pool, event tracking và reward idempotency.
 
 ### 5. Design

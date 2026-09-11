@@ -32,8 +32,8 @@ Mục tiêu chính:
 | 5     | Thông tin từ vựng                     | Hiển thị từ tiếng Anh, nghĩa tiếng Việt, phiên âm, phát âm và thông tin học tập liên quan                    |
 | 6     | Tra cứu từ điển & Giọng nói           | Tìm kiếm từ vựng bằng văn bản hoặc đọc giọng nói tiếng Việt (Voice-to-Text) để hệ thống dịch và tra cứu      |
 | 7     | Học theo Chủ đề                       | Xem và học từ vựng được phân loại theo các bộ sưu tập (Collections) và chủ đề (Topics)                       |
-| 8     | Từ vựng cá nhân                       | Lưu, xem, xóa, lọc và quản lý danh sách từ người học muốn học                                                |
-| 9     | Flashcard & Custom Card               | Học từ bằng thẻ, hỗ trợ hệ thống Custom Template (tùy chỉnh hiển thị ảnh, âm thanh, gõ từ) quản lý theo Deck |
+| 8     | Từ vựng cá nhân                       | Lưu, xem, xóa, lọc và quản lý danh sách từ người học muốn học (qua Bộ sưu tập cá nhân / Chủ đề cá nhân) |
+| 9     | Flashcard & Topic Template            | Học từ bằng thẻ, hỗ trợ hệ thống Template theo chủ đề (position, semantic role, audio, styling)              |
 | 10    | Quiz                                  | Luyện tập bằng câu hỏi trắc nghiệm, ghép nghĩa, điền từ hoặc các dạng kiểm tra phù hợp                       |
 | 11    | SRS Review                            | Tạo hàng đợi ôn tập theo thời điểm đến hạn và cập nhật lịch ôn dựa trên kết quả nhớ                          |
 | 12    | Tiến độ học tập                       | Theo dõi số từ đã học, số lượt ôn, streak, độ chính xác và kết quả quiz                                      |
@@ -43,7 +43,7 @@ Mục tiêu chính:
 | **B** | **Chức năng Admin (CMS / Dashboard)** |                                                                                                              |
 | 16    | Quản lý người dùng                    | Xem danh sách, tìm kiếm, xem chi tiết tiến độ học tập, khóa/mở khóa tài khoản và reset mật khẩu Learner      |
 | 17    | Quản lý từ điển & chủ đề              | Thêm, sửa, xóa (CRUD) từ vựng, quản lý cấu trúc chủ đề (Collections/Topics), duyệt/import dữ liệu từ điển    |
-| 18    | Quản lý Template thẻ học              | Quản lý (thêm/sửa/xóa) các mẫu thẻ học hệ thống (System Templates) cung cấp cho người học                    |
+| 18    | Quản lý Template thẻ học              | Quản lý (thêm/sửa) cấu hình template thẻ học của các chủ đề (Topics)                                         |
 | 19    | Quản lý Gamification                  | Quản lý nhiệm vụ (Missions), vật phẩm trong Shop (Items), huy hiệu (Badges) và cấu hình điểm thưởng          |
 | 20    | Quản lý Feedback & Lỗi                | Xem các báo cáo lỗi từ người dùng (nhận diện sai, từ vựng sai) và theo dõi log lỗi cơ bản                    |
 | 21    | Thống kê & Báo cáo                    | Biểu đồ lượng người dùng active, số lượt dùng AI service, mức tiêu thụ lưu trữ (Storage), tổng quan hệ thống |
@@ -69,8 +69,8 @@ Mục tiêu chính:
 | Source of truth | [specs.md](./specs.md)                          | Mọi BF/SS/MH/SA/DB/API phải truy vết về file này                                                  |
 | AI pipeline     | Florence-2 + SAM + CLIP (F2-v13)                | **Không** dùng YOLO làm model chính trong docs                                                    |
 | Actor           | Guest, Learner, Admin                           | Admin = CMS                                                                                       |
-| Learning domain | `Deck` → `Note` → `Card` + `ReviewLog`          | “Saved vocabulary” = Note trong Deck của Learner; **không** entity song song `SavedWord/UserWord` |
-| SRS             | FSRS trên `Card`                                | State/due/stability/difficulty nằm ở Card                                                         |
+| Learning domain | `Collection` (SYSTEM/USER) → `Topic` → `TopicItem` | Từ vựng cá nhân = `TopicItem` trong Collection/Topic kiểu `USER`; **không** entity song song `SavedWord/UserWord` |
+| SRS             | FSRS trên `FsrsRecord` (`fsrs_records`)         | Trạng thái state, due, stability, difficulty gắn với cặp `(user_id, topic_item_id)`               |
 | Milestone       | 4 mốc (Auth+Dict → Scan → Learning → Game+Prod) | Theo thứ tự ưu tiên triển khai hiện tại                                                           |
 | FR IDs          | FR-01 … FR-14 như §5                            | Không dùng map FR cũ                                                                              |
 
@@ -88,16 +88,16 @@ Mục tiêu: hoàn thiện nền tảng tài khoản, hồ sơ và tra cứu/lư
 | Profile          | Xem/cập nhật hồ sơ cá nhân, avatar                                                                          |
 | Dictionary       | Tra cứu từ vựng bằng văn bản hoặc giọng nói tiếng Việt, xem nghĩa, phiên âm, phát âm                        |
 | Topic Learning   | Duyệt và học từ vựng theo các bộ sưu tập (Collections) và chủ đề (Topics) có sẵn                            |
-| Saved Vocabulary | Lưu/xóa từ vào danh sách cá nhân, xem danh sách đã lưu                                                      |
-| Flashcard cơ bản | Sinh flashcard từ saved words, flip card, đánh giá FSRS 4 mức (Again/Hard/Good/Easy); template CLASSIC hard-code, chưa có UI cấu hình template |
+| Saved Vocabulary | Lưu/xóa từ vào bộ sưu tập cá nhân, xem danh sách từ đã lưu                                                  |
+| Flashcard cơ bản | Sinh flashcard từ TopicItem, lật thẻ (flip card), đánh giá FSRS 4 mức (Again/Hard/Good/Easy)                 |
 
 Done criteria:
 
 1. Guest đăng ký, xác thực và đăng nhập được vào hệ thống.
 2. Learner xem và cập nhật được hồ sơ cá nhân.
 3. Learner tra cứu được từ vựng và xem thông tin nghĩa tiếng Việt, phiên âm, phát âm nếu có.
-4. Learner lưu được từ vào danh sách học cá nhân và mở lại danh sách này.
-5. Learner học được saved words bằng flashcard template CLASSIC (flip), đánh giá FSRS 4 mức (Again/Hard/Good/Easy) sau mỗi thẻ, Card được cập nhật dueAt/state theo FSRS.
+4. Learner lưu được từ vào danh sách học cá nhân (Topic cá nhân) và mở lại danh sách này.
+5. Learner học được saved vocabulary bằng flashcard, đánh giá FSRS 4 mức (Again/Hard/Good/Easy) sau mỗi thẻ, bản ghi FsrsRecord được cập nhật due/state theo FSRS.
 
 #### Milestone 2 — Camera/Object Recognition MVP
 
@@ -129,7 +129,7 @@ Mục tiêu: hoàn thiện cơ chế học, kiểm tra và ôn tập dài hạn.
 | ------------ | -------------------------------------------------------------------- |
 | Quiz         | Trắc nghiệm nghĩa, chọn từ đúng, ghép từ-nghĩa, điền từ nếu phù hợp  |
 | Quiz Attempt | Lưu điểm, số câu đúng/sai, thời gian làm và lịch sử attempt          |
-| SRS          | Tính state, dueAt, stability, difficulty theo FSRS cho từng Card     |
+| SRS          | Tính state, due, stability, difficulty theo FSRS cho từng FsrsRecord |
 | Review Queue | Danh sách từ đến hạn ôn tập theo ngày                                |
 | Progress     | Streak, số từ đã học, accuracy, số lượt ôn, thống kê tuần/tháng      |
 | Notification | Gửi thông báo đẩy (Push) nhắc nhở ôn tập SRS và thông báo in-app     |
@@ -139,7 +139,7 @@ Done criteria:
 1. Learner làm quiz từ danh sách từ cá nhân và nhận điểm sau khi hoàn thành.
 2. Kết quả quiz/review được ghi nhận vào tiến độ học tập.
 3. Hệ thống tạo được daily review queue dựa trên lịch SRS.
-4. Lịch ôn của một Card thay đổi sau khi Learner đánh giá mức độ nhớ.
+4. Lịch ôn của một FsrsRecord thay đổi sau khi Learner đánh giá mức độ nhớ.
 5. Màn hình tiến độ phản ánh đúng dữ liệu sau các hoạt động học.
 
 #### Milestone 4 — Gamification & Production Readiness
@@ -218,7 +218,7 @@ Business rules:
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | Mobile app             | Đã có cấu trúc Expo/React Native, auth, home, learn, camera/profile tabs và API client                                                                                     | Hoàn thiện màn hình nghiệp vụ, kết nối scan-to-learn, learning engine và gamification            |
 | Backend API            | Đã có auth, user, storage, word controller/service/domain                                                                                                                  | Mở rộng recognition, saved vocabulary, flashcard, quiz, SRS, progress, gamification              |
-| Word / Learning domain | Đã có Word/Definition/Translation/Pronunciation và Deck/Note/Card/ReviewLog                                                                                                | Mở rộng CardTemplate, quiz attempt, progress aggregate, object→Note mapping từ scan              |
+| Word / Learning domain | Đã có Word/Definition/Translation/Pronunciation và Collection/Topic/TopicItem/Template/FsrsRecord | Mở rộng quiz attempt, progress aggregate, object→TopicItem mapping từ scan              |
 | AI service             | Pipeline Florence-2 ĐÃ được chứng minh trên Colab (notebook F2-v13): COCO128 box-F1 0,646 / word-F1 0,825; Internet-50 word-precision 0,885; ~40 thẻ đúng trên ảnh thực tế | Đóng gói pipeline thành FastAPI service độc lập (giữ nguyên cấu hình chế độ sản phẩm của F2-v13) |
 | Storage                | Đã có hướng S3-compatible/MinIO và flow upload                                                                                                                             | Chuẩn hóa R2 production, presigned upload, metadata object và cleanup                            |
 
@@ -292,29 +292,29 @@ Business rules:
 - Nếu label không khớp chính xác với từ điển, backend có thể dùng bảng mapping/synonym để ánh xạ.
 - Không hiển thị dữ liệu thiếu dưới dạng rỗng khó hiểu; UI cần phân biệt “chưa có dữ liệu phát âm/phiên âm”.
 
-### FR-04 — Personal Vocabulary (Deck / Note)
+### FR-04 — Personal Vocabulary (User Collection / Topic / TopicItem)
 
 | Mã       | Yêu cầu            | Mô tả                                                                     | Ưu tiên |
 | -------- | ------------------ | ------------------------------------------------------------------------- | ------- |
-| FR-04.01 | Lưu từ             | Learner lưu từ từ kết quả scan hoặc tra cứu từ điển                       | Must    |
-| FR-04.02 | Danh sách cá nhân  | Learner xem danh sách từ đã lưu                                           | Must    |
-| FR-04.03 | Xóa khỏi danh sách | Learner xóa hoặc archive từ không muốn học tiếp                           | Must    |
+| FR-04.01 | Lưu từ             | Learner lưu từ từ kết quả scan hoặc tra cứu từ điển vào Topic cá nhân     | Must    |
+| FR-04.02 | Danh sách cá nhân  | Learner xem danh sách mục từ (`TopicItem`) trong Topic cá nhân            | Must    |
+| FR-04.03 | Xóa khỏi danh sách | Learner xóa hoặc archive mục từ không muốn học tiếp                       | Must    |
 | FR-04.04 | Trạng thái học     | Mỗi từ hiển thị state UI suy từ FSRS: new, learning, reviewing, mastered | Should  |
 | FR-04.05 | Lọc/sắp xếp        | Learner lọc theo trạng thái, ngày lưu, độ khó hoặc ngày ôn                | Should  |
 | FR-04.06 | Gắn nguồn          | Hệ thống lưu nguồn của từ: scan ảnh, tra cứu dictionary, topic/collection | Could   |
 
 Business rules:
 
-- Canonical model: `Deck` → `Note` → `Card`. UI “My Vocabulary / từ đã lưu” = danh sách Note của Learner.
+- Canonical model: `Collection` (type `USER`) → `Topic` → `TopicItem`. UI “My Vocabulary / từ đã lưu” = danh sách TopicItem thuộc Topic cá nhân của Learner.
 - Không tạo entity song song `SavedWord`/`UserWord`.
-- Một Learner không nên có Note trùng cùng một Word trong cùng một Deck (unique theo rule Deck).
-- Xóa/archive Note không xóa Word khỏi dictionary gốc; Card/SRS gắn Note được ẩn hoặc archive theo rule.
-- Note/Card là nguồn đầu vào chính cho flashcard, quiz và SRS.
+- Mỗi Learner có thể phân loại từ vào các Topic thuộc Collection cá nhân; không lưu trùng lặp cùng một từ trong cùng một Topic.
+- Xóa TopicItem khỏi Topic cá nhân không ảnh hưởng đến từ điển chung; bản ghi FSRS (`fsrs_records`) tương ứng sẽ được dọn dẹp hoặc đánh dấu ngưng ôn tập.
+- TopicItem là nguồn dữ liệu cho flashcard, quiz và SRS.
 
-Learning state UI là taxonomy hiển thị/aggregate, không phải enum FSRS lưu trực tiếp trên Card:
+Learning state UI là taxonomy hiển thị/aggregate, dựa trên `card_state` của `FsrsRecord`:
 
-| FSRS Card.state | Điều kiện bổ sung | UI/Progress state |
-| --------------- | ----------------- | ----------------- |
+| FsrsRecord.card_state | Điều kiện bổ sung | UI/Progress state |
+| --------------------- | ----------------- | ----------------- |
 | `NEW` | — | `new` |
 | `LEARNING` | — | `learning` |
 | `RELEARNING` | — | `learning` |
@@ -323,62 +323,62 @@ Learning state UI là taxonomy hiển thị/aggregate, không phải enum FSRS l
 
 Business rules cho learning state:
 
-- `mastered` là trạng thái suy ra từ Card FSRS đã mature, không phải Learner đánh dấu tay.
+- `mastered` là trạng thái suy ra từ thẻ FSRS đã mature, không phải Learner đánh dấu tay.
 - Ngưỡng mature/mastered mặc định là `interval >= 21 ngày` theo quy ước mature card tương tự Anki; nếu cấu hình sản phẩm đổi ngưỡng, mọi query/list/progress/mission phải dùng cùng một config.
-- `learnedCount` = số Card không còn `new` (`learning + reviewing + mastered`); `dueCount`/`đang ôn` = số Card có `dueAt <= now`; `masteredCount` = số Card có UI state `mastered`.
+- `learnedCount` = số bản ghi FSRS không còn `NEW` (`LEARNING + REVIEW + RELEARNING`); `dueCount`/`đang ôn` = số bản ghi có `due <= now`; `masteredCount` = số bản ghi có UI state `mastered`.
 
-### FR-05 — Flashcard & Custom Card
+### FR-05 — Flashcard & Topic Template
 
 | Mã       | Yêu cầu               | Mô tả                                                                                    | Ưu tiên |
 | -------- | --------------------- | ---------------------------------------------------------------------------------------- | ------- |
-| FR-05.01 | Tạo flashcard         | Hệ thống sinh 1 flashcard duy nhất cho mỗi từ vựng được lưu (Note)                       | Must    |
-| FR-05.02 | System Template       | Cung cấp sẵn các mẫu thẻ hệ thống (Classic, Listening, Spelling, Image Vocab...)         | Must    |
-| FR-05.03 | Custom Template       | Learner tự tạo template cấu hình layout, field mapping và kiểu tương tác (Flip, Type-in) | Should  |
-| FR-05.04 | Gán Template cho Deck | Learner chọn 1 template áp dụng cho toàn bộ thẻ trong một bộ bài (Deck)                  | Must    |
+| FR-05.01 | Tạo flashcard         | Hệ thống hiển thị flashcard cho mỗi `TopicItem` theo cấu hình `Template` của Topic        | Must    |
+| FR-05.02 | Cấu hình Bố cục       | Bố cục thẻ gồm các phần tử `TemplateElement` (`FIELD`, `DIVIDER`, `BUTTON`) xếp theo thứ tự `position` | Must    |
+| FR-05.03 | Ánh xạ SemanticRole   | Gán vai trò ngữ nghĩa (`FRONT`, `BACK`, `EXAMPLE`, `AUDIO`, `IMAGE`, `PHONETIC`...) cho từng trường | Must    |
+| FR-05.04 | Định dạng Trường      | Hỗ trợ cấu hình `font_size`, `alignment`, `color`, `audio_action`, `hide_if_empty`        | Should  |
 | FR-05.05 | Render theo Config    | Mobile app linh hoạt render giao diện thẻ dựa trên cấu hình template trả về từ API       | Must    |
 | FR-05.06 | Đánh giá recall       | Learner chọn mức độ nhớ (FSRS) sau mỗi thẻ để tính lịch ôn tiếp theo                     | Must    |
 
 Business rules:
 
-- System template không thể sửa/xóa; Custom template xóa mềm (soft-delete).
-- Khi đổi Template của Deck, Card cũ không bị mất mà chỉ thay đổi cách render (vỏ bọc), SRS giữ nguyên.
-- Nếu từ thiếu audio/IPA, flashcard vẫn hoạt động, tự động ẩn field tương ứng mà không lỗi layout.
+- Mỗi `Topic` có một `Template` quy định cách hiển thị thẻ cho toàn bộ các `TopicItem` thuộc chủ đề đó.
+- Khi cập nhật Template của Topic, dữ liệu ôn tập FSRS của từng item không bị ảnh hưởng.
+- Nếu từ thiếu audio/IPA, flashcard vẫn hoạt động bình thường, tự động ẩn trường tương ứng theo cờ `hide_if_empty` mà không làm hỏng layout.
 
 ### FR-06 — Quiz
 
-| Mã       | Yêu cầu          | Mô tả                                                  | Ưu tiên |
-| -------- | ---------------- | ------------------------------------------------------ | ------- |
-| FR-06.01 | Tạo quiz         | Hệ thống sinh quiz từ Note/Card trong Deck của Learner | Must    |
-| FR-06.02 | Multiple choice  | Learner chọn nghĩa/từ đúng từ nhiều đáp án             | Must    |
-| FR-06.03 | Matching         | Learner ghép từ tiếng Anh với nghĩa tiếng Việt         | Should  |
-| FR-06.04 | Fill blank       | Learner điền từ còn thiếu trong câu/gợi ý              | Could   |
-| FR-06.05 | Chấm điểm        | Hệ thống tính điểm, số câu đúng/sai và tỷ lệ chính xác | Must    |
-| FR-06.06 | Lịch sử attempt  | Hệ thống lưu kết quả mỗi lượt làm quiz                 | Should  |
-| FR-06.07 | Cập nhật tiến độ | Quiz ảnh hưởng đến progress, XP và nhiệm vụ nếu có     | Should  |
+| Mã       | Yêu cầu          | Mô tả                                                          | Ưu tiên |
+| -------- | ---------------- | -------------------------------------------------------------- | ------- |
+| FR-06.01 | Tạo quiz         | Hệ thống sinh quiz từ các `TopicItem` trong Topic của Learner   | Must    |
+| FR-06.02 | Multiple choice  | Learner chọn nghĩa/từ đúng từ nhiều đáp án                     | Must    |
+| FR-06.03 | Matching         | Learner ghép từ tiếng Anh với nghĩa tiếng Việt                 | Should  |
+| FR-06.04 | Fill blank       | Learner điền từ còn thiếu trong câu/gợi ý                      | Could   |
+| FR-06.05 | Chấm điểm        | Hệ thống tính điểm, số câu đúng/sai và tỷ lệ chính xác         | Must    |
+| FR-06.06 | Lịch sử attempt  | Hệ thống lưu kết quả mỗi lượt làm quiz                         | Should  |
+| FR-06.07 | Cập nhật tiến độ | Quiz ảnh hưởng đến progress, XP và nhiệm vụ nếu có             | Should  |
 
 Business rules:
 
-- Đáp án nhiễu lấy từ Note cùng Deck/POS, không trùng nghĩa.
-- Nếu số lượng Note/Card chưa đủ (tối thiểu 4 thẻ), hệ thống cần thông báo Learner lưu thêm từ trước khi tạo quiz.
+- Đáp án nhiễu lấy từ các `TopicItem` khác cùng Topic hoặc POS, không trùng nghĩa.
+- Nếu số lượng `TopicItem` chưa đủ (tối thiểu 4 mục), hệ thống thông báo Learner thêm từ trước khi tạo quiz.
 - Thoát quiz giữa chừng hệ thống sẽ hủy bỏ, không lưu draft.
-- Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP).
+- Kết quả quiz không trực tiếp cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP).
 
 ### FR-07 — Spaced Repetition System (SRS)
 
 | Mã       | Yêu cầu          | Mô tả                                                    | Ưu tiên |
 | -------- | ---------------- | -------------------------------------------------------- | ------- |
-| FR-07.01 | Review queue     | Hệ thống hiển thị danh sách Card đến hạn ôn tập          | Must    |
+| FR-07.01 | Review queue     | Hệ thống hiển thị danh sách mục từ đến hạn ôn tập (`due <= NOW()`) | Must    |
 | FR-07.02 | Recall quality   | Learner đánh giá mức nhớ sau khi xem flashcard/review    | Must    |
-| FR-07.03 | Tính lịch ôn     | Hệ thống cập nhật due date, interval và trạng thái học   | Must    |
+| FR-07.03 | Tính lịch ôn     | Hệ thống cập nhật due date, interval, stability và difficulty theo FSRS | Must    |
 | FR-07.04 | Daily review     | Learner xem số lượng từ cần ôn trong ngày                | Should  |
 | FR-07.05 | Overdue handling | Từ quá hạn ôn được ưu tiên trong review queue            | Should  |
 | FR-07.06 | Reset/Archive    | Learner có thể bỏ qua hoặc reset lịch học của từ nếu cần | Could   |
 
 Business rules:
 
-- Từ mới được đưa vào trạng thái học ban đầu và có lịch ôn đầu tiên.
-- Recall tốt làm tăng khoảng cách ôn; recall kém làm giảm khoảng cách hoặc đưa từ về trạng thái learning.
-- Review queue chỉ gồm Card thuộc Deck/Note của Learner hiện tại.
+- Từ mới được khởi tạo bản ghi `FsrsRecord` với trạng thái `NEW` và lịch ôn ban đầu.
+- Đánh giá recall tốt làm tăng độ ổn định (`stability`) và giãn cách lịch ôn; recall kém (Again) đưa thẻ về trạng thái `RELEARNING`.
+- Review queue chỉ bao gồm các bản ghi `FsrsRecord` thuộc quyền sở hữu của Learner hiện tại.
 
 ### FR-08 — Progress Tracking
 
@@ -490,16 +490,16 @@ Business rules:
 | FR-14.01 | Duyệt Collections             | Learner xem danh sách bộ sưu tập từ vựng có sẵn (TOEIC, Animals…) với pagination          | Must    |
 | FR-14.02 | Duyệt Topics trong Collection | Learner duyệt danh sách Topic thuộc Collection; hỗ trợ phân cấp parent/child              | Must    |
 | FR-14.03 | Xem TopicItems + thuộc tính  | Learner xem danh sách từ vựng trong Topic kèm thuộc tính EAV (nghĩa, IPA, ví dụ, audio)  | Must    |
-| FR-14.04 | Lưu TopicItem thành Note      | Learner lưu từ vựng từ Topic vào Deck được chọn/gần nhất/mặc định với source = TOPIC      | Must    |
+| FR-14.04 | Lưu TopicItem vào Topic cá nhân | Learner lưu từ vựng từ Topic hệ thống vào Topic thuộc Collection cá nhân                  | Must    |
 | FR-14.05 | Admin CRUD Collection/Topic   | Admin quản lý cấu trúc Collection và Topic (thêm, sửa, xóa mềm), hỗ trợ phân cấp         | Must    |
 | FR-14.06 | Admin CRUD TopicItem + EAV    | Admin quản lý nội dung từ vựng theo mô hình EAV (TopicAttributeGroup/Attribute/Value)    | Must    |
 
 Business rules:
 
 - Mô hình dữ liệu EAV: TopicAttributeGroup → TopicAttribute → TopicItemAttributeValue.
-- Soft-delete Collection/Topic không xóa Note/Card đã lưu của Learner.
-- Learner không có quyền tạo/sửa/xóa Collection hoặc Topic (read-only + lưu).
-- Unique per Deck: Learner không lưu trùng cùng TopicItem vào cùng Deck (áp dụng rule unique per Deck của FR-04).
+- Soft-delete Collection/Topic không làm mất TopicItem đã được sao chép sang Collection cá nhân của Learner.
+- Learner không có quyền sửa/xóa Collection hoặc Topic hệ thống (`type = SYSTEM`).
+- Unique per Topic: Learner không lưu trùng cùng một từ vựng vào cùng một Topic cá nhân.
 
 ---
 
@@ -507,36 +507,39 @@ Business rules:
 
 ### 6.1 Nhóm dữ liệu đã có hoặc có bằng chứng mạnh trong mã nguồn
 
-| Entity                         | Mục đích                                       | Ghi chú                                                |
-| ------------------------------ | ---------------------------------------------- | ------------------------------------------------------ |
-| User                           | Tài khoản và hồ sơ người dùng                  | Phục vụ auth, profile và quyền truy cập                |
-| Authority                      | Quyền/vai trò bảo vệ API                       | Dùng cho Spring Security/JWT                           |
-| Word                           | Từ vựng gốc trong dictionary                   | Trung tâm của chức năng tra cứu/học                    |
-| Definition                     | Định nghĩa hoặc giải thích của từ              | Có thể có nhiều định nghĩa cho một từ                  |
-| Translation                    | Bản dịch/nghĩa tiếng Việt hoặc ngôn ngữ khác   | Dùng để hiển thị nghĩa học tập                         |
-| Pronunciation                  | Phiên âm, audio hoặc dữ liệu phát âm           | Dùng trong word detail/flashcard                       |
-| WordDefinition                 | Liên kết word-definition nếu domain tách riêng | Hỗ trợ nhiều nghĩa/loại từ                             |
-| WordRelation                   | Quan hệ giữa các từ                            | Synonym, antonym hoặc related words nếu dữ liệu hỗ trợ |
-| Deck / Note / Card / ReviewLog | Học tập cá nhân + SRS                          | Canonical learning model — xem §6.2                    |
+| Entity                                          | Mục đích                                       | Ghi chú                                                |
+| ----------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------ |
+| User                                            | Tài khoản và hồ sơ người dùng                  | Phục vụ auth, profile và quyền truy cập                |
+| Authority                                       | Quyền/vai trò bảo vệ API                       | Dùng cho Spring Security/JWT                           |
+| Word                                            | Từ vựng gốc trong dictionary                   | Trung tâm của chức năng tra cứu/học                    |
+| Definition                                      | Định nghĩa hoặc giải thích của từ              | Có thể có nhiều định nghĩa cho một từ                  |
+| Translation                                     | Bản dịch/nghĩa tiếng Việt hoặc ngôn ngữ khác   | Dùng để hiển thị nghĩa học tập                         |
+| Pronunciation                                   | Phiên âm, audio hoặc dữ liệu phát âm           | Dùng trong word detail/flashcard                       |
+| WordDefinition                                  | Liên kết word-definition nếu domain tách riêng | Hỗ trợ nhiều nghĩa/loại từ                             |
+| WordRelation                                    | Quan hệ giữa các từ                            | Synonym, antonym hoặc related words nếu dữ liệu hỗ trợ |
+| Collection / Topic / TopicItem / Template / FSRS | Học tập cá nhân, chủ đề + SRS                  | Canonical learning model — xem §6.2                    |
 
 ### 6.2 Nhóm dữ liệu học tập cá nhân (canonical — khớp code)
 
-> Thuật ngữ UI “từ đã lưu / My Vocabulary” = các `Note` thuộc `Deck` của Learner.  
+> Thuật ngữ UI “từ đã lưu / My Vocabulary” = các `TopicItem` thuộc các Topic trong Collection cá nhân (`type = USER`) của Learner.  
 > Không duy trì entity song song `SavedWord`/`UserWord`.
 
 | Entity                            | Mục đích                                                     | Ghi chú                                      |
 | --------------------------------- | ------------------------------------------------------------ | -------------------------------------------- |
-| Deck                              | Bộ thẻ của Learner; gán 1 CardTemplate                       | Đã có trong code                             |
-| Note                              | Đơn vị từ vựng cá nhân muốn học (word + nguồn)               | Đã có; thay cho SavedWord                    |
-| NoteMeaning                       | Nghĩa/POS/example/ghi chú gắn Note                           | Đã có                                        |
-| NotePronunciation                 | IPA/audio gắn Note                                           | Đã có                                        |
-| Card                              | Thẻ học + tham số SRS (state, dueAt, stability, difficulty…) | Đã có; 1 Note → 1 Card theo template Deck    |
-| ReviewLog                         | Lịch sử từng lượt ôn (rating, time)                          | Đã có                                      |
-| CardTemplate                      | Layout system/custom, interaction type                       | **Entity đầy đủ M3**; M1 seed 1 bản ghi CLASSIC hard-code, không có CRUD/UI — xem custom_card |
-| CardTemplateField                 | Field mapping front/back                                     | **Entity đầy đủ M3** (đi kèm CardTemplate CRUD)              |
-| Quiz / QuizQuestion / QuizAttempt | Kiểm tra từ trong Deck/Note                                  | Dự kiến M3                                   |
-| Notification / DeviceToken        | In-app + push                                                | Dự kiến M3                                   |
-| LearningProgress / LearningEvent  | Aggregate streak, accuracy, summary                          | Dự kiến M3; rebuild từ ReviewLog/QuizAttempt |
+| Collection                        | Bộ sưu tập từ vựng, phân loại `SYSTEM` hoặc `USER`           | Đã có trong code (`collections`)             |
+| Topic                             | Chủ đề từ vựng (hỗ trợ phân cấp cha - con)                   | Đã có trong code (`topics`)                  |
+| TopicAttributeGroup               | Nhóm thuộc tính cấu hình cho Topic                           | Đã có trong code (`topic_attribute_groups`)  |
+| TopicAttribute                    | Thuộc tính dữ liệu (tên, kiểu dữ liệu, thứ tự, bắt buộc)      | Đã có trong code (`topic_attributes`)        |
+| TopicItem                         | Mục từ vựng thuộc Topic                                      | Đã có trong code (`topic_items`)             |
+| TopicItemAttributeGroup           | Nhóm thuộc tính của mục từ                                   | Đã có trong code (`topic_item_attribute_groups`) |
+| TopicItemAttributeValue           | Giá trị cụ thể của từng thuộc tính cho mục từ                | Đã có trong code (`topic_item_attribute_values`) |
+| Template                          | Cấu hình mẫu thẻ học cho Topic                               | Đã có trong code (`templates`)               |
+| TemplateElement                   | Phần tử bố cục trên thẻ (`FIELD`, `DIVIDER`, `BUTTON`)       | Đã có trong code (`template_elements`)       |
+| TemplateField                     | Ánh xạ trường với `TopicAttribute`, gán `SemanticRole` và styling | Đã có trong code (`template_fields`)         |
+| FsrsRecord                        | Trạng thái ôn tập FSRS của Learner cho từng `TopicItem`      | Đã có trong code (`fsrs_records`)            |
+| Quiz / QuizQuestion / QuizAttempt | Kiểm tra từ trong Topic                                      | Dự kiến M3                                   |
+| Notification / DeviceToken        | In-app + push notification                                   | Đã có trong code (`notifications`, `user_notifications`) |
+| LearningProgress / LearningEvent  | Aggregate streak, accuracy, summary                          | Dự kiến M3; aggregate từ FsrsRecord/QuizAttempt |
 
 ### 6.3 Nhóm dữ liệu cần cho nhận diện ảnh
 
@@ -584,11 +587,10 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | Word/Dictionary API | Đã có bằng chứng trong mã nguồn | Tra cứu từ, xem word detail, definition, translation, pronunciation      |
 | Storage API         | Đã có bằng chứng trong mã nguồn | Presigned upload, upload complete, media metadata                        |
 | Recognition API     | Dự kiến/MVP AI                  | Gửi ảnh nhận diện, kiểm tra quota, tạo job hàng đợi, theo dõi trạng thái, nhận detected objects, map sang vocabulary |
-| Deck / Note API     | Đã có bằng chứng một phần       | CRUD Deck/Note — tương đương “saved vocabulary” UI                       |
-| Card Template API   | Dự kiến learning module         | CRUD custom template, lấy system templates                               |
-| Card / Review API   | Đã có domain Card/ReviewLog     | Queue ôn, submit rating FSRS, render theo template                       |
+| Collection / Topic / Item API | Đã có trong mã nguồn            | CRUD Collection, Topic, TopicItem (saved vocabulary)                     |
+| Topic Template API   | Đã có domain templates          | Lấy và cập nhật cấu hình template theo Topic                             |
+| Flashcard / SRS API  | Đã có domain fsrs_records       | Queue ôn, submit rating FSRS, render theo template                       |
 | Quiz API            | Dự kiến learning module         | Tạo quiz, submit answer, lưu attempt                                     |
-| SRS/Review API      | Dự kiến learning module         | Lấy review queue, cập nhật lịch ôn                                       |
 | Progress API        | Dự kiến learning module         | Tổng hợp tiến độ, streak, accuracy, activity                             |
 | Gamification API    | Dự kiến reward module           | Mission, badge, coin, shop, leaderboard                                  |
 | Notification API    | Dự kiến notification module     | Đăng ký device token, lấy danh sách in-app notification, đánh dấu đã đọc |
@@ -680,17 +682,17 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | 1   | Guest đăng ký, xác thực, đăng nhập (bao gồm vân tay/sinh trắc học nếu bật) và khôi phục mật khẩu hợp lệ.  |
 | 2   | Learner xem/cập nhật được hồ sơ cá nhân và avatar.                                                        |
 | 3   | Learner tra cứu từ tiếng Anh và nhận nghĩa tiếng Việt, phiên âm, phát âm nếu dữ liệu có.                  |
-| 4   | Learner duyệt được Collection/Topic và đưa từ chủ đề vào Deck/Note cá nhân (nếu Topic Learning bật).      |
-| 5   | Learner tạo/xóa Note trong Deck; danh sách My Vocabulary phản ánh đúng Note còn hiệu lực.                 |
-| 6   | Learner học Card bằng flashcard; hệ thống ghi ReviewLog và cập nhật SRS trên Card.                        |
+| 4   | Learner duyệt được Collection/Topic và lưu từ chủ đề vào Topic cá nhân (nếu Topic Learning bật).           |
+| 5   | Learner tạo/xóa TopicItem trong Topic cá nhân; danh sách My Vocabulary phản ánh đúng mục từ còn hiệu lực.   |
+| 6   | Learner học thẻ flashcard; hệ thống cập nhật FsrsRecord theo thuật toán FSRS.                               |
 | 7   | Learner chụp/chọn ảnh, gửi xử lý, thấy `QUEUED`/`PROCESSING` khi phải chờ và nhận object từ AI (Florence-2 pipeline). |
 | 8   | Backend kiểm tra quota scan/ngày, trả lượt còn lại/resetAt và không gọi AI khi `QUOTA_EXCEEDED`.          |
 | 9   | Backend ánh xạ label sang Word dictionary và trả word detail cho mobile.                                  |
 | 10  | No-object / low-reliability / AI lỗi / queue full trả `error.code` rõ, app không crash.                    |
-| 11  | Learner lưu được từ từ ảnh thành Note/Card trong Deck.                                                    |
-| 12  | Learner làm quiz từ Note/Deck và xem điểm/đúng-sai.                                                       |
-| 13  | Daily review queue lấy Card `dueAt` đến hạn; rating cập nhật lịch ôn.                                     |
-| 14  | Home/progress hiển thị summary học tập khớp ReviewLog/QuizAttempt.                                        |
+| 11  | Learner lưu được từ từ ảnh thành TopicItem trong Topic cá nhân.                                            |
+| 12  | Learner làm quiz từ Topic/TopicItem và xem điểm/đúng-sai.                                                  |
+| 13  | Daily review queue lấy FsrsRecord có `due` đến hạn; rating cập nhật lịch ôn.                               |
+| 14  | Home/progress hiển thị summary học tập khớp dữ liệu FSRS và QuizAttempt.                                  |
 | 15  | Leaderboard cá nhân phản ánh XP/activity theo rule (M4).                                                  |
 | 16  | Admin (nếu milestone bật) ban/unban hoặc CRUD dictionary qua role `ROLE_ADMIN`, không qua mobile Learner. |
 | 17  | Mission/badge/XP/coin idempotent — retry không cộng trùng.                                                |
@@ -726,7 +728,7 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 - Luồng scan-to-learn được mô tả rõ từ mobile → backend → AI service → dictionary → saved vocabulary.
 - Stack khớp với dự án: React Native/Expo, Spring Boot, Spring Security/JWT, MySQL/MariaDB, Redis, Cloudflare R2/S3-compatible storage, FastAPI, Florence-2 + SAM + CLIP (pipeline open-vocabulary), Swagger/OpenAPI, Figma.
 - Tài liệu phân biệt phần đã có bằng chứng trong mã nguồn và phần dự kiến triển khai.
-- Functional requirements bao phủ auth, profile, recognition, dictionary, topic/collection learning, Deck/Note vocabulary, flashcard/custom card, quiz, SRS, progress, leaderboard, gamification, storage, notification và Admin.
+- Functional requirements bao phủ auth, profile, recognition, dictionary, topic/collection learning, personal vocabulary (TopicItem), flashcard/topic template, quiz, SRS, progress, leaderboard, gamification, storage, notification và Admin.
 - Non-functional requirements bao phủ security, performance, reliability, scalability, usability, maintainability và observability.
 - Milestone có done criteria đo được để phục vụ triển khai và nghiệm thu đồ án.
 - Không chứa secrets, mật khẩu, token, endpoint nhạy cảm hoặc giá trị cấu hình local/dev.

@@ -3,7 +3,7 @@
 > Tài liệu server, môi trường triển khai và vận hành cho SnapVocab, được xây dựng dựa trên [specs.md](../spec/specs.md), [sa.md](./sa.md), [techstack.md](./techstack.md), [buss_mainflow.md](../spec/buss_mainflow.md), [phan_ra_phan_he_he_thong.md](../spec/phan_ra_phan_he_he_thong.md), [phan_ra_tinh_nang.md](../spec/phan_ra_tinh_nang.md) và [phan_ra_man_hinh.md](../spec/phan_ra_man_hinh.md).
 
 >
-> **Canonical sync (2026-08-23):** Source = [`../spec/specs.md`](../spec/specs.md). AI = Florence-2+SAM+CLIP (F2-v13) zero-shot · Learning = Deck/Note/Card · SRS = FSRS · Actors = Guest/Learner/Admin · FR: Game=09, Noti=10, Storage=11, OpenAPI=12, Admin=13 · 4 milestones.
+> **Canonical sync (2026-08-23):** Source = [`../spec/specs.md`](../spec/specs.md). AI = Florence-2+SAM+CLIP (F2-v13) zero-shot · Learning = Collection/Topic/TopicItem + Template + FsrsRecord · SRS = FSRS · Actors = Guest/Learner/Admin · FR: Game=09, Noti=10, Storage=11, OpenAPI=12, Admin=13 · 4 milestones.
 
 ---
 
@@ -74,14 +74,14 @@ Mô tả cách tổ chức, triển khai và vận hành các thành phần serv
 
 | # | Thành phần | Runtime / Công nghệ | Vai trò | Public? |
 | --- | --- | --- | --- | :---: |
-| 1 | Backend API | Java 17, Spring Boot | REST API nghiệp vụ cho mobile & admin CMS | ✅ qua HTTPS |
-| 2 | AI Service | Python, FastAPI, Florence-2-large + SAM (ViT-H) + CLIP (ViT-B/32) | Nhận diện vật thể từ ảnh (zero-shot) | ❌ Internal |
-| 3 | Database | MySQL/MariaDB | Lưu dữ liệu nghiệp vụ — source of truth | ❌ Private |
-| 4 | Cache | Redis/Redisson | Cache dictionary, leaderboard, home summary, rate limit | ❌ Private |
-| 5 | Object Storage | Cloudflare R2 (prod) / MinIO (dev), S3-compatible | Avatar, ảnh scan, ảnh crop SAM, tài nguyên vật phẩm | ❌ Private bucket |
+| 1 | Backend API | Java 17, Spring Boot | REST API nghiệp vụ cho mobile & admin CMS | Có qua HTTPS |
+| 2 | AI Service | Python, FastAPI, Florence-2-large + SAM (ViT-H) + CLIP (ViT-B/32) | Nhận diện vật thể từ ảnh (zero-shot) | Không (Internal) |
+| 3 | Database | MySQL/MariaDB | Lưu dữ liệu nghiệp vụ — source of truth | Không (Private) |
+| 4 | Cache | Redis/Redisson | Cache dictionary, leaderboard, home summary, rate limit | Không (Private) |
+| 5 | Object Storage | Cloudflare R2 (prod) / MinIO (dev), S3-compatible | Avatar, ảnh scan, ảnh crop SAM, tài nguyên vật phẩm | Không (Private bucket) |
 | 6 | Mail Provider | SMTP hoặc transactional email API | OTP, xác thực email, reset password, security notice | Backend → outbound |
 | 7 | API Docs | Swagger/OpenAPI (Springdoc) | Tài liệu API backend cho mobile & AI tích hợp | Dev/staging; restricted prod |
-| 8 | Observability | Logs/metrics/alerts | Theo dõi lỗi, hiệu năng, bảo mật | ❌ Internal |
+| 8 | Observability | Logs/metrics/alerts | Theo dõi lỗi, hiệu năng, bảo mật | Không (Internal) |
 
 ---
 
@@ -202,10 +202,10 @@ Tên endpoint cụ thể (bao gồm HTTP method, path, request/response payload)
 | **Topic (SS-05)** | Collections, Topics, TopicItems browse | Learner | M1 |
 | **Storage (SS-16)** | Presigned upload, upload complete, access URL | Learner | M1 |
 | **Recognition (SS-06)** | Submit scan image, get detection result | Learner | M2 |
-| **Vocabulary (SS-08)** | CRUD Deck/Note (personal vocabulary) | Learner | M1–M2 |
-| **Flashcard (SS-09)** | Card session, recall rating, template CRUD | Learner | M1, M3 |
+| **Vocabulary (SS-08)** | CRUD Topic cá nhân, TopicItem, gán EAV attributes | Learner | M1–M2 |
+| **Flashcard (SS-09)** | Flashcard study session theo Template, recall rating | Learner | M1, M3 |
 | **Quiz (SS-10)** | Quiz setup, play, result, history | Learner | M3 |
-| **SRS (SS-11)** | Review queue, submit FSRS rating | Learner | M3 |
+| **SRS (SS-11)** | Review queue, submit FSRS rating trên FsrsRecord | Learner | M3 |
 | **Progress (SS-12)** | Home summary, streak, accuracy, activity history | Learner | M3 |
 | **Gamification (SS-13)** | Missions, badges, XP, leaderboard | Learner | M4 |
 | **Shop (SS-14)** | Shop browse/buy, inventory, coin balance | Learner | M4 |
@@ -387,16 +387,15 @@ Error response:
 | --- | --- | --- |
 | **Identity** | `users`, `authorities`, `refresh_tokens`, `otp_tokens` | SS-03 |
 | **Dictionary** | `words`, `definitions`, `translations`, `pronunciations`, `word_relations`, `object_word_mappings` | SS-04 |
-| **Topic** | `collections`, `topics`, `topic_items`, `topic_attribute_groups`, `topic_attributes`, `topic_item_attribute_values` | SS-05 |
+| **Topic & Vocabulary** | `collections`, `topics`, `topic_items`, `topic_attribute_groups`, `topic_attributes`, `topic_item_attribute_groups`, `topic_item_attribute_values` | SS-05, SS-08 |
 | **Recognition** | `image_recognition_requests`, `recognition_results`, `detected_objects`, `scan_histories` | SS-06 |
-| **Vocabulary** | `decks`, `notes`, `note_meanings`, `note_pronunciations` | SS-08 |
-| **Flashcard** | `cards`, `review_logs`, `card_templates`, `card_template_fields` | SS-09 |
+| **Template & SRS** | `templates`, `template_elements`, `template_fields`, `fsrs_records` | SS-09, SS-11 |
 | **Quiz** | `quizzes`, `quiz_questions`, `quiz_attempts` | SS-10 |
 | **Progress** | `learning_events`, `learning_progress` | SS-12 |
 | **Gamification** | `missions`, `mission_progress`, `badges`, `user_badges`, `experience_logs`, `coin_transactions`, `leaderboard_entries` | SS-13 |
-| **Economy** | `shop_items`, `user_items` | SS-14 |
+| **Economy** | `shop_items`, `user_inventories`, `levels` | SS-14 |
 | **Media** | `storage_metadata` (object key, owner, MIME, size, type, state, timestamp) | SS-16 |
-| **Notification** | `notifications`, `device_tokens` | SS-15 |
+| **Notification** | `notifications`, `user_notifications` | SS-15 |
 
 ### 6.3 Indexing đề xuất
 
@@ -404,13 +403,13 @@ Error response:
 | --- | --- | --- |
 | Login | UNIQUE `users.email` | Lookup nhanh + chống trùng |
 | Dictionary search | INDEX trên `words.word` (normalized); FULLTEXT nếu DB hỗ trợ | Lookup p95 < 500ms |
-| Personal vocabulary | UNIQUE `(user_id, word_id, deck_id)` trên `notes` | Chống trùng Note/Deck |
-| SRS review queue | INDEX `(user_id, due_at, state)` trên `cards` | Daily review query |
+| Personal vocabulary | UNIQUE `(topic_id, word_id)` trên `topic_items` | Chống trùng từ vựng trong cùng một Topic |
+| SRS review queue | INDEX `(user_id, due_at, card_state)` trên `fsrs_records` | Daily review query |
 | Quiz history | INDEX `(user_id, created_at)` trên `quiz_attempts` | Pagination |
 | Learning events | INDEX `(user_id, event_type, created_at)` | Progress aggregate |
 | Leaderboard | INDEX `(scope, score)` hoặc Redis sorted set | Ranking query |
 | Media owner | INDEX `(owner_id, media_type)` trên `storage_metadata` | User media lookup |
-| Notifications | INDEX `(user_id, read_at, created_at)` | Notification list |
+| Notifications | INDEX `(user_id, is_read, created_at)` trên `user_notifications` | Notification list |
 | Object word mapping | INDEX `(label)` trên `object_word_mappings` | AI label → Word lookup |
 
 ### 6.4 Dictionary import
@@ -495,7 +494,7 @@ Error response:
 | --- | --- | --- | --- | --- |
 | Avatar | User | ≤ 5MB, image/* | Edit profile | M1 |
 | Scan image | User | ≤ 10MB, image/* | Camera/detection (optional — privacy) | M2 |
-| Crop image (SAM) | System/Note | — | AI pipeline → flashcard | M2 |
+| Crop image (SAM) | System/TopicItem | — | AI pipeline → flashcard | M2 |
 | Item asset | System/ShopItem | — | Admin upload | M4 |
 
 ### 8.4 Upload flow chi tiết
@@ -514,7 +513,7 @@ Error response:
      → Validate MIME allowlist (image/jpeg, image/png, image/webp)
      → Validate file size (≤ limit theo media type)
      → Lưu StorageMetadata (owner, objectKey, mime, size, type, createdAt)
-     → Link object key tới entity (User.avatarKey, Note.cropKey, ShopItem.iconKey)
+     → Link object key tới entity (User.avatarKey, TopicItem.attributeValues, ShopItem.iconKey)
    Response: { objectKey, accessUrl (presigned GET, TTL ≤ 15m) }
 
 4. GET /storage/access-url/{objectKey}
@@ -663,17 +662,17 @@ Mobile ──→ Object Storage: GET presignedUrl (download binary)
 
 | Resource | Guest | Learner | Admin |
 | --- | --- | --- | --- |
-| Auth endpoints (register/login/OTP/reset) | ✅ | — | — |
-| Profile (own) | — | ✅ (owner) | — |
-| Dictionary search/detail | — | ✅ | ✅ |
-| Recognition scan | — | ✅ | — |
-| Vocabulary Deck/Note (own) | — | ✅ (owner) | — |
-| Flashcard/Quiz/SRS (own) | — | ✅ (owner) | — |
-| Progress/Gamification (own) | — | ✅ (owner) | — |
-| Shop/Wallet (own) | — | ✅ (owner) | — |
-| Notifications (own) | — | ✅ (owner) | — |
-| Storage upload (own media) | — | ✅ | ✅ |
-| Admin CMS APIs | — | — | ✅ (ROLE_ADMIN) |
+| Auth endpoints (register/login/OTP/reset) | Có | — | — |
+| Profile (own) | — | Có (owner) | — |
+| Dictionary search/detail | — | Có | Có |
+| Recognition scan | — | Có | — |
+| Vocabulary Topic cá nhân (own) | — | Có (owner) | — |
+| Flashcard/Quiz/SRS (own) | — | Có (owner) | — |
+| Progress/Gamification (own) | — | Có (owner) | — |
+| Shop/Wallet (own) | — | Có (owner) | — |
+| Notifications (own) | — | Có (owner) | — |
+| Storage upload (own media) | — | Có | Có |
+| Admin CMS APIs | — | — | Có (ROLE_ADMIN) |
 
 ---
 
@@ -693,12 +692,12 @@ Mobile ──→ Object Storage: GET presignedUrl (download binary)
 ### 12.2 Readiness policy
 
 - Trạng thái **ready** của Backend API được quyết định duy nhất bởi **Hard Dependency**:
-  - Database ✅ (Bắt buộc)
+  - Database (Bắt buộc)
 - Các dịch vụ phụ trợ là **Soft Dependencies**. Lỗi kết nối đến các dịch vụ này sẽ đánh dấu trạng thái *Degraded/Warning* trên health indicator (`/health`) để giám sát, nhưng KHÔNG làm sập readiness:
-  - Redis ⚠️ (Lỗi → degrade gracefully, fallback xuống DB)
-  - Object storage ⚠️ (Lỗi → trả về mã lỗi nghiệp vụ khi upload/download)
-  - AI service ⚠️ (Lỗi → trả về mã lỗi nghiệp vụ thân thiện + cho phép retry)
-  - Mail provider ⚠️ (Lỗi → log cảnh báo, retry gửi mail sau)
+  - Redis (Lỗi → degrade gracefully, fallback xuống DB)
+  - Object storage (Lỗi → trả về mã lỗi nghiệp vụ khi upload/download)
+  - AI service (Lỗi → trả về mã lỗi nghiệp vụ thân thiện + cho phép retry)
+  - Mail provider (Lỗi → log cảnh báo, retry gửi mail sau)
 
 ### 12.3 Liveness vs Readiness
 
@@ -928,8 +927,8 @@ Schema change
 | 8 | Word search | `GET /words?q=apple` | Trả word detail + translation | M1 |
 | 9 | Avatar upload | Storage upload flow | Presigned upload + complete thành công | M1 |
 | 10 | AI recognition | `POST /recognition/scan` | Ảnh test trả objects (label/detectionSource) | M2 |
-| 11 | Save word | `POST /decks/{id}/notes` | Tạo Note + Card thành công | M1-M2 |
-| 12 | Flashcard | Card API | Lấy được cards từ Deck | M1 |
+| 11 | Save word | `POST /topics/{topicId}/items` | Lưu TopicItem thành công | M1-M2 |
+| 12 | Flashcard | Flashcard API | Render và học flashcard theo Topic và Template | M1 |
 | 13 | Quiz | Quiz API | Tạo và submit quiz test | M3 |
 | 14 | SRS review | Review API | Lấy review queue hoặc empty state | M3 |
 | 15 | Progress | `GET /progress/summary` | Trả summary hợp lệ | M3 |
@@ -944,12 +943,12 @@ Schema change
 | Flow | Mô tả | Milestones |
 | --- | --- | --- |
 | Auth lifecycle | Register → OTP → Login → Refresh → Logout | M1 |
-| Scan-to-learn | Camera → Upload → AI detect → Map word → Save Note/Card | M2 |
-| Dictionary lookup | Search → Word detail → Save to Deck | M1 |
-| Topic browse | Collection → Topic → TopicItem → Save to Deck | M1 |
-| Flashcard study | Open Deck → Study session → FSRS rating → ReviewLog | M1, M3 |
+| Scan-to-learn | Camera → Upload → AI detect → Map word → Save TopicItem | M2 |
+| Dictionary lookup | Search → Word detail → Save to personal Topic | M1 |
+| Topic browse | Collection → Topic → TopicItem → Save to personal Topic | M1 |
+| Flashcard study | Open Topic → Study session → Template render → FSRS rating | M1, M3 |
 | Quiz | Setup → Play → Submit → Result → Progress update | M3 |
-| SRS review | Due queue → Review → Rating → Card SRS update | M3 |
+| SRS review | Due queue → Review → Rating → FsrsRecord update | M3 |
 | Gamification | Learning activity → XP/Coin → Mission → Badge → Leaderboard | M4 |
 | Storage | Avatar upload → Edit profile → Presigned access | M1 |
 
@@ -967,7 +966,7 @@ Schema change
 | 6 | Secret bị commit vào VCS | Rủi ro bảo mật nghiêm trọng | Dùng env/secret manager, git-secrets scan, pre-commit hooks |
 | 7 | Swagger public trên production | Lộ API surface cho attacker | Tắt hoặc restrict Swagger production (IP/auth) |
 | 8 | Reward cộng trùng do retry | Sai coin/XP/leaderboard | Idempotent event key + unique transaction |
-| 9 | AI label không khớp dictionary | Không tạo được Note từ scan | ObjectWordMapping + synonym table, dictionary miss state UI |
+| 9 | AI label không khớp dictionary | Không tạo được TopicItem từ scan | ObjectWordMapping + synonym table, dictionary miss state UI |
 | 10 | Database connection pool exhausted | API timeout hàng loạt | Monitor pool size, optimize slow queries, connection timeout |
 | 11 | R2/MinIO CORS misconfigured | Mobile upload fail | Bucket CORS policy cho presigned URL origin |
 | 12 | JWT secret weak/leaked | Token giả mạo | Secret đủ mạnh, rotate được, monitor unusual auth patterns |
@@ -980,7 +979,7 @@ Schema change
 | --- | --- |
 | **M1 — Core Auth & Vocabulary** | Backend API (auth, user, word, topic, storage, vocabulary, flashcard basic) · MySQL + dictionary import · Redis (cache) · MinIO/S3 (avatar) · Mail provider · Swagger |
 | **M2 — Camera/Recognition** | AI Service (Florence-2+SAM+CLIP trên GPU) · Recognition API · Storage (scan image) · ObjectWordMapping |
-| **M3 — Learning Engine** | Quiz API · SRS engine (FSRS) · Progress aggregate · Notification service (Push + In-app) · CardTemplate CRUD |
+| **M3 — Learning Engine** | Quiz API · SRS engine (FSRS) · Progress aggregate · Notification service (Push + In-app) · Template CRUD |
 | **M4 — Gamification & Production** | Gamification/Shop/Leaderboard APIs · Redis sorted set · Admin CMS APIs · Cloudflare R2 production · Hardening (security, observability, CI/CD) |
 
 ---

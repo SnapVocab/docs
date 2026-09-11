@@ -216,7 +216,7 @@
 | 3    | Learner | Chọn một từ từ danh sách kết quả.                                                                   |
 | 4    | System  | Hiển thị Word Detail: từ tiếng Anh, nghĩa tiếng Việt, phiên âm IPA, nút phát âm, loại từ (POS).   |
 | 5    | System  | Nếu từ có nhiều nghĩa/loại từ → hiển thị nhóm theo POS rõ ràng.                                    |
-| 6    | Learner | (Tùy chọn) Nhấn nút **Lưu từ** → chọn Deck hoặc dùng Deck gần nhất/mặc định → tạo Note (xem BF-07). |
+| 6    | Learner | (Tùy chọn) Nhấn nút **Lưu từ** → chọn Topic cá nhân hoặc dùng Topic gần nhất/mặc định → tạo TopicItem (xem BF-07). |
 
 ### Happy Path — Tra cứu giọng nói (Voice)
 
@@ -235,7 +235,7 @@
 | 2    | Learner | Chọn một Collection → xem danh sách Topics (hỗ trợ phân cấp parent/child).                      |
 | 3    | Learner | Chọn một Topic → xem danh sách TopicItem (từ vựng/cụm từ) kèm thuộc tính EAV.                  |
 | 4    | Learner | Chọn từ cụ thể → xem chi tiết nghĩa, phiên âm, ví dụ từ TopicItemAttributeValue.               |
-| 5    | Learner | (Tùy chọn) Nhấn **Lưu từ** → chọn Deck hoặc dùng Deck gần nhất/mặc định → tạo Note với `source = TOPIC`. |
+| 5    | Learner | (Tùy chọn) Nhấn **Lưu từ** → chọn Topic cá nhân hoặc dùng Topic gần nhất/mặc định → tạo TopicItem với `source = TOPIC`. |
 
 ### Alternative Flow
 
@@ -244,12 +244,12 @@
 | AF-05.1 | Từ không có trong database    | Hiển thị "Không tìm thấy từ", gợi ý kiểm tra lại chính tả.  |
 | AF-05.2 | Thiếu phiên âm hoặc phát âm  | UI ghi rõ "Chưa có dữ liệu phát âm", không để trống vô nghĩa. |
 | AF-05.3 | Voice-to-Text không nhận diện | Hiển thị "Không nhận diện được, vui lòng thử lại."           |
-| AF-05.4 | Từ đã lưu trong Deck được chọn | Thông báo "Từ đã có trong Deck được chọn", không tạo trùng.   |
+| AF-05.4 | Từ đã lưu trong Topic được chọn | Thông báo "Từ đã có trong chủ đề này", không tạo trùng.     |
 
 ### Post-condition
 
 - Learner đã xem thông tin chi tiết từ vựng.
-- Nếu lưu: Note mới được tạo trong Deck được chọn với `source` phù hợp (DICT/TOPIC).
+- Nếu lưu: TopicItem mới được tạo trong Topic cá nhân được chọn với `source` phù hợp (DICT/TOPIC).
 
 ### Business Rules
 
@@ -292,7 +292,7 @@
 | 12   | System  | Ánh xạ label sang Word trong database (tra cứu trực tiếp + bảng mapping/synonym).                                      |
 | 13   | System  | Cập nhật `ScanRequest = DONE` kèm danh sách từ vựng. Ở lần poll tiếp theo, mobile nhận kết quả này.                                      |
 | 14   | Learner | Xem danh sách đối tượng trên màn hình kết quả. Chọn từ muốn lưu.                                                       |
-| 15   | Learner | Nhấn **Lưu** → chọn Deck hoặc dùng Deck gần nhất/mặc định → tạo Note + Card với `source = SCAN` (xem BF-07).             |
+| 15   | Learner | Nhấn **Lưu** → chọn Topic cá nhân hoặc dùng Topic gần nhất/mặc định → tạo TopicItem và khởi tạo FsrsRecord với `source = SCAN` (xem BF-07). |
 
 ### Alternative Flow
 
@@ -339,108 +339,106 @@
 
 ---
 
-## BF-07 — Quản lý từ vựng cá nhân (Deck / Note / Card)
+## BF-07 — Quản lý từ vựng cá nhân (Collection / Topic / TopicItem)
 
 **Actor:** Learner  
-**Trace:** FR-04, FR-05.01 · SS-08, SS-09 · MH: My Vocabulary / Deck Detail  
+**Trace:** FR-04, FR-05.01 · SS-08, SS-09 · MH: My Vocabulary / Topic Detail  
 **Milestone:** M1 (cơ bản), M2 (từ scan)
 
 ### Precondition
 
 - Learner đã đăng nhập.
-- Learner có ít nhất 1 Deck (hệ thống luôn tạo Deck mặc định khi đăng ký).
+- Learner có ít nhất 1 Collection và Topic cá nhân (hệ thống tự động tạo Topic mặc định khi tài khoản đăng ký).
 
 ### Happy Path — Lưu từ mới
 
 | Bước | Actor   | Hành động                                                                                                      |
 | ---- | ------- | -------------------------------------------------------------------------------------------------------------- |
 | 1    | Learner | Từ Word Detail (BF-05) hoặc Scan Result (BF-06), nhấn **Lưu từ**/**Lưu tất cả**.                              |
-| 2    | System  | Xác định Deck đích: dùng Deck gần nhất; nếu chưa có thì dùng Deck mặc định; Learner có thể nhấn **Đổi Deck** để chọn Deck khác trước khi xác nhận. |
-| 3    | System  | Kiểm tra Note trùng trong Deck đích (unique per Deck rule).                                                    |
-| 4    | System  | Tạo Note mới liên kết Word, gắn `source` (SCAN / DICT / TOPIC). Tạo kèm NoteMeaning, NotePronunciation.      |
-| 5    | System  | Tự động sinh 1 Card cho Note. Card ở trạng thái `NEW` với tham số SRS khởi tạo. *(M1: Deck mặc định render theo CLASSIC hard-code; entity CardTemplate đầy đủ từ M3)* |
-| 6    | System  | Trả xác nhận "Đã lưu vào <Deck name>" kèm action "Đổi Deck" khi còn ở màn kết quả/chi tiết.                 |
+| 2    | System  | Xác định Topic đích: dùng Topic gần nhất; nếu chưa có thì dùng Topic mặc định; Learner có thể nhấn **Đổi Topic** để chọn Topic khác trước khi xác nhận. |
+| 3    | System  | Kiểm tra từ trùng trong Topic đích (unique per Topic rule).                                                    |
+| 4    | System  | Tạo `TopicItem` mới trong Topic, gắn các giá trị thuộc tính tương ứng vào `TopicItemAttributeValue`.          |
+| 5    | System  | Khởi tạo bản ghi `FsrsRecord` cho cặp `(user_id, topic_item_id)` ở trạng thái `NEW` với các tham số FSRS mặc định. |
+| 6    | System  | Trả xác nhận "Đã lưu vào <Topic name>" kèm action "Đổi Topic" khi còn ở màn kết quả/chi tiết.                 |
 
 ### Happy Path — Xem & Quản lý danh sách
 
 | Bước | Actor   | Hành động                                                                                        |
 | ---- | ------- | ------------------------------------------------------------------------------------------------ |
-| 1    | Learner | Mở My Vocabulary → xem danh sách Note trong Deck.                                               |
-| 2    | Learner | Lọc theo UI state (new, learning, reviewing, mastered), ngày lưu, độ khó, ngày ôn tiếp theo.    |
-| 3    | Learner | Xem chi tiết một Note: từ, nghĩa, phiên âm, source, trạng thái Card/SRS.                       |
-| 4    | Learner | (Tùy chọn) Xóa/archive Note.                                                                    |
-| 5    | System  | Khi xóa/archive Note: Card gắn Note được ẩn/archive. Word dictionary gốc **không** bị xóa.     |
+| 1    | Learner | Mở My Vocabulary → xem danh sách `TopicItem` trong Topic cá nhân.                                |
+| 2    | Learner | Lọc theo trạng thái học tập (new, learning, reviewing, mastered), ngày lưu, độ khó, ngày ôn tiếp theo. |
+| 3    | Learner | Xem chi tiết một mục từ: từ, nghĩa, phiên âm, ví dụ, trạng thái ôn tập FSRS.                     |
+| 4    | Learner | (Tùy chọn) Xóa mục từ khỏi Topic cá nhân.                                                        |
+| 5    | System  | Khi xóa mục từ khỏi Topic: `TopicItem` và `FsrsRecord` liên quan được dọn dẹp. Dữ liệu từ điển gốc **không** bị xóa. |
 
 ### Alternative Flow
 
 | Mã      | Điều kiện                           | Xử lý                                                         |
 | ------- | ----------------------------------- | -------------------------------------------------------------- |
-| AF-07.1 | Note trùng trong cùng Deck          | Thông báo "Từ đã có trong Deck này", không tạo trùng.         |
-| AF-07.2 | Deck chưa có CardTemplate           | Gán System Template mặc định (CLASSIC).                        |
-| AF-07.3 | Learner chưa có Note nào            | Hiển thị empty state + CTA "Tra cứu / Scan để thêm từ mới".  |
+| AF-07.1 | Từ trùng trong cùng Topic           | Thông báo "Từ đã có trong chủ đề này", không tạo trùng.         |
+| AF-07.2 | Topic chưa có Template riêng        | Gán Template mặc định của hệ thống.                           |
+| AF-07.3 | Learner chưa có từ vựng nào         | Hiển thị empty state + CTA "Tra cứu / Scan để thêm từ mới".   |
 
 ### Post-condition
 
-- Note/Card mới đã được tạo trong Deck đích đã xác nhận.
-- Từ đã sẵn sàng cho Flashcard, Quiz, SRS.
-- Xóa/archive Note không ảnh hưởng Word dictionary gốc.
+- `TopicItem` mới đã được tạo trong Topic đích đã xác nhận kèm bản ghi `FsrsRecord`.
+- Mục từ đã sẵn sàng cho Flashcard, Quiz, SRS.
+- Xóa mục từ cá nhân không ảnh hưởng dữ liệu từ điển gốc.
 
 ### Business Rules
 
-1. **Canonical model:** `Deck` → `Note` → `Card`. UI "My Vocabulary" = danh sách Note.
+1. **Canonical model:** `Collection` (type `USER`) → `Topic` → `TopicItem`. UI "My Vocabulary" = danh sách `TopicItem` trong Topic cá nhân.
 2. **Không** tạo entity `SavedWord`/`UserWord` song song.
-3. Unique per Deck: 1 Learner không có Note trùng cùng Word trong cùng Deck.
-4. Luồng Save từ mọi nguồn (DICT/TOPIC/SCAN) dùng cùng pattern Deck đích: Deck gần nhất → Deck mặc định → tùy chọn Đổi Deck.
-5. Note/Card là nguồn đầu vào chính cho Flashcard, Quiz, SRS.
+3. Unique per Topic: 1 Learner không lưu trùng lặp cùng một từ trong cùng một Topic.
+4. Luồng Save từ mọi nguồn (DICT/TOPIC/SCAN) dùng cùng pattern Topic đích: Topic gần nhất → Topic mặc định → tùy chọn Đổi Topic.
+5. `TopicItem` kết hợp `FsrsRecord` là nguồn dữ liệu đầu vào cho Flashcard, Quiz, SRS.
 
 ---
 
-## BF-08 — Học Flashcard & Custom Card
+## BF-08 — Học Flashcard (Topic Template & FSRS)
 
 **Actor:** Learner  
 **Trace:** FR-05 · SS-09 · MH: Flashcard / Study Session  
-**Milestone:** M1 (flip CLASSIC hard-code + FSRS 4 mức Again/Hard/Good/Easy), M3 (CardTemplate entity đầy đủ + multi-template + custom template)
+**Milestone:** M1 (cơ bản), M3 (Topic Template đầy đủ cấu hình position, semantic_role, styling)
 
 ### Precondition
 
-- Learner có ít nhất 1 Card trong Deck (từ Note đã lưu).
-- Deck đã được gán template render. *(M1: layout CLASSIC hard-code; M3: CardTemplate entity với UI cấu hình)*
+- Learner có ít nhất 1 `TopicItem` trong Topic cần học.
+- Topic đã được cấu hình Template hiển thị thẻ.
 
 ### Happy Path
 
 | Bước | Actor   | Hành động                                                                                           |
 | ---- | ------- | --------------------------------------------------------------------------------------------------- |
-| 1    | Learner | Mở Deck → chọn **Học Flashcard** hoặc vào study session từ Home.                                   |
-| 2    | System  | Lấy danh sách Card cần học (new + due). Render giao diện thẻ theo template của Deck. *(M1: layout CLASSIC hard-code trong mobile; M3: render theo CardTemplateField config từ API)* |
-| 3    | Learner | Xem mặt trước (Front) của thẻ: từ tiếng Anh, ảnh crop (nếu có), audio (nếu có).                   |
-| 4    | Learner | Tương tác: lật thẻ (Flip), gõ từ (Type-in), nghe audio (Listening) — tùy loại template.            |
-| 5    | System  | Hiển thị mặt sau (Back): nghĩa tiếng Việt, phiên âm, ví dụ.                                       |
+| 1    | Learner | Mở Topic → chọn **Học Flashcard** hoặc vào study session từ Home.                                   |
+| 2    | System  | Lấy danh sách mục từ cần học (`card_state = NEW` hoặc `due <= now`). Tải cấu hình `Template` của Topic (danh sách `TemplateElement` và `TemplateField` theo `position ASC`). |
+| 3    | Learner | Xem mặt trước (Front) của thẻ: các trường có `semantic_role` là `FRONT`, kèm `PHONETIC`, `AUDIO` (nếu có). |
+| 4    | Learner | Tương tác: lật thẻ, nghe phát âm.                                                                   |
+| 5    | System  | Hiển thị mặt sau (Back): các trường có `semantic_role` là `BACK`, `TRANSLATION`, `EXAMPLE`...       |
 | 6    | Learner | Đánh giá mức độ nhớ theo FSRS (Again, Hard, Good, Easy).                                           |
-| 7    | System  | Ghi ReviewLog (rating, thời gian). Cập nhật tham số SRS trên Card (state, dueAt, stability, difficulty). |
-| 8    | System  | Chuyển sang Card tiếp theo. Lặp lại bước 3–7.                                                      |
-| 9    | System  | Khi hết Card → hiển thị summary phiên học (số thẻ, accuracy).                                      |
+| 7    | System  | Cập nhật tham số FSRS trên `FsrsRecord` (`stability`, `difficulty`, `due`, `reps`, `lapses`, `card_state`). |
+| 8    | System  | Chuyển sang mục từ tiếp theo. Lặp lại bước 3–7.                                                     |
+| 9    | System  | Khi hết thẻ → hiển thị tổng kết phiên học (số thẻ đã ôn, tỷ lệ nhớ).                               |
 
 ### Alternative Flow
 
 | Mã      | Điều kiện                         | Xử lý                                                                       |
 | ------- | --------------------------------- | ---------------------------------------------------------------------------- |
-| AF-08.1 | Deck không có Card                | Empty state + CTA "Lưu thêm từ để bắt đầu học."                            |
-| AF-08.2 | Thay đổi Template cho Deck       | Card cũ không mất, chỉ thay đổi cách render. SRS giữ nguyên.               |
-| AF-08.3 | Từ thiếu audio/IPA               | Flashcard vẫn hoạt động, tự động ẩn field tương ứng, không lỗi layout.      |
-| AF-08.4 | Learner tạo Custom Template      | Learner tự cấu hình layout, field mapping, kiểu tương tác → gán cho Deck.  |
+| AF-08.1 | Topic không có từ nào             | Empty state + CTA "Lưu thêm từ để bắt đầu học."                            |
+| AF-08.2 | Thay đổi Template cho Topic       | Dữ liệu ôn tập FSRS của các mục từ giữ nguyên; chỉ thay đổi giao diện hiển thị ở phiên tiếp theo. |
+| AF-08.3 | Mục từ thiếu dữ liệu thuộc tính   | Tự động ẩn trường khuyết thiếu nếu có cờ `hide_if_empty = true`, không gây lỗi giao diện. |
 
 ### Post-condition
 
-- ReviewLog đã được ghi cho mỗi Card.
-- Tham số SRS trên Card đã cập nhật → ảnh hưởng review queue.
-- Progress (FR-08) được cập nhật.
+- Tham số FSRS trên `FsrsRecord` đã được cập nhật → ảnh hưởng lịch ôn tập tiếp theo.
+- Tiến độ học tập và điểm kinh nghiệm (XP) được ghi nhận.
 
 ### Business Rules
 
-1. System template không thể sửa/xóa; Custom template xóa mềm (soft-delete).
-2. 1 Note → 1 Card theo template Deck.
-3. Khi đổi Template: Card cũ giữ nguyên SRS, chỉ thay render.
-4. Field thiếu dữ liệu → ẩn, không crash layout.
+1. Template gắn liền với `Topic`, áp dụng cho toàn bộ các `TopicItem` trong Topic đó.
+2. 1 `TopicItem` tương ứng 1 bản ghi `FsrsRecord` cho mỗi người học.
+3. Khi thay đổi Template: tiến trình học tập FSRS không bị xáo trộn.
+4. Trường thiếu dữ liệu → tự động ẩn nếu `hide_if_empty = true`, giao diện co giãn hợp lý.
 
 ---
 
@@ -452,14 +450,14 @@
 
 ### Precondition
 
-- Learner có đủ Note/Card trong Deck để sinh quiz (hệ thống cần số lượng tối thiểu cho đáp án nhiễu).
+- Learner có đủ TopicItem trong Topic để sinh quiz (hệ thống cần số lượng tối thiểu cho đáp án nhiễu).
 
 ### Happy Path
 
 | Bước | Actor   | Hành động                                                                                           |
 | ---- | ------- | --------------------------------------------------------------------------------------------------- |
-| 1    | Learner | Mở Quiz từ Deck hoặc từ Home. Chọn loại quiz (multiple choice, matching, fill blank).               |
-| 2    | System  | Sinh bộ câu hỏi từ Note/Card. Tạo đáp án đúng + đáp án nhiễu (lấy cùng Deck/POS, không trùng).    |
+| 1    | Learner | Mở Quiz từ Topic hoặc từ Home. Chọn loại quiz (multiple choice, matching, fill blank).             |
+| 2    | System  | Sinh bộ câu hỏi từ TopicItem. Tạo đáp án đúng + đáp án nhiễu (lấy cùng Topic/POS, không trùng).     |
 | 3    | Learner | Trả lời từng câu hỏi.                                                                               |
 | 4    | System  | Sau mỗi câu: phản hồi đúng/sai (tuỳ mode). Sau quiz: tính điểm, tỷ lệ chính xác.                 |
 | 5    | System  | Lưu QuizAttempt: điểm, số câu đúng/sai, thời gian làm, timestamp.                                 |
@@ -469,7 +467,7 @@
 
 | Mã      | Điều kiện                        | Xử lý                                                                   |
 | ------- | -------------------------------- | ------------------------------------------------------------------------ |
-| AF-09.1 | Số Note chưa đủ sinh quiz        | Hiển thị CTA "Lưu thêm từ trước khi tạo quiz."                         |
+| AF-09.1 | Số TopicItem chưa đủ sinh quiz   | Hiển thị CTA "Lưu thêm từ trước khi tạo quiz."                         |
 | AF-09.2 | Learner thoát giữa chừng        | Hủy bỏ, không ghi QuizAttempt chưa hoàn thành.                                         |
 | AF-09.3 | Retry quiz (cùng attempt)        | Idempotent submit — retry không cộng trùng điểm/XP (dùng event key).    |
 
@@ -487,10 +485,10 @@
 
 ### Business Rules
 
-1. Đáp án nhiễu lấy từ Note cùng Deck/POS, không trùng nghĩa.
+1. Đáp án nhiễu lấy từ TopicItem cùng Topic/POS, không trùng nghĩa.
 2. Submit quiz idempotent (event key, retry không cộng trùng).
 3. Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP).
-4. Yêu cầu số Note tối thiểu để sinh quiz.
+4. Yêu cầu số TopicItem tối thiểu để sinh quiz.
 
 ---
 
@@ -502,44 +500,43 @@
 
 ### Precondition
 
-- Learner có Card với `dueAt ≤ now` (đến hạn ôn tập).
+- Learner có bản ghi `FsrsRecord` với `due ≤ now` (đến hạn ôn tập).
 
 ### Happy Path
 
 | Bước | Actor   | Hành động                                                                                             |
 | ---- | ------- | ----------------------------------------------------------------------------------------------------- |
-| 1    | System  | Tính Daily Review Queue: lấy tất cả Card của Learner có `dueAt ≤ now`, ưu tiên overdue trước.        |
+| 1    | System  | Tính Daily Review Queue: lấy tất cả `FsrsRecord` của Learner có `due ≤ now`, ưu tiên overdue trước.  |
 | 2    | System  | (Push Notification) Nếu Learner bật nhận thông báo → gửi push nhắc nhở ôn tập SRS.                  |
 | 3    | Learner | Mở app → Home hiển thị số từ cần ôn hôm nay. Nhấn vào để bắt đầu phiên ôn.                          |
-| 4    | System  | Hiển thị Card theo flashcard template (tương tự BF-08).                                              |
+| 4    | System  | Hiển thị thẻ theo cấu hình Template của Topic tương ứng (tương tự BF-08).                            |
 | 5    | Learner | Xem thẻ → đánh giá mức nhớ FSRS (Again, Hard, Good, Easy).                                           |
-| 6    | System  | Ghi ReviewLog. Cập nhật Card: state, dueAt, stability, difficulty theo FSRS.                         |
+| 6    | System  | Cập nhật `FsrsRecord`: card_state, due, stability, difficulty, reps, lapses theo FSRS.                |
 | 7    | System  | **Recall tốt** → tăng khoảng cách ôn (interval dài hơn). **Recall kém** → giảm hoặc đưa về LEARNING/RELEARNING theo FSRS. |
-| 8    | System  | Chuyển Card tiếp. Lặp đến hết queue → hiển thị summary.                                              |
+| 8    | System  | Chuyển thẻ tiếp theo. Lặp đến hết queue → hiển thị summary.                                           |
 | 9    | System  | Cập nhật Progress (số lượt ôn, streak, accuracy).                                                     |
 
 ### Alternative Flow
 
 | Mã      | Điều kiện                       | Xử lý                                                                  |
 | ------- | ------------------------------- | ----------------------------------------------------------------------- |
-| AF-10.1 | Không có Card đến hạn           | Home hiển thị "Bạn đã ôn xong hôm nay! 🎉" hoặc số due = 0.           |
-| AF-10.2 | Card quá hạn ôn (overdue)       | Ưu tiên trong review queue trước các Card vừa đến hạn.                 |
-| AF-10.3 | Learner muốn reset lịch học     | Cho phép reset Card về trạng thái NEW hoặc archive.                    |
-| AF-10.4 | Learner bỏ giữa chừng          | Card chưa review giữ nguyên trong queue cho lần sau.                   |
+| AF-10.1 | Không có thẻ đến hạn            | Home hiển thị "Bạn đã hoàn thành các từ cần ôn hôm nay!" hoặc số due = 0. |
+| AF-10.2 | Thẻ quá hạn ôn (overdue)        | Ưu tiên trong review queue trước các thẻ vừa đến hạn.                 |
+| AF-10.3 | Learner muốn reset lịch học     | Cho phép reset `FsrsRecord` về trạng thái `NEW`.                       |
+| AF-10.4 | Learner bỏ giữa chừng          | `FsrsRecord` chưa review giữ nguyên trong queue cho lần sau.           |
 
 ### Post-condition
 
-- Card đã ôn có `dueAt` mới theo FSRS.
-- ReviewLog đã được ghi.
-- Streak tăng nếu Learner hoàn thành điều kiện học tối thiểu trong ngày.
+- `FsrsRecord` đã ôn có giá trị `due` mới theo FSRS.
+- Tiến độ học tập và chuỗi học liên tục (streak) được cập nhật nếu hoàn thành điều kiện trong ngày.
 
 ### Business Rules
 
-1. FSRS trên `Card`: state/dueAt/stability/difficulty.
-2. Review queue chỉ gồm Card thuộc Deck/Note của Learner hiện tại.
+1. FSRS trực tiếp trên `FsrsRecord` (`fsrs_records`): `card_state`, `due`, `stability`, `difficulty`, `reps`, `lapses`.
+2. Review queue chỉ gồm `FsrsRecord` của Learner hiện tại.
 3. Recall tốt → interval tăng; recall kém → interval giảm hoặc đưa về LEARNING/RELEARNING theo FSRS.
-4. Từ mới → trạng thái học ban đầu, lịch ôn đầu tiên.
-5. Overdue card được ưu tiên trong queue.
+4. Từ mới → trạng thái học ban đầu (`NEW`), lịch ôn đầu tiên.
+5. Thẻ quá hạn ôn được ưu tiên trong queue.
 
 ---
 
@@ -560,7 +557,7 @@
 | 1    | Learner | Mở Home screen → xem progress summary widget: số từ đã lưu, đã học, đang ôn, mastered theo learning-state map. |
 | 2    | Learner | Mở màn hình Progress chi tiết.                                                                         |
 | 3    | System  | Hiển thị: streak (chuỗi ngày liên tiếp), accuracy (quiz/review), lịch sử hoạt động ngày/tuần/tháng.  |
-| 4    | System  | Tổng hợp dữ liệu từ ReviewLog, QuizAttempt, Note count.                                               |
+| 4    | System  | Tổng hợp dữ liệu từ FsrsRecord, LearningEvent, QuizAttempt, số lượng TopicItem.                        |
 
 ### Happy Path — Leaderboard
 
@@ -765,11 +762,11 @@ flowchart TD
         D["BF-04: Hồ sơ & Avatar"]
         E["BF-05: Tra cứu & Chủ đề"]
         F["BF-06: Scan-to-Vocabulary"]
-        G["BF-07: Quản lý từ vựng (Deck/Note)"]
+        G["BF-07: Quản lý từ vựng (Topic/TopicItem)"]
     end
 
     subgraph Learner_Learn["Learner — Learning Engine"]
-        H["BF-08: Flashcard & Custom Card"]
+        H["BF-08: Flashcard & Topic Template"]
         I["BF-09: Quiz"]
         J["BF-10: Ôn tập SRS"]
         K["BF-11: Tiến độ & Leaderboard"]
@@ -808,8 +805,8 @@ flowchart TD
 - [x] Mỗi BF có: Actor, Precondition, Happy Path, Alternative Flow, Exception (khi cần), Post-condition, Business Rules.
 - [x] BF truy vết về FR trong [specs.md](./specs.md).
 - [x] Actor đúng theo canonical: Guest, Learner, Admin.
-- [x] Canonical model: Deck → Note → Card + ReviewLog (không `SavedWord`/`UserWord`).
+- [x] Canonical model: Collection → Topic → TopicItem + FsrsRecord (không `SavedWord`/`UserWord`).
 - [x] AI pipeline: Florence-2 + SAM + CLIP (không YOLO).
-- [x] SRS: FSRS trên Card.
+- [x] SRS: FSRS trên FsrsRecord (fsrs_records).
 - [x] Milestone mapping M1–M4.
 - [x] FR IDs khớp specs (Game=FR-09, Noti=FR-10, Storage=FR-11, OpenAPI=FR-12, Admin=FR-13).

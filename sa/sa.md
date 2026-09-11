@@ -3,7 +3,7 @@
 > Tài liệu kiến trúc hệ thống tổng thể cho SnapVocab, được xây dựng dựa trên [specs.md](../spec/specs.md), [buss_mainflow.md](../spec/buss_mainflow.md), [phan_ra_phan_he_he_thong.md](../spec/phan_ra_phan_he_he_thong.md), [phan_ra_tinh_nang.md](../spec/phan_ra_tinh_nang.md) và [phan_ra_man_hinh.md](../spec/phan_ra_man_hinh.md).
 
 >
-> **Canonical sync (2026-08-23):** Source = [`../spec/specs.md`](../spec/specs.md). AI = Florence-2+SAM+CLIP (F2-v13) · Learning = Deck/Note/Card · SRS = FSRS · Actors = Guest/Learner/Admin · FR: Game=09, Noti=10, Storage=11, OpenAPI=12, Admin=13 · 4 milestones.
+> **Canonical sync (2026-08-23):** Source = [`../spec/specs.md`](../spec/specs.md). AI = Florence-2+SAM+CLIP (F2-v13) · Learning = Collection/Topic/TopicItem/Template · SRS = FSRS (fsrs_records) · Actors = Guest/Learner/Admin · FR: Game=09, Noti=10, Storage=11, OpenAPI=12, Admin=13 · 4 milestones.
 
 ---
 
@@ -13,8 +13,8 @@ SnapVocab là hệ thống mobile-first hỗ trợ học từ vựng tiếng Anh
 
 ### 1.1 Mục tiêu chính
 
-- **Scan-to-learn end-to-end**: Learner chụp/chọn ảnh → AI nhận diện vật thể (Florence-2 + SAM + CLIP zero-shot) → backend ánh xạ sang từ vựng → Learner lưu vào danh sách học cá nhân.
-- **Learning engine độc lập**: Saved vocabulary (Deck/Note/Card), Flashcard với Custom Template, Quiz, SRS (FSRS) và Progress tracking là các module phát triển dần theo milestone.
+- **Scan-to-learn end-to-end**: Learner chụp/chọn ảnh → AI nhận diện vật thể (Florence-2 + SAM + CLIP zero-shot) → backend ánh xạ sang từ vựng → Learner lưu vào danh sách học cá nhân (Topic cá nhân).
+- **Learning engine độc lập**: Saved vocabulary (Topic/TopicItem), Flashcard với Topic Template, Quiz, SRS (FSRS trên `fsrs_records`) và Progress tracking là các module phát triển dần theo milestone.
 - **AI service tách rời backend**: Florence-2 pipeline chạy trong FastAPI service riêng (Python + GPU), backend Spring Boot chỉ điều phối và xử lý nghiệp vụ.
 - **Data ownership rõ ràng**: MySQL/MariaDB là source of truth cho dữ liệu nghiệp vụ; Object Storage chỉ lưu file/media binary; Redis dùng cho cache/ranking hỗ trợ (từ M3/M4).
 - **Bảo mật theo actor**: Guest chỉ dùng auth flow; Learner truy cập dữ liệu cá nhân; Admin dùng CMS web tách biệt (`ROLE_ADMIN`).
@@ -27,8 +27,8 @@ SnapVocab là hệ thống mobile-first hỗ trợ học từ vựng tiếng Anh
 | Source of truth | [specs.md](../spec/specs.md) | Mọi BF/SS/MH/SA phải truy vết về file này |
 | AI pipeline | Florence-2 + SAM + CLIP (F2-v13) zero-shot | **Không** dùng YOLO làm model chính |
 | Actor | Guest, Learner, Admin | Admin dùng CMS web tách biệt |
-| Learning domain | `Deck` → `Note` → `Card` + `ReviewLog` | "Saved vocabulary" = Note trong Deck; **không** entity `SavedWord/UserWord` |
-| SRS | FSRS trên `Card` | State/due/stability/difficulty nằm ở Card |
+| Learning domain | `Collection` (SYSTEM/USER) → `Topic` → `TopicItem` | "Saved vocabulary" = TopicItem trong Topic cá nhân; **không** entity `SavedWord/UserWord` |
+| SRS | FSRS trên `FsrsRecord` (`fsrs_records`) | Trạng thái state/due/stability/difficulty gắn với cặp `(user_id, topic_item_id)` |
 | Milestone | 4 mốc (Auth+Dict → Scan → Learning → Game+Prod) | Theo thứ tự ưu tiên triển khai hiện tại |
 
 ---
@@ -58,9 +58,9 @@ SnapVocab là hệ thống mobile-first hỗ trợ học từ vựng tiếng Anh
 │  │  │ Security: Spring Security + JWT + Refresh Token + OTP      │ │   │
 │  │  └─────────────────────────────────────────────────────────────┘ │   │
 │  │  ┌─────────┐ ┌─────────┐ ┌───────────┐ ┌──────────┐ ┌────────┐│   │
-│  │  │Identity │ │Dict     │ │Recognition│ │Vocabulary│ │Flash-  ││   │
-│  │  │(Auth/   │ │(Word/   │ │(AI Orch.) │ │(Deck/    │ │card &  ││   │
-│  │  │ Profile)│ │ Topic)  │ │           │ │ Note)    │ │Template││   │
+│  │  │Identity │ │Dict     │ │Recognition│ │Vocabulary│ │Topic   ││   │
+│  │  │(Auth/   │ │(Word/   │ │(AI Orch.) │ │(Topics/  │ │Template││   │
+│  │  │ Profile)│ │ Collec.)│ │           │ │ Items)   │ │ & SRS  ││   │
 │  │  └─────────┘ └─────────┘ └───────────┘ └──────────┘ └────────┘│   │
 │  │  ┌─────────┐ ┌─────────┐ ┌───────────┐ ┌──────────┐ ┌────────┐│   │
 │  │  │Quiz     │ │SRS      │ │Progress   │ │Gamific.  │ │Notif.  ││   │
@@ -110,7 +110,7 @@ SnapVocab là hệ thống mobile-first hỗ trợ học từ vựng tiếng Anh
 - Tương tác camera/gallery và upload media.
 - Gọi backend API với JWT access token.
 - Xử lý refresh token khi backend trả 401.
-- Render flashcard theo CardTemplate config từ API.
+- Render flashcard theo cấu hình Topic Template (position, semantic role, styling) từ API.
 - Hiển thị empty/loading/error states nhất quán.
 
 **Nhóm màn hình chính (30 màn hình tổng cộng):**
@@ -121,7 +121,7 @@ SnapVocab là hệ thống mobile-first hỗ trợ học từ vựng tiếng Anh
 | MAIN | Home Dashboard (progress widget, SRS due, streak, quick actions), Learn Hub | M1 |
 | CAMERA | Camera Scan, Detection Result (bounding box, save per object) | M2 |
 | DICT / TOPIC | Search, Word Detail, Voice Search, Collections, Topic Items | M1 |
-| VOCAB | My Vocabulary (Deck List), Deck Detail (Notes + filter/sort) | M1 |
+| VOCAB | My Vocabulary (Topic List), Topic Detail (TopicItems + filter/sort) | M1 |
 | LEARN | Flashcard Study Session, Quiz Setup/Play/Result, SRS Review, Template Management | M1, M3 |
 | STATS / GAME | Stats/Progress, Level, Missions, Achievements/Badges, Leaderboard | M3, M4 |
 | ECONOMY | Wallet, Shop, Inventory | M4 |
@@ -135,7 +135,7 @@ SnapVocab là hệ thống mobile-first hỗ trợ học từ vựng tiếng Anh
 - Xác thực, phân quyền và tạo user context từ JWT.
 - Cung cấp REST API cho mobile và admin CMS.
 - Điều phối nhận diện ảnh: nhận request → lưu ảnh nếu cần → gọi AI service → lọc độ tin cậy (source, clipScore) → map object sang vocabulary.
-- Xử lý nghiệp vụ learning: Deck/Note/Card, flashcard, quiz, SRS, progress.
+- Xử lý nghiệp vụ learning: Collection/Topic/TopicItem, flashcard (Topic Template), quiz, SRS (FsrsRecord), progress.
 - Xử lý gamification: XP, Coin, Mission, Badge, Leaderboard, Shop theo milestone M4.
 - Giao tiếp database, Redis và object storage.
 - Sinh Swagger/OpenAPI.
@@ -231,24 +231,24 @@ Hệ thống backend được chia thành **18 phân hệ** thuộc 5 lớp ch�
 | Topic | SS-05 | Collection/Topic/TopicItem, mô hình EAV, duyệt chủ đề | M1 |
 | Recognition | SS-06 | Orchestrate: nhận ảnh → gọi AI → lọc theo cặp (source, clipScore) → gom label → map dictionary → trả kết quả | M2 |
 | AI Service | SS-07 | Florence-2 + SAM + CLIP pipeline, FastAPI, GPU inference | M2 |
-| Vocabulary | SS-08 | Deck/Note (Saved vocabulary), source tracking, unique per Deck | M1–M2 |
+| Vocabulary | SS-08 | TopicItem (Saved vocabulary) thuộc Topic cá nhân của Learner, source tracking, unique per Topic | M1–M2 |
 
 ### 4.4 Lớp Learning Engine
 
 | Module | SS | Trách nhiệm | Milestone |
 | --- | --- | --- | --- |
-| Flashcard & Template | SS-09 | Card, CardTemplate (system/custom), study session, FSRS rating, ReviewLog | M1, M3 |
-| Quiz | SS-10 | Quiz generation, MCQ/Matching/Fill, scoring, QuizAttempt (idempotent) | M3 |
-| SRS (FSRS) | SS-11 | Review queue (due Cards), FSRS calculation, overdue priority | M3 |
+| Flashcard & Template | SS-09 | Template (gắn theo Topic, system/custom), TemplateElement, TemplateField (SemanticRole), study session, FSRS rating | M1, M3 |
+| Quiz | SS-10 | Quiz generation từ TopicItem, MCQ/Matching/Fill, scoring, QuizAttempt (idempotent) | M3 |
+| SRS (FSRS) | SS-11 | Review queue (due TopicItems / FsrsRecord), FSRS calculation, overdue priority | M3 |
 | Progress | SS-12 | Streak, accuracy, mastered count theo learning-state map, LearningEvent, home widget summary | M3 |
 
 ### 4.5 Lớp Engagement & Infrastructure
 
 | Module | SS | Trách nhiệm | Milestone |
 | --- | --- | --- | --- |
-| Gamification | SS-13 | XP, Coin, Mission, Badge, Leaderboard (Redis sorted set) — idempotent event key | M4 |
-| Shop | SS-14 | ShopItem, UserItem, buy/equip vật phẩm bằng Coin | M4 |
-| Notification | SS-15 | Push (Expo/FCM), In-app notification, device token, settings | M3 |
+| Gamification | SS-13 | Level, XP, Coin, Mission, Badge, Leaderboard (Redis sorted set) — idempotent event key | M4 |
+| Shop | SS-14 | ShopItem, UserInventory, buy/equip vật phẩm bằng Coin | M4 |
+| Notification | SS-15 | Push (Expo/FCM), In-app notification, device token, UserNotification, settings | M3 |
 | Storage | SS-16 | Presigned upload/download, MIME/size validation, orphan cleanup, private bucket | M1, M2, M4 |
 | Admin (Backend) | SS-17 | API quản trị: user mgmt, dict CRUD, topic, template, game config, dashboard stats | M4 |
 | API Documentation | SS-18 | Swagger/OpenAPI, grouped tags, error schema, DTO schemas | M1 (ongoing) |
@@ -262,51 +262,50 @@ Hệ thống backend được chia thành **18 phân hệ** thuộc 5 lớp ch�
 | Nhóm | Entity | Mục đích | Trạng thái |
 | --- | --- | --- | --- |
 | **Identity** | User, Authority, RefreshToken, OtpToken | Auth, profile, quyền truy cập | Đã có |
-| **Dictionary** | Word, Definition, Translation, Pronunciation, WordDefinition, WordRelation, ObjectWordMapping | Từ vựng Anh-Việt (357,729+ từ), ánh xạ AI label | Đã có |
-| **Topic** | Collection, Topic, TopicItem, TopicAttributeGroup, TopicAttribute, TopicItemAttributeValue | Chủ đề học tập EAV linh hoạt | Đã có |
+| **Dictionary** | Word, Definition, Translation, Pronunciation, WordDefinition, WordRelation | Từ vựng Anh-Việt (357,729+ từ) | Đã có |
+| **Topic** | Collection, Topic, TopicItem, TopicAttributeGroup, TopicAttribute, TopicItemAttributeGroup, TopicItemAttributeValue | Chủ đề học tập EAV linh hoạt, phân cấp | Đã có |
 | **Recognition** | ScanRequest, DetectedObject | Nhận diện ảnh, metadata request | Dự kiến M2 |
-| **Personal Learning** | Deck, Note, NoteMeaning, NotePronunciation, Card, ReviewLog | Từ cá nhân, flashcard, SRS | Đã có |
-| **Card Template** | CardTemplate, CardTemplateField | Layout system/custom, interaction type | Dự kiến M3 |
-| **Quiz** | Quiz, QuizQuestion, QuizAttempt | Kiểm tra từ vựng | Dự kiến M3 |
+| **Personal Learning & SRS** | FsrsRecord, TopicItem | Từ cá nhân thuộc Topic, trạng thái FSRS | Đã có |
+| **Topic Template** | Template, TemplateElement, TemplateField | Cấu hình giao diện thẻ học theo Topic, semantic role | Đã có |
+| **Quiz** | Quiz, Question, QuizAttempt, QuizAnswer | Kiểm tra từ vựng | Dự kiến M3 |
 | **Progress** | LearningProgress, LearningEvent | Streak, accuracy, summary aggregate | Dự kiến M3 |
-| **Gamification** | Mission, MissionProgress, Badge, UserBadge, ExperienceLog, CoinTransaction, LeaderboardEntry | Nhiệm vụ, huy hiệu, XP, coin, ranking | Dự kiến M4 |
-| **Economy** | ShopItem, UserItem | Cửa hàng, inventory | Dự kiến M4 |
-| **Media** | StorageMetadata (MediaObject), UploadSession | Object key, owner, MIME, size | Đã có |
-| **Notification** | Notification, DeviceToken | In-app + push | Dự kiến M3 |
+| **Gamification** | Level, Mission, UserMission, Badge, UserBadge, ExperienceLog, CoinTransaction, Leaderboard | Cấp độ, nhiệm vụ, huy hiệu, XP, coin, ranking | Level đã có, còn lại M4 |
+| **Economy** | ShopItem, UserInventory | Cửa hàng, túi đồ người dùng | Đã có |
+| **Media** | StorageMetadata, UploadSession | Object key, owner, MIME, size | Đã có |
+| **Notification** | Notification, UserNotification | In-app notification | Đã có |
 
 ### 5.2 Mô hình dữ liệu học tập (canonical)
 
-> **Thuật ngữ UI:** "Từ đã lưu / My Vocabulary" = các `Note` thuộc `Deck` của Learner.
-> **Không** duy trì entity song song `SavedWord`/`UserWord`.
+> **Thuật ngữ UI:** "Từ đã lưu / My Vocabulary" = các `TopicItem` thuộc `Topic` của Learner (trong `Collection` loại `USER`).
+> **Không** duy trì entity song song `Deck`/`Note`/`Card`/`SavedWord`/`UserWord`.
 
 ```mermaid
 erDiagram
-    USER ||--o{ DECK : owns
-    DECK ||--o{ NOTE : contains
-    DECK }o--|| CARD_TEMPLATE : uses
-    NOTE ||--|| CARD : "1:1 auto-gen"
-    NOTE ||--o{ NOTE_MEANING : has
-    NOTE ||--o{ NOTE_PRONUNCIATION : has
-    NOTE }o--|| WORD : references
-    CARD ||--o{ REVIEW_LOG : generates
-    CARD {
-        string state "NEW/LEARNING/REVIEW/RELEARNING"
-        datetime dueAt
-        float stability
-        float difficulty
-        int interval
+    USER ||--o{ COLLECTION : owns
+    COLLECTION ||--o{ TOPIC : contains
+    TOPIC ||--o{ TOPIC_ITEM : contains
+    TOPIC ||--o{ TEMPLATE : configures
+    TEMPLATE ||--o{ TEMPLATE_ELEMENT : contains
+    TEMPLATE ||--o{ TEMPLATE_FIELD : defines
+    TOPIC_ITEM ||--o{ TOPIC_ITEM_ATTRIBUTE_VALUE : values
+    TOPIC_ITEM ||--o{ FSRS_RECORD : tracks
+    USER ||--o{ FSRS_RECORD : studies
+    FSRS_RECORD {
+        enum card_state "NEW/LEARNING/REVIEW/RELEARNING/SUSPENDED"
+        datetime due
+        double stability
+        double difficulty
         int reps
         int lapses
     }
-    CARD_TEMPLATE ||--o{ CARD_TEMPLATE_FIELD : defines
 ```
 
 ### 5.3 Quy tắc ownership dữ liệu
 
-- `User` là nguồn định danh chính; mọi dữ liệu cá nhân phải gắn `userId`/owner.
-- `Word` là dữ liệu dictionary gốc; xóa Note không xóa Word.
-- `Note/Card` là ranh giới giữa dictionary chung và học tập cá nhân.
-- `Card.dueAt/SRS fields` chỉ áp dụng cho từ thuộc Learner hiện tại.
+- `User` là nguồn định danh chính; mọi dữ liệu cá nhân phải gắn `user_id`/owner.
+- `Word` là dữ liệu dictionary gốc; xóa TopicItem không ảnh hưởng Word.
+- `TopicItem/FsrsRecord` là ranh giới giữa dữ liệu từ vựng và tiến trình học tập cá nhân.
+- `FsrsRecord.due/SRS fields` gắn chặt vào cặp `(user_id, topic_item_id)`.
 - `LearningEvent` là nguồn để rebuild progress, mission và leaderboard khi aggregate lệch.
 - `StorageMetadata` lưu metadata object; binary nằm ở Object Storage.
 - Leaderboard lưu aggregate trong DB và cache/sorted set trong Redis.
@@ -393,9 +392,9 @@ sequenceDiagram
     
     M->>M: Hiển thị kết quả, Learner chọn từ muốn lưu
     M->>B: GET /storage/access-url/{cropKey} (Lấy URL để hiển thị tạm)
-    M->>B: POST /decks/{id}/notes (wordId, source=SCAN, cropKey)
+    M->>B: POST /topics/{id}/items (wordId, source=SCAN, cropKey)
     B->>DB: Đánh dấu StorageMetadata(cropKey) state=PERMANENT
-    B->>DB: Tạo Note + auto Card (state=NEW)
+    B->>DB: Tạo TopicItem + khởi tạo FsrsRecord (card_state=NEW)
     B-->>M: 201 Created
 ```
 
@@ -432,22 +431,21 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    A["Note/Card<br>(Deck)"] --> B["Flashcard Session<br>(CardTemplate render)"]
+    A["TopicItem<br>(Topic)"] --> B["Flashcard Session<br>(Template render)"]
     B --> C["Learner tương tác<br>(Flip/Type-in/Tap)"]
     C --> D["FSRS Rating<br>(Again/Hard/Good/Easy)"]
-    D --> E["ReviewLog ghi lại"]
-    E --> F["Card SRS update<br>(state/dueAt/stability/difficulty)"]
-    F --> G["LearningEvent"]
-    G --> H["Progress aggregate<br>(streak/accuracy/mastered via learning-state map)"]
-    H --> I["Mission/XP/Coin/Badge<br>evaluation (M4)"]
-    I --> J["Leaderboard update<br>(Redis sorted set)"]
+    D --> E["FsrsRecord cập nhật<br>(card_state/due/stability/difficulty)"]
+    E --> F["LearningEvent ghi nhận"]
+    F --> G["Progress aggregate<br>(streak/accuracy/mastered via learning-state map)"]
+    G --> H["Mission/XP/Coin/Badge<br>evaluation (M4)"]
+    H --> I["Leaderboard update<br>(Redis sorted set)"]
 ```
 
 ### 6.5 Quiz flow (BF-09)
 
 ```text
-Mobile quiz setup (chọn Deck, mode, số câu)
-  → Backend sinh quiz từ Notes/Cards (đáp án nhiễu unique, không quá dễ)
+Mobile quiz setup (chọn Topic/Collection, mode, số câu)
+  → Backend sinh quiz từ TopicItems (đáp án nhiễu unique, không quá dễ)
   → Mobile quiz play (MCQ / Matching / Fill blank)
   → Submit answers (idempotent — event key)
   → Backend scoring (score, correctCount, wrongCount, accuracy, duration)
@@ -460,12 +458,12 @@ Mobile quiz setup (chọn Deck, mode, số câu)
 
 ```text
 System tính Daily Review Queue
-  → Lấy Card có dueAt ≤ now, ưu tiên overdue
+  → Lấy FsrsRecord có due ≤ now, ưu tiên overdue
   → Push notification nhắc nhở (nếu bật)
   → Learner mở Review Session
-  → Card render theo template (tương tự Flashcard)
+  → Thẻ render theo Topic Template (tương tự Flashcard)
   → FSRS rating: Again/Hard/Good/Easy
-  → ReviewLog ghi + Card update
+  → FsrsRecord update (due, stability, difficulty, reps, lapses)
   → Recall tốt → interval tăng; Recall kém → interval giảm/đưa về LEARNING/RELEARNING theo FSRS
   → Summary khi hết queue
 
@@ -506,8 +504,8 @@ Mobile request upload URL
 | Word/Dictionary | Mobile, Backend internal | Search, word detail, pronunciation, mapping | Learner / System |
 | Topic | Mobile | Collections, Topics, TopicItems | Learner |
 | Recognition | Mobile | Image recognition → vocabulary result | Learner |
-| Deck & Note Vocabulary | Mobile | Save/list/delete personal words (Deck/Note) | Learner |
-| Flashcard & Template | Mobile | Cards/session/recall, template CRUD | Learner |
+| Topic & Item Vocabulary | Mobile | Save/list/delete personal words (Topic/TopicItem) | Learner |
+| Flashcard & Template | Mobile | Cards/session/recall, Template & Element/Field CRUD | Learner |
 | Quiz | Mobile | Quiz generate/play/result/history | Learner |
 | SRS/Review | Mobile | Review queue, rating submit | Learner |
 | Progress | Mobile | Stats, home summary, streak, accuracy | Learner |
@@ -550,7 +548,7 @@ Tất cả API public/mobile dùng JSON envelope thống nhất:
 | Validation | Field rỗng, file sai định dạng, password không hợp lệ |
 | Authentication | Token thiếu/hết hạn/sai, OTP sai/hết hạn |
 | Authorization | Không có quyền truy cập dữ liệu người khác, không phải ROLE_ADMIN |
-| Business | Không đủ từ tạo quiz, không đủ coin mua item, Note trùng trong Deck |
+| Business | Không đủ từ tạo quiz, không đủ coin mua item, từ trùng trong Topic |
 | Integration | AI service timeout, object storage fail, mail fail |
 | System | Database error, unexpected error |
 
@@ -578,17 +576,17 @@ Tất cả API public/mobile dùng JSON envelope thống nhất:
 
 | Resource | Guest | Learner | Admin |
 | --- | --- | --- | --- |
-| Auth (register/login/reset) | ✅ | — | — |
-| Profile (own) | — | ✅ | — |
-| Dictionary search/detail | — | ✅ | ✅ |
-| Recognition scan | — | ✅ | — |
-| Vocabulary (own Deck/Note) | — | ✅ (owner-only) | — |
-| Flashcard/Quiz/SRS (own) | — | ✅ (owner-only) | — |
-| Progress/Gamification (own) | — | ✅ (owner-only) | — |
-| Shop/Wallet (own) | — | ✅ (owner-only) | — |
-| Notifications (own) | — | ✅ (owner-only) | — |
-| Admin CMS APIs | — | — | ✅ (ROLE_ADMIN) |
-| Storage upload (own media) | — | ✅ | ✅ |
+| Auth (register/login/reset) | Có | — | — |
+| Profile (own) | — | Có | — |
+| Dictionary search/detail | — | Có | Có |
+| Recognition scan | — | Có | — |
+| Vocabulary (own Topic/Item) | — | Có (owner-only) | — |
+| Flashcard/Quiz/SRS (own) | — | Có (owner-only) | — |
+| Progress/Gamification (own) | — | Có (owner-only) | — |
+| Shop/Wallet (own) | — | Có (owner-only) | — |
+| Notifications (own) | — | Có (owner-only) | — |
+| Admin CMS APIs | — | — | Có (ROLE_ADMIN) |
+| Storage upload (own media) | — | Có | Có |
 
 ---
 
@@ -641,7 +639,7 @@ Tất cả API public/mobile dùng JSON envelope thống nhất:
 | --- | --- | --- | --- |
 | Avatar | User | ≤ 5MB, image/* | Profile, edit-profile |
 | Scan image | User | ≤ 10MB, image/* | Lưu nếu cần history/debug; bucket private |
-| Crop image (SAM) | System/Note | — | Ảnh cắt nền RGBA cho flashcard; gắn cropUrl |
+| Crop image (SAM) | System/TopicItem | — | Ảnh cắt nền RGBA cho flashcard; gắn cropUrl |
 | Item asset | System/ShopItem | — | Icon/vật phẩm gamification |
 
 ### 10.3 Upload constraints
@@ -755,7 +753,7 @@ Mobile App Store / APK
 | --- | --- |
 | **M1 — Core Auth & Vocabulary Lookup** | Mobile auth/profile/search/topic/vocabulary/flashcard basic · Backend auth/user/word/topic/storage · DB dictionary import (357K+ từ) · Swagger |
 | **M2 — Camera/Object Recognition MVP** | Camera/Detection UI · Recognition API (orchestrator) · FastAPI Florence-2+SAM+CLIP service · ObjectWordMapping · Scan image storage optional |
-| **M3 — Learning Engine** | Custom CardTemplate · Quiz API/UI · SRS engine (FSRS) · Progress aggregate · Notification (Push/In-app) · Learning events |
+| **M3 — Learning Engine** | Topic Template · Quiz API/UI · SRS engine (FSRS) · Progress aggregate · Notification (Push/In-app) · Learning events |
 | **M4 — Gamification & Production** | Mission/Badge/XP/Coin · Shop/Inventory · Leaderboard (Redis) · Admin CMS · R2 production · Observability/hardening |
 
 ### Milestone dependency
@@ -810,8 +808,8 @@ graph TD
 
 ### Coupling notes
 
-- **Loose coupling qua events:** Phân hệ dùng domain event nội bộ (`NoteCreated`, `ReviewCompleted`, `QuizSubmitted`, `MissionCompleted`) để giảm coupling trực tiếp.
-- **Shared entity:** `Card` được chia sẻ giữa SS-08 (owner), SS-09 (study/template) và SS-11 (SRS). Trách nhiệm tách qua service layer.
+- **Loose coupling qua events:** Phân hệ dùng domain event nội bộ (`TopicItemCreated`, `ReviewCompleted`, `QuizSubmitted`, `MissionCompleted`) để giảm coupling trực tiếp.
+- **Shared entity:** `TopicItem` và `FsrsRecord` được chia sẻ giữa SS-05/SS-08 (Topic & Item), SS-09 (Flashcard & Template) và SS-11 (SRS). Trách nhiệm tách qua service layer.
 - **AI Service tách deploy:** SS-07 là service Python FastAPI độc lập, giao tiếp HTTP nội bộ. **Không** chia sẻ database với backend Spring Boot.
 - **Storage crosscutting:** SS-16 là infrastructure service, nhiều domain sử dụng qua cùng interface (S3Client).
 
@@ -820,87 +818,24 @@ graph TD
 ## 15. Package structure (Backend — Spring Boot)
 
 ```text
-com.snapvocab
-├── identity/                       ← SS-03
-│   ├── controller/
-│   ├── service/
-│   ├── entity/                    (User, Authority, RefreshToken, OtpToken)
-│   ├── repository/
-│   ├── dto/
-│   └── security/                  (JwtFilter, SecurityConfig)
-├── dictionary/                     ← SS-04
-│   ├── controller/
-│   ├── service/                   (WordSearchService, VoiceLookupService, WordDetailService, ObjectWordMappingService, DictionaryImportService)
-│   ├── entity/                    (Word, Definition, Translation, Pronunciation, WordRelation, ObjectWordMapping)
-│   ├── repository/
-│   └── dto/
-├── topic/                          ← SS-05
-│   ├── controller/
-│   ├── service/
-│   ├── entity/                    (Collection, Topic, TopicItem, TopicAttribute*, TopicItemAttributeValue)
-│   ├── repository/
-│   └── dto/
-├── recognition/                    ← SS-06
-│   ├── controller/
-│   ├── service/                   (RecognitionOrchestrator, AiServiceClient, ConfidenceFilter, LabelDedup, WordMappingService, ScanRequestService)
-│   ├── entity/                    (ScanRequest, DetectedObject)
-│   ├── repository/
-│   └── dto/
-├── vocabulary/                     ← SS-08
-│   ├── controller/
-│   ├── service/
-│   ├── entity/                    (Deck, Note, NoteMeaning, NotePronunciation)
-│   ├── repository/
-│   └── dto/
-├── flashcard/                      ← SS-09
-│   ├── controller/
-│   ├── service/                   (CardService, StudySessionService, FsrsService, ReviewLogService, CardTemplateService)
-│   ├── entity/                    (Card, ReviewLog, CardTemplate, CardTemplateField)
-│   ├── repository/
-│   └── dto/
-├── quiz/                           ← SS-10
-│   ├── controller/
-│   ├── service/
-│   ├── entity/                    (Quiz, QuizQuestion, QuizAttempt)
-│   ├── repository/
-│   └── dto/
-├── srs/                            ← SS-11
-│   ├── service/                   (ReviewQueueService — dùng Card/ReviewLog từ flashcard)
-│   └── dto/
-├── progress/                       ← SS-12
-│   ├── controller/
-│   ├── service/
-│   ├── entity/                    (LearningProgress, LearningEvent)
-│   ├── repository/
-│   └── dto/
-├── gamification/                   ← SS-13 + SS-14
-│   ├── controller/
-│   ├── service/                   (XpService, CoinService, MissionService, BadgeService, LeaderboardService, ShopService, RewardEventHandler)
-│   ├── entity/                    (Mission, MissionProgress, Badge, UserBadge, ExperienceLog, CoinTransaction, LeaderboardEntry, ShopItem, UserItem)
-│   ├── repository/
-│   └── dto/
-├── notification/                   ← SS-15
-│   ├── controller/
-│   ├── service/                   (PushService, InAppService, DeviceTokenService, NotificationScheduler)
-│   ├── entity/                    (Notification, DeviceToken)
-│   ├── repository/
-│   └── dto/
-├── storage/                        ← SS-16
-│   ├── controller/
-│   ├── service/                   (S3StorageService, UploadValidationService, OrphanCleanupJob)
-│   ├── entity/                    (StorageMetadata)
-│   ├── repository/
-│   └── dto/
-├── admin/                          ← SS-17
-│   ├── controller/                (AdminUserController, AdminDashboardController, AdminFeedbackController)
-│   ├── service/
-│   └── dto/
-└── common/                         ← Shared utilities
-    ├── config/                    (AppConfig, RedisConfig, S3Config, AiServiceConfig)
-    ├── exception/                 (GlobalExceptionHandler, BusinessException)
-    ├── security/                  (JwtUtils, CurrentUser)
-    ├── dto/                       (ApiResponse — success/data/error/requestId envelope)
-    └── event/                     (Domain events: NoteCreated, ReviewCompleted, QuizSubmitted, MissionCompleted...)
+vn.ptit.snapvocab
+├── config/                         (SecurityConfig, ApplicationProperties, CloudflareR2Properties, CorsConfig...)
+├── controller/                     (AuthenticationController, CollectionController, TopicController, WordController, ScanController, StorageController...)
+├── domain/                         (Entity definitions & mappings)
+│   ├── Authority, User, RefreshToken
+│   ├── Word, Definition, Translation, Pronunciation, WordDefinition, WordRelation
+│   ├── Collection, Topic, TopicItem, TopicAttributeGroup, TopicAttribute, TopicItemAttributeValue
+│   ├── Template, TemplateElement, TemplateField
+│   ├── FsrsRecord, Level, ShopItem, UserInventory, Notification, UserNotification
+│   ├── common/                    (BaseTimeEntity, BaseCreatedAtEntity)
+│   ├── enumeration/               (CardState, ReviewRating, SemanticRole, TemplateElementType, CollectionType...)
+│   └── mapper/                    (Entity mappers & DTO converters)
+├── repository/                    (JPA Repositories cho 25 entity tables)
+├── security/                      (JwtTokenProvider, CustomUserDetailsService, SecurityUtils)
+├── service/                       (AuthenticationService, CollectionService, TopicService, WordService, ScanService, StorageService...)
+│   ├── dto/                       (Request/Response DTOs)
+│   └── impl/                      (Service implementations)
+└── util/                          (StringUtil, HeaderUtil, PaginationUtil...)
 ```
 
 ---
@@ -941,11 +876,11 @@ com.snapvocab
 
 - [x] Kiến trúc tách rõ: Mobile App, Admin CMS, Backend API, AI Service, Database, Redis, Object Storage.
 - [x] 18 phân hệ (SS-01 → SS-18) bao phủ toàn bộ FR-01 → FR-13 trong specs.md.
-- [x] Luồng scan-to-learn đầy đủ: camera → storage optional → AI service (Florence-2+SAM+CLIP) → confidence filter → label dedup → dictionary mapping → personal vocabulary (Note/Card).
-- [x] Learning engine tách thành: Vocabulary (Deck/Note), Flashcard & Template, Quiz, SRS (FSRS), Progress.
-- [x] Canonical model: Deck → Note → Card + ReviewLog. Không `SavedWord`/`UserWord`.
+- [x] Luồng scan-to-learn đầy đủ: camera → storage optional → AI service (Florence-2+SAM+CLIP) → confidence filter → label dedup → dictionary mapping → personal vocabulary (TopicItem).
+- [x] Learning engine tách thành: Topic & Item Vocabulary, Flashcard & Template, Quiz, SRS (FSRS), Progress.
+- [x] Canonical model: Collection → Topic → TopicItem + Template + FsrsRecord. Không `SavedWord`/`UserWord`/`Deck`/`Note`/`Card`.
 - [x] AI pipeline: Florence-2 + SAM + CLIP (F2-v13 zero-shot). Không YOLO.
-- [x] SRS: FSRS trên Card (state/dueAt/stability/difficulty).
+- [x] SRS: FSRS trên FsrsRecord gắn cặp (user_id, topic_item_id) (card_state/due/stability/difficulty).
 - [x] Gamification (M4) và Admin CMS không chặn MVP M1–M3.
 - [x] Object storage: private bucket, presigned URL, backend sinh object key, orphan cleanup.
 - [x] JWT/refresh token, OTP safety, upload validation, media privacy được mô tả rõ.

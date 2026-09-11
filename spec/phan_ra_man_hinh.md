@@ -1,7 +1,7 @@
 # Phân rã màn hình — SnapVocab
 
 > Truy vết: [specs.md](./specs.md) · [buss_mainflow.md](./buss_mainflow.md) · [phan_ra_tinh_nang.md](./phan_ra_tinh_nang.md) · [phan_ra_phan_he_he_thong.md](./phan_ra_phan_he_he_thong.md).  
-> **Canonical:** Florence-2 pipeline · Deck/Note/Card · Actor Guest/Learner/Admin.
+> **Canonical:** Florence-2 pipeline · Collection/Topic/TopicItem · Topic Template (SemanticRole) · FsrsRecord · Actor Guest/Learner/Admin.
 
 ---
 
@@ -17,7 +17,7 @@
 | Admin CMS screens                        | **Tách web** | Không nằm mobile; FR-13, SS-17  |
 | SYSTEM (Design System, UI States)        | **Ongoing**  | Cross-cutting, cần từ M1        |
 
-**Thuật ngữ UI:** "Vocabulary / từ đã lưu" = danh sách `Note` trong `Deck`. Word Detail save → Note + Card.
+**Thuật ngữ UI:** "Vocabulary / từ đã lưu" = danh sách `TopicItem` trong `Topic` cá nhân của Learner. Word Detail save → tạo TopicItem + FsrsRecord.
 
 ---
 
@@ -35,7 +35,7 @@ MH-{GROUP}-{nn}
 | CAMERA  | Camera Scan và Detection Result                     | M2        |
 | DICT    | Search, Word Detail, Voice Search                   | M1        |
 | TOPIC   | Collections, Topic List, Topic Items                | M1        |
-| VOCAB   | My Vocabulary (Deck/Note list), Deck Detail         | M1        |
+| VOCAB   | My Vocabulary (Topic List), Topic Detail            | M1        |
 | LEARN   | Flashcards, Quiz, SRS Review, Template Management   | M1, M3    |
 | STATS   | Stats/Progress, Level                               | M3        |
 | GAME    | Missions, Achievements, Leaderboard, Rewards        | M4        |
@@ -75,7 +75,7 @@ flowchart TD
 
     subgraph Vocab["Vocabulary"]
         DECK["MH-VOCAB-01<br/>My Vocabulary"]
-        DD["MH-VOCAB-02<br/>Deck Detail"]
+        DD["MH-VOCAB-02<br/>Topic Detail"]
     end
 
     subgraph Camera["Camera & Detection"]
@@ -158,14 +158,14 @@ flowchart TD
 | MH-DICT-03    | Voice Search               | Learner | DICT                    | M1        | Cần bổ sung |
 | MH-TOPIC-01   | Collections & Topics       | Learner | TOPIC                   | M1        | Cần bổ sung |
 | MH-TOPIC-02   | Topic Items                | Learner | TOPIC, VOCAB            | M1        | Cần bổ sung |
-| MH-VOCAB-01   | My Vocabulary (Deck List)  | Learner | VOCAB                   | M1        | Đã thiết kế |
-| MH-VOCAB-02   | Deck Detail                | Learner | VOCAB, FLASH, QUIZ      | M1        | Cần bổ sung |
+| MH-VOCAB-01   | My Vocabulary (Topic List) | Learner | VOCAB                   | M1        | Đã thiết kế |
+| MH-VOCAB-02   | Topic Detail               | Learner | VOCAB, FLASH, QUIZ      | M1        | Cần bổ sung |
 | MH-LEARN-01   | Flashcards Study Session   | Learner | FLASH, SRS              | M1        | Đã thiết kế |
 | MH-LEARN-02   | Quiz Setup                 | Learner | QUIZ                    | M3        | Đã thiết kế |
 | MH-LEARN-03   | Quiz Play                  | Learner | QUIZ                    | M3        | Đã thiết kế |
 | MH-LEARN-04   | Quiz Result                | Learner | QUIZ, PROGRESS, GAME    | M3        | Đã thiết kế |
 | MH-LEARN-05   | SRS Review Session         | Learner | SRS, FLASH              | M3        | Đã thiết kế |
-| MH-LEARN-06   | Template Management        | Learner | FLASH                   | M3        | Cần bổ sung |
+| MH-LEARN-06   | Topic Template Management  | Learner | FLASH                   | M3        | Cần bổ sung |
 | MH-STATS-01   | Stats/Progress             | Learner | PROGRESS                | M3        | Đã thiết kế |
 | MH-STATS-02   | Level Progress             | Learner | PROGRESS, GAME          | M4        | Đã thiết kế |
 | MH-GAME-01    | Leaderboard                | Learner | GAME                    | M4        | Đã thiết kế |
@@ -349,8 +349,8 @@ flowchart TD
 
 - Greeting theo tên Learner
 - **Progress widget:** số từ đã lưu / đã học / mastered theo learning-state map
-- **SRS due count:** số Card cần ôn hôm nay + overdue badge
-- **Streak:** chuỗi ngày học liên tiếp (flame icon)
+- **SRS due count:** số từ cần ôn hôm nay + overdue badge
+- **Streak:** chuỗi ngày học liên tiếp (flame indicator)
 - **XP / Coin / Level** (M4)
 - **Mission nổi bật:** daily mission progress bar (M4)
 - **Quick actions:** Camera Scan, Search, Flashcard, Quiz, SRS Review
@@ -382,8 +382,8 @@ flowchart TD
 
 **Dữ liệu hiển thị:**
 
-- Card **My Vocabulary** (Note count, CTA → MH-VOCAB-01)
-- Card **Flashcards** (Card to review, CTA → MH-LEARN-01)
+- Card **My Vocabulary** (Word count, CTA → MH-VOCAB-01)
+- Card **Flashcards** (Từ cần học/ôn, CTA → MH-LEARN-01)
 - Card **Quiz** (Available quiz, CTA → MH-LEARN-02)
 - Card **SRS Review** (Due count, CTA → MH-LEARN-05)
 - Card **Collections** (Topic count, CTA → MH-TOPIC-01)
@@ -442,10 +442,10 @@ flowchart TD
     - Nghĩa tiếng Việt
     - IPA / nút phát âm
     - Ảnh crop (nếu có cropUrl)
-    - **Save** button per object → lưu vào Deck gần nhất/mặc định, có option **Đổi Deck** trước khi xác nhận
-    - Trạng thái đã lưu (nếu đã có trong Deck đang chọn)
-- Deck đích hiện tại: tên Deck + action **Đổi Deck**
-- "Lưu tất cả" button → lưu các object chưa trùng vào Deck đang chọn; nếu có trùng, báo số từ bị bỏ qua
+    - **Save** button per object → lưu vào Topic gần nhất/mặc định, có option **Đổi Topic** trước khi xác nhận
+    - Trạng thái đã lưu (nếu đã có trong Topic đang chọn)
+- Topic đích hiện tại: tên Topic + action **Đổi Topic**
+- "Lưu tất cả" button → lưu các object chưa trùng vào Topic đang chọn; nếu có trùng, báo số từ bị bỏ qua
 - "Chụp lại" button → MH-CAMERA-01
 
 **Trạng thái UI bắt buộc:**
@@ -460,7 +460,7 @@ flowchart TD
 | AI error / timeout | "Xử lý thất bại" + CTA "Thử lại" hoặc "Quay lại camera" |
 | Queue full         | "Hệ thống đang quá tải, thử lại sau"; không tự retry liên tục |
 | Partial results    | Hiển thị object có data, ẩn/ghi chú object thiếu data   |
-| Already saved      | Badge "Đã có trong Deck được chọn"; không tạo trùng     |
+| Already saved      | Badge "Đã có trong Topic được chọn"; không tạo trùng    |
 
 **Tap object →** MH-DICT-02 (Word Detail)
 
@@ -504,7 +504,7 @@ flowchart TD
 
 - **Từ tiếng Anh** (heading lớn)
 - **Phiên âm IPA** (hoặc label "Chưa có phiên âm")
-- **Nút phát âm** 🔊: nếu `audioUrl` có → phát URL; nếu `audioUrl = null` → TTS on-device (`expo-speech`). Nếu khả năng TTS không khả dụng → label “Chưa có” (ARC-12)
+- **Nút phát âm**: nếu `audioUrl` có → phát URL; nếu `audioUrl = null` → TTS on-device (`expo-speech`). Nếu khả năng TTS không khả dụng → label “Chưa có” (ARC-12)
 - **Nghĩa tiếng Việt** — nhóm theo POS nếu nhiều nghĩa:
     - _noun_ — nghĩa 1, nghĩa 2
     - _verb_ — nghĩa 3
@@ -512,13 +512,13 @@ flowchart TD
 - **Synonym / Antonym / Related words** (Could)
 - **Ảnh crop** từ scan (nếu vào từ Detection Result)
 - **Save / Remove button:**
-    - Chưa lưu → "Lưu vào Deck" → chọn Deck hoặc dùng Deck gần nhất/mặc định → tạo Note + Card
-    - Đã lưu trong Deck đang chọn → "Đã lưu ✓" + option "Xóa khỏi Deck"
+    - Chưa lưu → "Lưu vào Topic" → chọn Topic hoặc dùng Topic gần nhất/mặc định → tạo TopicItem + FsrsRecord
+    - Đã lưu trong Topic đang chọn → "Đã lưu" + option "Xóa khỏi Topic"
 
 **Trạng thái UI:**
 
 - Field thiếu dữ liệu → label rõ "Chưa có dữ liệu phát âm", không để trống
-- Từ đã có trong Deck đang chọn → "Từ đã có trong Deck được chọn"
+- Từ đã có trong Topic đang chọn → "Từ đã có trong Topic được chọn"
 
 ---
 
@@ -575,7 +575,7 @@ flowchart TD
 | Feature    | F-TOPIC-03, F-TOPIC-04                             |
 | BF         | BF-05                                              |
 | FR         | FR-04.01 (save from topic)                         |
-| Mục tiêu   | Xem danh sách từ vựng trong chủ đề và lưu vào Deck |
+| Mục tiêu   | Xem danh sách từ vựng trong chủ đề và lưu vào Topic cá nhân |
 
 **Dữ liệu hiển thị:**
 
@@ -584,10 +584,10 @@ flowchart TD
     - Từ vựng
     - Nghĩa tiếng Việt (từ EAV attributes)
     - Phiên âm, audio (nếu có)
-    - Save button per item → lưu vào Deck gần nhất/mặc định, có option **Đổi Deck** trước khi xác nhận; tạo Note (source=TOPIC)
-    - Trạng thái đã lưu trong Deck đang chọn
-- Deck đích hiện tại: tên Deck + action **Đổi Deck**
-- "Lưu tất cả" button → lưu các item chưa trùng vào Deck đang chọn; nếu có trùng, báo số từ bị bỏ qua
+    - Save button per item → lưu vào Topic cá nhân được chọn, có option **Đổi Topic** trước khi xác nhận; tạo TopicItem (source=TOPIC)
+    - Trạng thái đã lưu trong Topic đang chọn
+- Topic đích hiện tại: tên Topic + action **Đổi Topic**
+- "Lưu tất cả" button → lưu các item chưa trùng vào Topic đang chọn; nếu có trùng, báo số từ bị bỏ qua
 
 **Tap item →** MH-DICT-02 (Word Detail)
 
@@ -595,48 +595,48 @@ flowchart TD
 
 ## 10. VOCABULARY Screens
 
-### MH-VOCAB-01 — My Vocabulary (Deck List)
+### MH-VOCAB-01 — My Vocabulary (Topic List)
 
-| Thuộc tính | Mô tả                                           |
-| ---------- | ----------------------------------------------- |
-| Actor      | Learner                                         |
-| Feature    | F-VOCAB-01, F-VOCAB-08                          |
-| BF         | BF-07                                           |
-| FR         | FR-04.02                                        |
-| Mục tiêu   | Xem danh sách Deck và tổng quan từ vựng cá nhân |
+| Thuộc tính | Mô tả                                            |
+| ---------- | ------------------------------------------------ |
+| Actor      | Learner                                          |
+| Feature    | F-VOCAB-01, F-VOCAB-08                           |
+| BF         | BF-07                                            |
+| FR         | FR-04.02                                         |
+| Mục tiêu   | Xem danh sách Topic và tổng quan từ vựng cá nhân |
 
 **Dữ liệu hiển thị:**
 
-- Danh sách Decks:
-    - Tên Deck
-    - Note count
+- Danh sách Topics:
+    - Tên Topic
+    - Word count (số lượng từ)
     - Template hiện tại (CLASSIC, LISTENING...)
-    - Due count (Cards đến hạn)
-- "Tạo Deck mới" button
-- Empty state: "Chưa có Deck nào. Tạo Deck và bắt đầu lưu từ!"
+    - Due count (từ đến hạn ôn)
+- "Tạo Topic mới" button
+- Empty state: "Chưa có Topic nào. Tạo Topic và bắt đầu lưu từ!"
 
-**Tap Deck →** MH-VOCAB-02 (Deck Detail)
+**Tap Topic →** MH-VOCAB-02 (Topic Detail)
 
 ---
 
-### MH-VOCAB-02 — Deck Detail
+### MH-VOCAB-02 — Topic Detail
 
-| Thuộc tính | Mô tả                                       |
-| ---------- | ------------------------------------------- |
-| Actor      | Learner                                     |
-| Feature    | F-VOCAB-02 → F-VOCAB-07                     |
-| BF         | BF-07                                       |
-| FR         | FR-04.02 → FR-04.06                         |
-| Mục tiêu   | Xem/quản lý Notes trong Deck và bắt đầu học |
+| Thuộc tính | Mô tả                                            |
+| ---------- | ------------------------------------------------ |
+| Actor      | Learner                                          |
+| Feature    | F-VOCAB-02 → F-VOCAB-07                          |
+| BF         | BF-07                                            |
+| FR         | FR-04.02 → FR-04.06                              |
+| Mục tiêu   | Xem/quản lý TopicItems trong Topic và bắt đầu học |
 
 **Dữ liệu hiển thị:**
 
-- Deck name + template badge
+- Topic name + template badge
 - Filter/sort: UI state (new/learning/reviewing/mastered), ngày lưu, độ khó, due date
-- Danh sách Notes:
+- Danh sách TopicItems:
     - Từ tiếng Anh
-    - Nghĩa ngắn
-    - Learning state badge (new/learning/reviewing/mastered) suy từ FSRS + interval
+    - Nghĩa ngắn (từ EAV attributes)
+    - Learning state badge (new/learning/reviewing/mastered) suy từ FSRS
     - Source tag (SCAN/DICT/TOPIC) — Could
     - Swipe delete/archive
 - **Action buttons:**
@@ -646,7 +646,7 @@ flowchart TD
     - "Đổi Template" → template picker
 - Empty state: "Chưa có từ nào. Tra cứu hoặc Scan để thêm từ mới!"
 
-**Tap Note →** MH-DICT-02 (Word Detail)
+**Tap TopicItem →** MH-DICT-02 (Word Detail)
 
 ---
 
@@ -664,7 +664,7 @@ flowchart TD
 
 **Dữ liệu hiển thị:**
 
-- Card render theo **CardTemplate config** của Deck:
+- Card render theo **Topic Template config** của Topic:
     - **Front side:** fields theo template (VD: WORD + IPA cho CLASSIC)
     - **Back side:** fields theo template (VD: MEANING + POS + EXAMPLE + AUDIO)
     - Field thiếu dữ liệu → ẩn, layout tự điều chỉnh
@@ -673,26 +673,26 @@ flowchart TD
     - TYPE_IN: input field → so khớp answer
     - TAP_TO_REVEAL: chạm từng phần lộ dần
 - **FSRS rating buttons:** Again / Hard / Good / Easy (sau khi xem back)
-- Progress bar (X/Y cards)
-- Session summary khi hết Card: số thẻ, accuracy
+- Progress bar (X/Y từ)
+- Session summary khi hết từ: số từ đã học, accuracy
 
-**Empty state:** "Chưa có Card nào. Lưu thêm từ để bắt đầu học."
+**Empty state:** "Chưa có từ nào để học. Lưu thêm từ để bắt đầu học."
 
 ---
 
 ### MH-LEARN-02 — Quiz Setup
 
-| Thuộc tính | Mô tả                                       |
-| ---------- | ------------------------------------------- |
-| Actor      | Learner                                     |
-| Feature    | F-QUIZ-01                                   |
-| BF         | BF-09                                       |
-| FR         | FR-06.01                                    |
-| Mục tiêu   | Cấu hình quiz: chọn Deck, loại quiz, số câu |
+| Thuộc tính | Mô tả                                        |
+| ---------- | -------------------------------------------- |
+| Actor      | Learner                                      |
+| Feature    | F-QUIZ-01                                    |
+| BF         | BF-09                                        |
+| FR         | FR-06.01                                     |
+| Mục tiêu   | Cấu hình quiz: chọn Topic, loại quiz, số câu |
 
 **Dữ liệu hiển thị:**
 
-- Chọn Deck (source Notes)
+- Chọn Topic (nguồn từ vựng)
 - Quiz modes: Multiple choice / Matching / Fill blank
 - Số câu hỏi (slider hoặc preset)
 - Số từ khả dụng (disable nếu < min)
@@ -758,17 +758,17 @@ flowchart TD
 **Dữ liệu hiển thị:**
 
 - Due count + Overdue count (header)
-- Card render tương tự MH-LEARN-01 (theo template Deck)
+- Card render tương tự MH-LEARN-01 (theo Topic Template)
 - FSRS rating: Again / Hard / Good / Easy
 - Interval preview (hiển thị "Xem lại sau X ngày" cho mỗi rating)
 - Progress bar
-- Review summary khi hoàn thành: số Card ôn, accuracy, time
+- Review summary khi hoàn thành: số từ ôn, accuracy, time
 
-**Empty state:** "Bạn đã ôn xong hôm nay! 🎉" hoặc "Không có từ đến hạn."
+**Empty state:** "Bạn đã ôn xong hôm nay!" hoặc "Không có từ đến hạn."
 
 ---
 
-### MH-LEARN-06 — Template Management (Should)
+### MH-LEARN-06 — Topic Template Management (Should)
 
 | Thuộc tính | Mô tả                               |
 | ---------- | ----------------------------------- |
@@ -776,18 +776,17 @@ flowchart TD
 | Feature    | F-FLASH-03, F-FLASH-09, F-FLASH-11  |
 | BF         | BF-08                               |
 | FR         | FR-05.03                            |
-| Mục tiêu   | Quản lý và tạo Custom Card Template |
+| Mục tiêu   | Quản lý và cấu hình Topic Template  |
 
 **Dữ liệu hiển thị:**
 
 - System templates (read-only): CLASSIC, REVERSE, LISTENING, IMAGE_VOCAB, SPELLING, CONTEXT
-- Custom templates (CRUD): tên, interaction type, field count
+- Custom templates (CRUD): tên, interaction type, số phần tử giao diện
 - "Tạo Template mới" → template builder:
-    - Chọn base layout (1-col, 2-col, image-top, audio-center)
-    - Cấu hình Front side: chọn/bật tắt fields, sắp xếp, đánh dấu primary
-    - Cấu hình Back side: tương tự
+    - Cấu hình TemplateElement (FIELD, DIVIDER, BUTTON, order_index, flex, alignment)
+    - Cấu hình TemplateField với SemanticRole (FRONT, BACK, EXAMPLE, AUDIO, IMAGE, PHONETIC, TRANSLATION, HINT, TAG, EXTRA)
     - Chọn Interaction type: Flip / Type-in / Tap-to-reveal
-    - Preview (dùng Note mẫu)
+    - Preview (dùng từ mẫu)
     - Save
 
 ---
@@ -1062,9 +1061,9 @@ flowchart TD
 | State                | Áp dụng cho                  | Nội dung cần có                                         |
 | -------------------- | ---------------------------- | ------------------------------------------------------- |
 | **Loading**          | API call, upload, scan, quiz | Spinner/skeleton + text mô tả (VD: "Đang nhận diện...") |
-| **Empty vocabulary** | Vocab / Deck Detail          | Illustration + "Tra cứu / Scan để lưu từ đầu tiên"      |
+| **Empty vocabulary** | Vocab / Topic Detail         | Illustration + "Tra cứu / Scan để lưu từ đầu tiên"      |
 | **Empty search**     | Dictionary Search            | "Không tìm thấy từ, kiểm tra lại chính tả"              |
-| **Empty review**     | SRS / Home                   | "Bạn đã ôn xong hôm nay! 🎉"                            |
+| **Empty review**     | SRS / Home                   | "Bạn đã ôn xong hôm nay!"                               |
 | **No object**        | Detection Result             | "Không nhận diện được" + CTA "Thử ảnh khác"             |
 | **Low reliability**   | Detection Result             | "Không tìm thấy vật thể có độ tin cậy cao" + CTA retry                   |
 | **Network error**    | Toàn app                     | Illustration + "Không có kết nối" + Retry button        |
@@ -1151,12 +1150,12 @@ flowchart TD
 - [x] MH-AUTH-04 (OTP) và MH-AUTH-05 (Reset Password) đã bổ sung.
 - [x] MH-DICT-02 (Word Detail) đã bổ sung — dùng chung cho search/detection/topic/vocabulary.
 - [x] MH-TOPIC-01, MH-TOPIC-02 đã bổ sung — duyệt Collection/Topic/TopicItem.
-- [x] MH-VOCAB-02 (Deck Detail) đã bổ sung — quản lý Notes trong Deck.
+- [x] MH-VOCAB-02 (Topic Detail) đã bổ sung — quản lý TopicItems trong Topic cá nhân.
 - [x] MH-LEARN-06 (Template Management)
 - [x] Detection Result thể hiện đủ states: success, no-object, low-reliability, dictionary miss, AI error.
-- [x] Vocabulary screens = Deck/Note/Card, không `SavedWord`/`UserWord`.
+- [x] Vocabulary screens chuẩn hóa theo Collection/Topic/TopicItem/Template, không dùng model cũ (Deck/Note/Card, SavedWord).
 - [x] AI pipeline = Florence-2 + SAM + CLIP, không YOLO.
-- [x] SRS = FSRS trên Card.
+- [x] SRS = FSRS trên FsrsRecord (theo topic_item_id).
 - [x] Actor: Guest, Learner, Admin (CMS web riêng).
 - [x] Ma trận MH ↔ BF và MH ↔ Feature Area đầy đủ.
 - [x] Milestone mapping rõ ràng M1–M4.
