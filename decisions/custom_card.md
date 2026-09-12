@@ -20,13 +20,13 @@ SnapVocab áp dụng mô hình template gắn trực tiếp với từng chủ �
 
 - **Template theo chủ đề**: Mỗi `Topic` sở hữu một `Template` quy định cách hiển thị flashcard cho toàn bộ các `TopicItem` thuộc chủ đề đó.
 - **Phân rã thành phần tử (`TemplateElement`)**: Mỗi template chứa danh sách các phần tử hiển thị theo thứ tự vị trí (`position`), phân loại theo kiểu phần tử (`FIELD`, `DIVIDER`, `BUTTON`).
-- **Ánh xạ thuộc tính & vai trò ngữ nghĩa (`TemplateField`)**: Với phần tử kiểu `FIELD`, cấu hình liên kết trực tiếp tới một thuộc tính `TopicAttribute`, đồng thời gán vai trò ngữ nghĩa `SemanticRole` (`FRONT`, `BACK`, `EXAMPLE`, `AUDIO`, `IMAGE`, `PHONETIC`, `TRANSLATION`, `HINT`, `TAG`, `EXTRA`) kèm định dạng hiển thị (`font_size`, `alignment`, `color`, `audio_action`, `hide_if_empty`).
+- **Ánh xạ thuộc tính & vai trò ngữ nghĩa (`TemplateField`)**: Với phần tử kiểu `FIELD`, cấu hình liên kết trực tiếp tới một thuộc tính `SchemaAttribute`, đồng thời gán vai trò ngữ nghĩa `SemanticRole` (`FRONT`, `BACK`, `EXAMPLE`, `AUDIO`, `IMAGE`, `PHONETIC`, `TRANSLATION`, `HINT`, `TAG`, `EXTRA`) kèm định dạng hiển thị (`font_size`, `alignment`, `color`, `audio_action`, `hide_if_empty`).
 - **Tối giản cho Learner**: Không yêu cầu viết mã HTML/CSS. Ứng dụng di động dựa vào `semantic_role` và thứ tự `position` để render thẻ trực quan, mượt mà trên màn hình cảm ứng.
 
 | Khía cạnh | Mô hình cũ (Cố định) | Mô hình Topic Template hiện tại |
 | :--- | :--- | :--- |
 | Phạm vi áp dụng | Toàn bộ thẻ chung một khuôn | Từng `Topic` có template riêng |
-| Nguồn dữ liệu | Cột cố định trong bảng note | Thuộc tính động từ `TopicAttribute` và `TopicItemAttributeValue` |
+| Nguồn dữ liệu | Cột cố định trong bảng note | Thuộc tính động từ `SchemaAttribute` và `TopicItemAttributeValue` |
 | Bố cục hiển thị | Cố định 2 mặt trước / sau | Sắp xếp theo `position` với các vai trò ngữ nghĩa `SemanticRole` |
 | Quản lý tiến độ | Bảng Card riêng lẻ | `FsrsRecord` gắn với cặp `(user_id, topic_item_id)` |
 | Độ phức tạp | Cứng nhắc, khó mở rộng | Động, mở rộng linh hoạt theo dữ liệu EAV |
@@ -39,11 +39,12 @@ Chức năng này thuộc phân hệ **Learning Engine**, cung cấp cấu hình
 
 ## 2. Khái niệm cốt lõi
 
-### 2.1. Cấu trúc Thuộc tính động của Topic (`TopicAttribute`)
+### 2.1. Cấu trúc Lược đồ Thuộc tính của Topic (`TopicSchema` & `SchemaAttribute`)
 
-Mỗi chủ đề (`Topic`) tổ chức dữ liệu theo mô hình động:
-- Một `Topic` có các nhóm thuộc tính (`TopicAttributeGroup`).
-- Mỗi nhóm chứa các thuộc tính (`TopicAttribute`) xác định tên thuộc tính, nhãn hiển thị (`label`), kiểu dữ liệu (`dataType`), thứ tự (`position`) và trạng thái bắt buộc (`required`).
+Mỗi chủ đề (`Topic`) sở hữu 1 Schema (`TopicSchema`) tổ chức dữ liệu theo mô hình động:
+- Một `Topic` liên kết 1-1 với một `TopicSchema`.
+- Mỗi `TopicSchema` có các nhóm thuộc tính (`SchemaAttributeGroup`).
+- Mỗi nhóm chứa các thuộc tính (`SchemaAttribute`) xác định tên thuộc tính, nhãn hiển thị (`label`), kiểu dữ liệu (`dataType`), thứ tự (`position`) và trạng thái bắt buộc (`required`).
 - Các mục từ trong chủ đề (`TopicItem`) lưu giá trị thực tế tương ứng trong bảng `topic_item_attribute_values`.
 
 ### 2.2. Vai trò Ngữ nghĩa (`SemanticRole`)
@@ -87,7 +88,7 @@ Một `Template` liên kết với `Topic` qua trường `topic_id`. Template ba
 Quản trị viên / Người dùng tạo Topic
                  │
                  ▼
-Khai báo TopicAttributeGroup & TopicAttribute
+Khai báo SchemaAttributeGroup & SchemaAttribute
 (Định nghĩa schema thuộc tính: từ, ipa, nghĩa, ví dụ, audio)
                  │
                  ▼
@@ -177,7 +178,7 @@ Lưu chi tiết cấu hình hiển thị cho các phần tử kiểu `FIELD`.
 | :--- | :--- | :--- | :--- |
 | `id` | `bigint(20)` | PK, AUTO_INCREMENT | Định danh cấu hình field |
 | `element_id` | `bigint(20)` | FK -> `template_elements(id)`, NOT NULL, UNIQUE | Phần tử tương ứng (quan hệ 1-1) |
-| `topic_attribute_id` | `bigint(20)` | FK -> `topic_attributes(id)`, NOT NULL | Thuộc tính dữ liệu được hiển thị |
+| `schema_attribute_id` | `bigint(20)` | FK -> `schema_attributes(id)`, NOT NULL | Thuộc tính dữ liệu được hiển thị |
 | `semantic_role` | `varchar(50)` | NULLABLE | Vai trò ngữ nghĩa (`FRONT`, `BACK`, `EXAMPLE`, `AUDIO`, `IMAGE`, v.v.) |
 | `field_label` | `varchar(255)` | NULLABLE | Nhãn tuỳ chỉnh hiển thị trước giá trị |
 | `hide_if_empty` | `bit(1)` | NOT NULL, DEFAULT 0 | Ẩn trường nếu giá trị rỗng |
@@ -214,18 +215,49 @@ erDiagram
     users ||--o{ collections : "owns (type=USER)"
     collections ||--o{ topics : contains
     topics ||--o{ topics : "parent-child"
-    topics ||--o{ topic_attribute_groups : defines
-    topic_attribute_groups ||--o{ topic_attributes : contains
+    topics ||--|| topic_schemas : "has (1-1)"
+    topic_schemas ||--o{ schema_attribute_groups : contains
+    schema_attribute_groups ||--o{ schema_attributes : contains
     topics ||--o{ topic_items : contains
     topic_items ||--o{ topic_item_attribute_groups : has
     topic_item_attribute_groups ||--o{ topic_item_attribute_values : contains
-    topic_attributes ||--o{ topic_item_attribute_values : "defines schema for"
+    schema_attributes ||--o{ topic_item_attribute_values : "defines schema for"
     topics ||--o{ templates : "configures"
     templates ||--o{ template_elements : contains
     template_elements ||--o| template_fields : "specifies (type=FIELD)"
-    topic_attributes ||--o{ template_fields : "mapped to"
+    schema_attributes ||--o{ template_fields : "mapped to"
     users ||--o{ fsrs_records : reviews
     topic_items ||--o{ fsrs_records : "tracked by"
+
+    topic_schemas {
+        bigint id PK
+        bigint topic_id FK_UK
+        datetime created_at
+        datetime updated_at
+    }
+
+    schema_attribute_groups {
+        bigint id PK
+        bigint schema_id FK
+        varchar name
+        varchar label
+        bit multiple
+        smallint position
+        datetime created_at
+        datetime updated_at
+    }
+
+    schema_attributes {
+        bigint id PK
+        bigint group_id FK
+        varchar name
+        varchar label
+        varchar data_type
+        bit required
+        smallint position
+        datetime created_at
+        datetime updated_at
+    }
 
     templates {
         bigint id PK
@@ -245,7 +277,7 @@ erDiagram
     template_fields {
         bigint id PK
         bigint element_id FK_UK
-        bigint topic_attribute_id FK
+        bigint schema_attribute_id FK
         varchar semantic_role "FRONT, BACK, EXAMPLE, AUDIO..."
         varchar field_label
         bit hide_if_empty
@@ -275,12 +307,14 @@ erDiagram
 
 | Bảng | Vai trò | Ghi chú |
 | :--- | :--- | :--- |
-| `topics` | Đơn vị tổ chức kiến thức | Sở hữu schema thuộc tính riêng và liên kết với template thẻ học. |
-| `topic_attributes` | Định nghĩa thuộc tính | Tên trường, nhãn, kiểu dữ liệu, thứ tự hiển thị cơ bản. |
+| `topics` | Đơn vị tổ chức kiến thức | Sở hữu schema thuộc tính riêng (1-1) và liên kết với template thẻ học. |
+| `topic_schemas` | Lược đồ thuộc tính của Topic | Quản lý tập hợp các nhóm thuộc tính động của từng chủ đề. |
+| `schema_attribute_groups` | Nhóm thuộc tính schema | Gom nhóm các thuộc tính liên quan (ví dụ main, examples). |
+| `schema_attributes` | Định nghĩa thuộc tính | Tên trường, nhãn, kiểu dữ liệu, thứ tự hiển thị cơ bản. |
 | `topic_items` | Mục từ vựng thực tế | Từng mục kiến thức trong chủ đề, mang các giá trị thuộc tính tương ứng. |
 | `templates` | Cấu hình giao diện thẻ của Topic | Mỗi topic có thể có template xác định cách render flashcard cho toàn bộ các item. |
 | `template_elements` | Khối phần tử trên thẻ | Lưu thứ tự `position` và phân loại phần tử (`FIELD`, `DIVIDER`, `BUTTON`). |
-| `template_fields` | Thiết lập trường hiển thị | Map phần tử với `topic_attribute_id`, gán `semantic_role` và các thuộc tính styling. |
+| `template_fields` | Thiết lập trường hiển thị | Map phần tử với `schema_attribute_id`, gán `semantic_role` và các thuộc tính styling. |
 | `fsrs_records` | Trạng thái ghi nhớ FSRS | Theo dõi độ ổn định (stability), độ khó (difficulty) và lịch ôn tập `due` cho từng `(user_id, topic_item_id)`. |
 
 ---

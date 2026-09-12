@@ -154,7 +154,7 @@ Kế thừa `BaseCreatedAtEntity`.
 
 ## 2. Collections, Topics & EAV Data Engine
 
-Cấu trúc thu thập, tổ chức và quản lý dữ liệu từ vựng theo cấu trúc phân cấp linh hoạt: Collection -> Topic -> TopicItem. Dữ liệu chi tiết của từng từ vựng học tập được lưu theo mô hình EAV (Entity-Attribute-Value) để đáp ứng cấu trúc đa dạng của từng chủ đề.
+Cấu trúc thu thập, tổ chức và quản lý dữ liệu từ vựng theo cấu trúc phân cấp linh hoạt: Collection -> Topic -> TopicSchema -> TopicItem. Dữ liệu chi tiết của từng từ vựng học tập được lưu theo mô hình EAV (Entity-Attribute-Value) để đáp ứng cấu trúc đa dạng của từng chủ đề. Mỗi Topic sở hữu đúng một TopicSchema để quản lý định nghĩa các thuộc tính.
 
 ### Bảng `collections`
 Kế thừa `BaseTimeEntity`.
@@ -184,13 +184,23 @@ Kế thừa `BaseTimeEntity`.
 | `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
 | `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
 
-### Bảng `topic_attribute_groups`
+### Bảng `topic_schemas`
+Kế thừa `BaseTimeEntity`. Mỗi Topic liên kết 1-1 với một TopicSchema quản lý các nhóm thuộc tính và cấu trúc dữ liệu.
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID lược đồ chủ đề |
+| `topic_id` | BIGINT | FK -> `topics(id)`, UNIQUE, NOT NULL | Thuộc chủ đề nào (Quan hệ 1-1) |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
+| `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
+
+### Bảng `schema_attribute_groups`
 Kế thừa `BaseTimeEntity`.
 
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
 | `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID nhóm thuộc tính |
-| `topic_id` | BIGINT | FK -> `topics(id)`, NOT NULL | Nhóm thuộc tính của chủ đề nào |
+| `schema_id` | BIGINT | FK -> `topic_schemas(id)`, NOT NULL | Thuộc schema nào |
 | `name` | VARCHAR(255) | NOT NULL | Tên kỹ thuật của nhóm (main, examples...) |
 | `label` | VARCHAR(255) | NULL | Nhãn hiển thị của nhóm |
 | `multiple` | BOOLEAN | NOT NULL | Cho phép nhiều bản ghi lặp lại hay không |
@@ -198,13 +208,13 @@ Kế thừa `BaseTimeEntity`.
 | `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
 | `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
 
-### Bảng `topic_attributes`
+### Bảng `schema_attributes`
 Kế thừa `BaseTimeEntity`.
 
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
 | `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID thuộc tính |
-| `group_id` | BIGINT | FK -> `topic_attribute_groups(id)`, NOT NULL | Thuộc nhóm thuộc tính nào |
+| `group_id` | BIGINT | FK -> `schema_attribute_groups(id)`, NOT NULL | Thuộc nhóm thuộc tính nào |
 | `name` | VARCHAR(255) | NOT NULL | Tên kỹ thuật của thuộc tính |
 | `label` | VARCHAR(255) | NULL | Nhãn hiển thị |
 | `data_type` | VARCHAR(50) | NOT NULL | Kiểu dữ liệu (TEXT, AUDIO, IMAGE...) |
@@ -228,7 +238,7 @@ Kế thừa `BaseCreatedAtEntity`. Mỗi item đại diện cho một mục từ
 | :--- | :--- | :--- | :--- |
 | `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID instance của nhóm cho 1 item |
 | `topic_item_id` | BIGINT | FK -> `topic_items(id)`, NOT NULL | Item tương ứng |
-| `group_definition_id` | BIGINT | FK -> `topic_attribute_groups(id)`, NOT NULL | Nhóm định nghĩa gốc |
+| `group_definition_id` | BIGINT | FK -> `schema_attribute_groups(id)`, NOT NULL | Nhóm định nghĩa gốc |
 | `position` | SMALLINT | NOT NULL | Thứ tự bản ghi (khi multiple = true) |
 
 ### Bảng `topic_item_attribute_values`
@@ -238,7 +248,7 @@ Kế thừa `BaseTimeEntity`.
 | :--- | :--- | :--- | :--- |
 | `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID giá trị thuộc tính |
 | `group_instance_id` | BIGINT | FK -> `topic_item_attribute_groups(id)`, NOT NULL | Instance nhóm tương ứng |
-| `topic_attribute_id` | BIGINT | FK -> `topic_attributes(id)`, NOT NULL | Thuộc tính gốc |
+| `schema_attribute_id` | BIGINT | FK -> `schema_attributes(id)`, NOT NULL | Thuộc tính schema gốc |
 | `value` | LONGTEXT | NOT NULL | Giá trị thực tế được lưu |
 | `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
 | `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
@@ -246,9 +256,12 @@ Kế thừa `BaseTimeEntity`.
 ### Ràng buộc & Indexes (Collections, Topics & EAV)
 - `collections`: Index trên `owner_id` và `type`.
 - `topics`: Index trên `collection_id` và `parent_id`.
+- `topic_schemas`: Unique index trên `topic_id`.
+- `schema_attribute_groups`: Unique index ghép trên `(schema_id, name)`.
+- `schema_attributes`: Unique index ghép trên `(group_id, name)`.
 - `topic_items`: Index trên `topic_id` để phân trang và load item theo chủ đề.
 - `topic_item_attribute_groups`: Index trên `topic_item_id`.
-- `topic_item_attribute_values`: Index trên `group_instance_id` và `topic_attribute_id`.
+- `topic_item_attribute_values`: Index trên `group_instance_id` và `schema_attribute_id`.
 
 ## 3. Flashcard Templates & Spaced Repetition (SRS)
 
