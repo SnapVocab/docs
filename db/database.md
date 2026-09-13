@@ -177,6 +177,7 @@ Kế thừa `BaseTimeEntity`.
 | `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID chủ đề |
 | `collection_id` | BIGINT | FK -> `collections(id)`, NOT NULL | Thuộc bộ sưu tập nào |
 | `parent_id` | BIGINT | FK -> `topics(id)`, NULLABLE | Chủ đề cha (hỗ trợ phân cấp cây chủ đề) |
+| `active_template_id` | BIGINT | FK -> `templates(id)`, NULLABLE | Template / Chế độ học đang kích hoạt cho Topic |
 | `name` | VARCHAR(255) | NOT NULL | Tên chủ đề |
 | `translation` | VARCHAR(255) | NULL | Dịch nghĩa chủ đề |
 | `description` | TEXT | NULL | Mô tả chi tiết |
@@ -184,14 +185,28 @@ Kế thừa `BaseTimeEntity`.
 | `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
 | `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
 
-### Bảng `topic_schemas`
-Kế thừa `BaseTimeEntity`. Mỗi Topic liên kết 1-1 với một TopicSchema quản lý các nhóm thuộc tính và cấu trúc dữ liệu.
+### Bảng `schemas`
+Kế thừa `BaseTimeEntity`. Định nghĩa lược đồ cấu trúc thuộc tính độc lập (1 Schema có thể được nhiều Topic sử dụng lại, sở hữu nhiều Template hiển thị).
 
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID lược đồ chủ đề |
-| `topic_id` | BIGINT | FK -> `topics(id)`, UNIQUE, NOT NULL | Thuộc chủ đề nào (Quan hệ 1-1) |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID lược đồ |
+| `code` | VARCHAR(50) | UNIQUE, NULLABLE | Mã định danh chuẩn cho schema hệ thống (`DEFAULT_ENGLISH`...) |
+| `name` | VARCHAR(255) | NOT NULL | Tên lược đồ (vd: Standard English, Kanji...) |
+| `description` | TEXT | NULL | Mô tả chi tiết về lược đồ |
+| `is_system` | BOOLEAN | DEFAULT FALSE, NOT NULL | Đánh dấu lược đồ mẫu mặc định của hệ thống |
 | `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
+| `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
+
+### Bảng `topic_schemas`
+Kế thừa `BaseTimeEntity`. Đóng vai trò entity trung gian liên kết giữa Topic và Schema (Topic 1-1 TopicSchema N-1 Schema).
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID bản ghi liên kết topic - schema |
+| `topic_id` | BIGINT | FK -> `topics(id)`, UNIQUE, NOT NULL | Thuộc chủ đề nào (Quan hệ 1-1 với Topic) |
+| `schema_id` | BIGINT | FK -> `schemas(id)`, NOT NULL | Áp dụng lược đồ nào (N-1 với Schema) |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm gán |
 | `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
 
 ### Bảng `schema_attribute_groups`
@@ -200,7 +215,7 @@ Kế thừa `BaseTimeEntity`.
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
 | `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID nhóm thuộc tính |
-| `schema_id` | BIGINT | FK -> `topic_schemas(id)`, NOT NULL | Thuộc schema nào |
+| `schema_id` | BIGINT | FK -> `schemas(id)`, NOT NULL | Thuộc schema độc lập nào |
 | `name` | VARCHAR(255) | NOT NULL | Tên kỹ thuật của nhóm (main, examples...) |
 | `label` | VARCHAR(255) | NULL | Nhãn hiển thị của nhóm |
 | `multiple` | BOOLEAN | NOT NULL | Cho phép nhiều bản ghi lặp lại hay không |
@@ -255,70 +270,75 @@ Kế thừa `BaseTimeEntity`.
 
 ### Ràng buộc & Indexes (Collections, Topics & EAV)
 - `collections`: Index trên `owner_id` và `type`.
-- `topics`: Index trên `collection_id` và `parent_id`.
-- `topic_schemas`: Unique index trên `topic_id`.
+- `topics`: Index trên `collection_id`, `parent_id` và `active_template_id`.
+- `schemas`: Unique index trên `code`.
+- `topic_schemas`: Unique index trên `topic_id`, Index trên `schema_id`.
 - `schema_attribute_groups`: Unique index ghép trên `(schema_id, name)`.
 - `schema_attributes`: Unique index ghép trên `(group_id, name)`.
 - `topic_items`: Index trên `topic_id` để phân trang và load item theo chủ đề.
 - `topic_item_attribute_groups`: Index trên `topic_item_id`.
 - `topic_item_attribute_values`: Index trên `group_instance_id` và `schema_attribute_id`.
 
+### Cơ chế Quản lý Lược đồ: Copy-on-Write (Fork) & Additive Evolution
+1. **Schema độc lập & Tích hợp Templates**: 1 Schema định nghĩa cấu trúc dữ liệu (`schema_attributes`) và chứa danh mục các mẫu hiển thị (`templates`) cho nhiều chế độ học (Standard, Listening, Reverse...).
+2. **Topic chọn Template kích hoạt**: Topic liên kết với Schema qua `topic_schemas` và chọn một `active_template_id` để hiển thị trong các buổi học. Chuyển đổi chế độ học chỉ cập nhật `active_template_id`, không làm nhân bản dữ liệu EAV hay lịch ôn FSRS.
+3. **Tiến hóa mở rộng (Additive Evolution)**: Đối với Schema dùng chung, chỉ cho phép **thêm mới** các nhóm/thuộc tính (thuộc tính mới là tùy chọn). Không cho phép xóa thuộc tính nếu thuộc tính đó đang được liên kết bởi `topic_item_attribute_values` hoặc `template_fields`.
+4. **Copy-on-Write (Fork Schema & Templates)**: Khi người dùng muốn tùy biến sâu cấu trúc thuộc tính hoặc sửa layout template cho riêng một Topic, hệ thống hỗ trợ **Fork** Schema dùng chung thành một Schema riêng biệt cho Topic đó (`POST /api/topics/{topicId}/schema/fork`). Hệ thống nhân bản đồng thời Schema, các Groups, Attributes, toàn bộ Templates, Elements và Fields (re-map attribute ID tương ứng), đồng thời cập nhật `topic.active_template_id` và re-map dữ liệu EAV trong 1 transaction duy nhất.
+
 ## 3. Flashcard Templates & Spaced Repetition (SRS)
 
-Hệ thống Template gắn trực tiếp với từng chủ đề (`topics`). Template định nghĩa cách ánh xạ dữ liệu thuộc tính của `topic_items` thành giao diện thẻ học flashcard, gán vai trò ngữ nghĩa (`SemanticRole`) cho từng trường hiển thị.
+Mô hình **Frappe-style Unified Studio**: `Template` thuộc về `Schema` (`schemas (1) --- (N) templates`). Mỗi template đại diện cho một cách thức hiển thị thẻ học (chế độ học Standard, Listening, Reverse...) của bộ thuộc tính Schema đó. Mỗi `Topic` trỏ tới `active_template_id` của Schema tương ứng để quyết định giao diện hiển thị khi ôn tập.
 
 Tiến trình ôn tập ngắt quãng Spaced Repetition được quản lý thông qua thuật toán FSRS trực tiếp trên từng mục từ vựng học tập của người dùng qua bảng `fsrs_records`.
 
 ### Bảng `templates`
-Kế thừa `BaseTimeEntity`.
+Kế thừa `BaseTimeEntity`. Định nghĩa mẫu hiển thị thẻ học cho Schema.
 
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
 | `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID mẫu thẻ học |
-| `name` | VARCHAR(255) | NOT NULL | Tên mẫu thẻ (Classic, Listening, Detail...) |
-| `topic_id` | BIGINT | FK -> `topics(id)`, NOT NULL | Áp dụng cho chủ đề nào |
+| `schema_id` | BIGINT | FK -> `schemas(id)`, NOT NULL | Thuộc lược đồ nào |
+| `code` | VARCHAR(50) | NULLABLE | Mã định danh chế độ học (`STANDARD`, `LISTENING`, `REVERSE`...) |
+| `name` | VARCHAR(255) | NOT NULL | Tên mẫu thẻ ("Thẻ Chuẩn", "Luyện Nghe", "Đảo Chiều") |
+| `is_default` | BOOLEAN | DEFAULT FALSE, NOT NULL | Đánh dấu template mặc định ban đầu của Schema |
 | `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
 | `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
 
 ### Bảng `template_elements`
-Các thành phần hiển thị trên template, sắp xếp theo thứ tự hiển thị.
+Các thành phần hiển thị trên template theo kiến trúc bố cục Frappe (Layout elements), sắp xếp theo thứ tự hiển thị.
 
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
 | `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID thành phần |
 | `template_id` | BIGINT | FK -> `templates(id)`, NOT NULL | Thuộc template nào |
-| `position` | INT | NOT NULL | Vị trí hiển thị trên thẻ |
-| `type` | VARCHAR(50) | ENUM, NOT NULL | Loại phần tử (FIELD, DIVIDER, BUTTON...) |
+| `position` | INT | NOT NULL | Vị trí hiển thị trên thẻ (0, 1, 2...) |
+| `type` | VARCHAR(50) | ENUM, NOT NULL | Loại phần tử: `FIELD`, `SECTION_BREAK`, `COLUMN_BREAK` |
 
 Ràng buộc duy nhất: UNIQUE(`template_id`, `position`).
 
 ### Bảng `template_fields`
-Cấu hình chi tiết cho phần tử dạng FIELD, ánh xạ trực tiếp thuộc tính EAV với vai trò ngữ nghĩa (SemanticRole) trên thẻ học.
+Cấu hình chi tiết cho phần tử dạng FIELD, ánh xạ trực tiếp thuộc tính Schema với vai trò ngữ nghĩa (`SemanticRole`) và styling trên thẻ học.
 
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
 | `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID cấu hình trường |
 | `element_id` | BIGINT | FK -> `template_elements(id)`, UNIQUE, NOT NULL | Phần tử template tương ứng (quan hệ 1-1) |
-| `topic_attribute_id` | BIGINT | FK -> `topic_attributes(id)`, NOT NULL | Thuộc tính EAV được lấy dữ liệu |
+| `schema_attribute_id` | BIGINT | FK -> `schema_attributes(id)`, NOT NULL | Thuộc tính Schema được lấy dữ liệu (cùng Schema) |
 | `semantic_role` | VARCHAR(50) | ENUM, NULLABLE | Vai trò ngữ nghĩa trên thẻ học |
 | `field_label` | VARCHAR(255) | NULL | Nhãn trường khi render |
 | `hide_if_empty` | BOOLEAN | DEFAULT FALSE, NOT NULL | Tự động ẩn nếu giá trị rỗng |
 | `audio_action` | BOOLEAN | DEFAULT FALSE, NOT NULL | Cho phép bấm phát âm thanh |
 | `font_size` | INT | NULL | Cỡ chữ tùy chỉnh |
-| `alignment` | VARCHAR(20) | ENUM('LEFT', 'CENTER', 'RIGHT'), NULL | Căn lề |
+| `alignment` | VARCHAR(20) | ENUM('LEFT', 'CENTER', 'RIGHT', 'JUSTIFY'), NULL | Căn lề |
 | `color` | VARCHAR(50) | NULL | Mã màu hex hiển thị |
 
-#### Danh sách SemanticRole:
-- `FRONT`: Hiển thị ở mặt trước của thẻ học.
-- `BACK`: Hiển thị ở mặt sau của thẻ học.
-- `EXAMPLE`: Câu ví dụ ngữ cảnh.
-- `AUDIO`: File âm thanh phát âm.
-- `IMAGE`: Hình ảnh minh họa.
-- `PHONETIC`: Phiên âm ngữ âm học IPA.
-- `TRANSLATION`: Nghĩa dịch tiếng Việt.
-- `HINT`: Gợi ý phụ khi người học cần hỗ trợ.
-- `TAG`: Nhãn phân loại hoặc thông tin meta.
-- `EXTRA`: Thông tin bổ sung mở rộng.
+#### Danh sách SemanticRole (`vn.ptit.snapvocab.domain.enumeration.SemanticRole`):
+- `TARGET_WORD`: Từ vựng mục tiêu, câu hỏi chính ở mặt trước thẻ.
+- `EXAMPLE_SENTENCE`: Câu ví dụ minh họa hoặc ngữ cảnh sử dụng.
+- `NATIVE_TRANSLATION`: Bản dịch nghĩa tiếng mẹ đẻ (tiếng Việt).
+- `DEFINITION`: Định nghĩa / giải nghĩa chính của từ vựng.
+- `AUDIO`: Dữ liệu âm thanh / phát âm.
+- `IMAGE`: Hình ảnh minh họa trực quan.
 
 ### Bảng `fsrs_records`
 Kế thừa `BaseTimeEntity`. Quản lý tiến trình ôn tập ngắt quãng theo thuật toán FSRS cho từng cặp (user, topic_item).
@@ -338,9 +358,9 @@ Kế thừa `BaseTimeEntity`. Quản lý tiến trình ôn tập ngắt quãng t
 | `updated_at` | DATETIME(6) | NOT NULL | Lần cập nhật tham số SRS gần nhất |
 
 ### Ràng buộc & Indexes (Templates & SRS)
-- `templates`: Index trên `topic_id`.
+- `templates`: Index trên `schema_id`, Unique index trên `(schema_id, code)`.
 - `template_elements`: Unique constraint ghép `(template_id, position)`.
-- `template_fields`: Unique constraint trên `element_id`. Index trên `topic_attribute_id`.
+- `template_fields`: Unique constraint trên `element_id`. Index trên `schema_attribute_id`.
 - `fsrs_records`: Unique constraint ghép `(user_id, topic_item_id)` đảm bảo mỗi người học có đúng 1 tiến trình cho mỗi mục từ.
 - `fsrs_records`: Index ghép trên `(user_id, due, state)` phục vụ query lấy danh sách thẻ đến hạn ôn tập cực nhanh.
 

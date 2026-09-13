@@ -1,6 +1,6 @@
-# Đặc tả Kiến trúc: Topic Template & Thẻ Flashcard Tùy chỉnh (Custom Card)
+# Đặc tả Kiến trúc: Schema-Template Studio & Thẻ Flashcard Tùy chỉnh (Custom Card)
 
-Tài liệu này mô tả chi tiết kiến trúc **Topic Template** — giải pháp cho phép hệ thống và người học tùy biến cách thức hiển thị thẻ flashcard khi ôn tập các mục từ vựng (`TopicItem`) trong từng chủ đề (`Topic`), dựa trên cấu trúc thuộc tính động kết hợp các vai trò ngữ nghĩa (`SemanticRole`).
+Tài liệu này mô tả chi tiết kiến trúc **Schema-Template System** (theo phong cách Frappe DocType & Layout) — giải pháp cho phép hệ thống và người học định nghĩa cấu trúc dữ liệu thuộc tính động (`Schema`) và tùy biến đa dạng cách thức hiển thị thẻ flashcard (`Template`) khi ôn tập các mục từ vựng (`TopicItem`) trong từng chủ đề (`Topic`), kết hợp các vai trò ngữ nghĩa (`SemanticRole`).
 
 ---
 
@@ -11,97 +11,119 @@ Tài liệu này mô tả chi tiết kiến trúc **Topic Template** — giải 
 Hệ thống flashcard dạng truyền thống thường áp dụng cấu trúc cứng nhắc: mặt trước luôn là từ vựng, mặt sau luôn là định nghĩa cố định. Cách tiếp cận này bộc lộ những hạn chế lớn:
 
 1. **Không thích ứng với thuộc tính động**: Mỗi chủ đề học tập (`Topic`) có thể có bộ thuộc tính riêng (phiên âm, giải nghĩa tiếng Việt, câu ví dụ, ngữ cảnh, hình ảnh minh họa, file phát âm...). Cấu trúc cứng không thể phản ánh đầy đủ mô hình dữ liệu EAV của hệ thống.
-2. **Thiếu linh hoạt trong trải nghiệm học**: Người học hoặc chủ đề khác nhau đòi hỏi các kiểu hiển thị khác nhau (học nhận diện mặt chữ, học nghe - phát hiện từ, học đoán nghĩa qua câu ví dụ, học qua hình ảnh).
-3. **Phụ thuộc triển khai client**: Nếu không có cơ chế template động từ backend, mỗi khi thay đổi cách bố trí hiển thị lại đòi hỏi cập nhật code ứng dụng di động.
+2. **Thiếu linh hoạt trong trải nghiệm học (Đa chế độ học)**: Một bộ từ vựng cần hỗ trợ nhiều cách học khác nhau (học nhận diện chữ - nghĩa truyền thống, học luyện nghe qua phát âm, học đảo chiều đoán từ từ nghĩa) mà không được nhân bản dữ liệu từ vựng hay làm phân mảnh tiến trình ôn tập SRS.
+3. **Phân tán cấu hình**: Nếu tách rời cấu hình Schema (trường dữ liệu) và Template (giao diện hiển thị) sang hai màn hình/entity độc lập không có ràng buộc chặt chẽ, người dùng phải chuyển qua lại nhiều bước, dễ gây lỗi ánh xạ (template trỏ tới trường không tồn tại).
 
-### 1.2. Giải pháp: Topic Template System
+### 1.2. Giải pháp: Frappe-style Unified Schema-Template Studio
 
-SnapVocab áp dụng mô hình template gắn trực tiếp với từng chủ đề (`Topic`):
+SnapVocab áp dụng mô hình **Unified Studio** (tương tự kiến trúc DocType & Form/Print Format của Frappe Framework):
 
-- **Template theo chủ đề**: Mỗi `Topic` sở hữu một `Template` quy định cách hiển thị flashcard cho toàn bộ các `TopicItem` thuộc chủ đề đó.
-- **Phân rã thành phần tử (`TemplateElement`)**: Mỗi template chứa danh sách các phần tử hiển thị theo thứ tự vị trí (`position`), phân loại theo kiểu phần tử (`FIELD`, `DIVIDER`, `BUTTON`).
-- **Ánh xạ thuộc tính & vai trò ngữ nghĩa (`TemplateField`)**: Với phần tử kiểu `FIELD`, cấu hình liên kết trực tiếp tới một thuộc tính `SchemaAttribute`, đồng thời gán vai trò ngữ nghĩa `SemanticRole` (`FRONT`, `BACK`, `EXAMPLE`, `AUDIO`, `IMAGE`, `PHONETIC`, `TRANSLATION`, `HINT`, `TAG`, `EXTRA`) kèm định dạng hiển thị (`font_size`, `alignment`, `color`, `audio_action`, `hide_if_empty`).
-- **Tối giản cho Learner**: Không yêu cầu viết mã HTML/CSS. Ứng dụng di động dựa vào `semantic_role` và thứ tự `position` để render thẻ trực quan, mượt mà trên màn hình cảm ứng.
+- **Template gắn liền với Schema (`schemas (1) --- (N) templates`)**: Một `Schema` định nghĩa cấu trúc dữ liệu (Data Contract gồm các nhóm và thuộc tính). Mỗi `Schema` sở hữu một hoặc nhiều `Template` quy định các góc nhìn hiển thị (View/Layout) khác nhau của chính bộ thuộc tính đó.
+- **Bảo toàn toàn vẹn dữ liệu 100%**: Vì `Template` thuộc về `Schema`, các phần tử `TemplateField` chỉ được phép trỏ tới các thuộc tính `SchemaAttribute` thuộc cùng Schema đó. Hoàn toàn không bao giờ xảy ra tình trạng "trỏ nhầm thuộc tính của schema khác".
+- **Hỗ trợ Đa chế độ học (Multi-mode Learning)**: Một Schema có thể có nhiều template ứng với các chế độ học khác nhau:
+  - `STANDARD`: Thẻ chuẩn (Mặt trước: Từ vựng + Phiên âm + Audio; Mặt sau: Nghĩa + Ví dụ + Ảnh).
+  - `LISTENING`: Luyện nghe (Mặt trước: Audio; Mặt sau: Từ vựng + Phiên âm + Nghĩa + Ví dụ).
+  - `REVERSE`: Đảo chiều (Mặt trước: Nghĩa + Ảnh; Mặt sau: Từ vựng + Phiên âm + Audio).
+- **Topic chọn Chế độ học (`topic.active_template_id`)**: `Topic` liên kết với `Schema` (qua `TopicSchema`), và trỏ tới một `Template` hiện hành (`activeTemplate`) của Schema đó. Chuyển đổi chế độ học chỉ đơn giản là đổi `active_template_id` trên Topic, dữ liệu từ vựng EAV (`topic_items`) và tiến trình FSRS (`fsrs_records`) được giữ nguyên 100%.
+- **Nhận diện hệ thống bằng Mã chuẩn (`code`)**: Các Schema và Template chuẩn của hệ thống được xác định bằng `code` chuỗi bất biến (ví dụ: `DEFAULT_ENGLISH`, `STANDARD`, `LISTENING`, `REVERSE`), tuyệt đối không phụ thuộc vào ID tự tăng của database.
+- **Copy-on-Write (Fork) tự động**: Khi người dùng muốn tùy biến sâu cấu trúc thuộc tính hoặc layout thẻ cho riêng Topic của mình, hệ thống thực hiện nhân bản (fork) đồng thời cả Schema và toàn bộ Template của nó thành một bản sao độc lập cho Topic.
 
-| Khía cạnh | Mô hình cũ (Cố định) | Mô hình Topic Template hiện tại |
+| Khía cạnh | Mô hình cũ (Cố định) | Mô hình Schema-Template hiện tại |
 | :--- | :--- | :--- |
-| Phạm vi áp dụng | Toàn bộ thẻ chung một khuôn | Từng `Topic` có template riêng |
-| Nguồn dữ liệu | Cột cố định trong bảng note | Thuộc tính động từ `SchemaAttribute` và `TopicItemAttributeValue` |
-| Bố cục hiển thị | Cố định 2 mặt trước / sau | Sắp xếp theo `position` với các vai trò ngữ nghĩa `SemanticRole` |
-| Quản lý tiến độ | Bảng Card riêng lẻ | `FsrsRecord` gắn với cặp `(user_id, topic_item_id)` |
-| Độ phức tạp | Cứng nhắc, khó mở rộng | Động, mở rộng linh hoạt theo dữ liệu EAV |
+| Phạm vi áp dụng | Toàn bộ thẻ chung một khuôn | Schema quản lý data contract + danh sách Templates hiển thị |
+| Quan hệ Template | Gắn cứng vào Topic | Gắn vào Schema (`schemas (1) --- (N) templates`), Topic chọn `active_template_id` |
+| Chế độ học | Chỉ có 1 cách hiển thị duy nhất | Đa chế độ (Standard, Listening, Reverse) trên cùng 1 bộ từ vựng |
+| Định danh hệ thống | ID số tự tăng (dễ lệch giữa các env) | Mã chuẩn hóa bất biến (`code`: `DEFAULT_ENGLISH`, `STANDARD`...) |
+| Quản lý tiến độ | Bảng Card riêng lẻ | `FsrsRecord` gắn trực tiếp cặp `(user_id, topic_item_id)` độc lập với view |
 
 ### 1.3. Vị trí trong hệ thống
 
-Chức năng này thuộc phân hệ **Learning Engine**, cung cấp cấu hình hiển thị cho module Flashcard và thuật toán lặp lại ngắt quãng FSRS (`FsrsRecord`).
+Chức năng này thuộc phân hệ **Learning Engine**, cung cấp cấu hình hiển thị thẻ cho module Flashcard và thuật toán lặp lại ngắt quãng FSRS (`FsrsRecord`).
 
 ---
 
 ## 2. Khái niệm cốt lõi
 
-### 2.1. Cấu trúc Lược đồ Thuộc tính của Topic (`TopicSchema` & `SchemaAttribute`)
+### 2.1. Lược đồ Thuộc tính (`Schema`, `TopicSchema` & `SchemaAttribute`)
 
-Mỗi chủ đề (`Topic`) sở hữu 1 Schema (`TopicSchema`) tổ chức dữ liệu theo mô hình động:
-- Một `Topic` liên kết 1-1 với một `TopicSchema`.
-- Mỗi `TopicSchema` có các nhóm thuộc tính (`SchemaAttributeGroup`).
-- Mỗi nhóm chứa các thuộc tính (`SchemaAttribute`) xác định tên thuộc tính, nhãn hiển thị (`label`), kiểu dữ liệu (`dataType`), thứ tự (`position`) và trạng thái bắt buộc (`required`).
+Cấu trúc thuộc tính được tổ chức theo mô hình độc lập và tái sử dụng:
+- **`Schema` độc lập**: Định nghĩa cấu trúc khung gồm các nhóm thuộc tính (`SchemaAttributeGroup`), thuộc tính (`SchemaAttribute`) và các mẫu hiển thị (`Template`). Một `Schema` có thể được dùng chung cho hàng ngàn chủ đề (`Topic`).
+  - `code`: Mã định danh chuẩn cho các schema hệ thống (ví dụ: `DEFAULT_ENGLISH`). Với schema người dùng tạo, trường này có thể là `null`.
+  - `is_system`: Cờ đánh dấu schema mặc định của hệ thống (`true`/`false`).
+- **`TopicSchema` trung gian**: Mỗi `Topic` liên kết 1-1 với một bản ghi `TopicSchema`, bản ghi này trỏ khóa ngoại `schema_id` tới `Schema` (Quan hệ `Topic (1) --- (1) TopicSchema (N) --- (1) Schema`).
+- Mỗi nhóm (`SchemaAttributeGroup`) chứa các thuộc tính (`SchemaAttribute`) xác định tên thuộc tính, nhãn hiển thị (`label`), kiểu dữ liệu (`dataType`), thứ tự (`position`) và trạng thái bắt buộc (`required`).
 - Các mục từ trong chủ đề (`TopicItem`) lưu giá trị thực tế tương ứng trong bảng `topic_item_attribute_values`.
 
-### 2.2. Vai trò Ngữ nghĩa (`SemanticRole`)
+### 2.2. Mẫu hiển thị Thẻ (`Template`, `TemplateElement` & `TemplateField`)
+
+Mỗi `Template` liên kết trực tiếp với `Schema` qua trường `schema_id`:
+- **Định danh Template**:
+  - `name`: Tên hiển thị (ví dụ: "Thẻ Tiêu chuẩn", "Luyện nghe", "Đảo chiều").
+  - `code`: Mã nhận diện chuẩn (ví dụ: `STANDARD`, `LISTENING`, `REVERSE`).
+  - `is_default`: Đánh dấu template mặc định sẽ được chọn khi Topic mới được tạo.
+- **`TemplateElement`**: Khối phần tử layout trên thẻ:
+  - `position`: Thứ tự hiển thị tăng dần từ trên xuống dưới.
+  - `type`: Phân loại phần tử gồm:
+    - `FIELD`: Trường dữ liệu hiển thị (liên kết 1-1 với `TemplateField`).
+    - `SECTION_BREAK`: Phân tách giữa các phần (ví dụ: phân cách Mặt trước / Mặt sau).
+    - `COLUMN_BREAK`: Phân chia cột hiển thị linh hoạt (theo chuẩn Frappe layout).
+- **`TemplateField`**: Cấu hình chi tiết cho phần tử kiểu `FIELD`:
+  - `schema_attribute_id`: Khóa ngoại tham chiếu trực tiếp đến `SchemaAttribute` của cùng Schema.
+  - `semantic_role`: Vai trò ngữ nghĩa hiển thị trên thẻ.
+  - `field_label`: Nhãn tùy chỉnh hiển thị trước giá trị.
+  - `hide_if_empty`: Nếu giá trị rỗng thì tự động ẩn khỏi thẻ.
+  - `audio_action`: Nhấn vào trường này sẽ phát âm thanh.
+  - `font_size`, `alignment` (`LEFT`, `CENTER`, `RIGHT`), `color`: Thuộc tính định dạng trực quan.
+
+### 2.3. Vai trò Ngữ nghĩa (`SemanticRole`)
 
 Để ứng dụng di động hiểu được ý nghĩa hiển thị mà không cần hardcode tên trường, mỗi `TemplateField` được gán một `SemanticRole`:
 
 | SemanticRole | Ý nghĩa | Ứng dụng hiển thị trên thẻ |
 | :--- | :--- | :--- |
-| `FRONT` | Nội dung câu hỏi chính ở mặt trước | Từ vựng, cụm từ, thuật ngữ chính cần ghi nhớ |
-| `BACK` | Đáp án chính ở mặt sau | Giải nghĩa, định nghĩa từ vựng |
-| `EXAMPLE` | Câu ví dụ hoặc ngữ cảnh sử dụng | Câu ví dụ minh họa kèm bản dịch (nếu có) |
-| `AUDIO` | Dữ liệu âm thanh / phát âm | Tích hợp nút nghe hoặc tự động phát âm |
-| `IMAGE` | Hình ảnh minh họa | Render hình ảnh ở vị trí nổi bật của thẻ |
-| `PHONETIC` | Ký âm ngữ âm | Hiển thị phiên âm quốc tế (IPA) |
-| `TRANSLATION` | Bản dịch nghĩa tiếng mẹ đẻ | Hiển thị nghĩa tiếng Việt bổ trợ |
-| `HINT` | Gợi ý khi người học gặp khó khăn | Hiển thị dạng ẩn, mở khi người học bấm nút gợi ý |
-| `TAG` | Thẻ phân loại hoặc cấp độ | Cấp độ CEFR, nhãn ngữ pháp (noun, verb...) |
-| `EXTRA` | Thông tin bổ sung | Ghi chú cá nhân, từ đồng nghĩa, trái nghĩa |
-
-### 2.3. Bố cục Template (`Template` & `TemplateElement`)
-
-Một `Template` liên kết với `Topic` qua trường `topic_id`. Template bao gồm:
-- **`TemplateElement`**: Đại diện cho một khối phần tử trên giao diện flashcard.
-  - `position`: Thứ tự hiển thị tăng dần từ trên xuống dưới.
-  - `type`: Phân loại phần tử gồm `FIELD` (trường dữ liệu), `DIVIDER` (đường phân tách giữa các phần), hoặc `BUTTON` (nút tương tác như nút nghe, nút lật thẻ).
-- **`TemplateField`**: Cấu hình chi tiết cho phần tử kiểu `FIELD`.
-  - `topic_attribute_id`: Khóa ngoại tham chiếu đến thuộc tính cần lấy dữ liệu.
-  - `semantic_role`: Vai trò ngữ nghĩa nêu trên.
-  - `field_label`: Nhãn tuỳ chỉnh hiển thị trước giá trị (nếu có).
-  - `hide_if_empty`: Nếu giá trị của thuộc tính rỗng thì ẩn hoàn toàn phần tử khỏi thẻ.
-  - `audio_action`: Kích hoạt tương tác phát âm thanh khi nhấn vào trường này.
-  - `font_size`, `alignment` (`LEFT`, `CENTER`, `RIGHT`), `color`: Các thuộc tính định dạng giao diện.
+| `TARGET_WORD` / `FRONT` | Từ vựng mục tiêu / câu hỏi chính | Từ vựng, thuật ngữ chính cần học ghi nhớ |
+| `DEFINITION` / `BACK` | Định nghĩa / giải nghĩa chính | Giải nghĩa từ vựng |
+| `NATIVE_TRANSLATION` | Bản dịch nghĩa tiếng mẹ đẻ | Nghĩa tiếng Việt bổ trợ |
+| `EXAMPLE_SENTENCE` | Câu ví dụ ngữ cảnh | Câu ví dụ minh họa |
+| `AUDIO` | Dữ liệu âm thanh phát âm | Nút nghe hoặc tự động phát âm khi lật thẻ |
+| `IMAGE` | Hình ảnh minh họa | Ảnh minh họa ở vị trí trực quan của thẻ |
+| `PHONETIC` | Phiên âm quốc tế | Ký hiệu ngữ âm IPA |
+| `HINT` | Gợi ý khi cần | Ẩn mặc định, mở khi bấm trợ giúp |
+| `TAG` | Thẻ phân loại hoặc cấp độ | Phân loại từ (noun, verb), cấp độ (A1, B2) |
+| `EXTRA` | Thông tin bổ sung | Từ đồng nghĩa, trái nghĩa, ghi chú cá nhân |
 
 ---
 
 ## 3. Cơ chế hoạt động
 
-### 3.1. Luồng cấu hình Template cho Topic
+### 3.1. Luồng Unified Studio (Thiết kế Schema & Template hợp nhất)
 
 ```
-Quản trị viên / Người dùng tạo Topic
-                 │
-                 ▼
-Khai báo SchemaAttributeGroup & SchemaAttribute
-(Định nghĩa schema thuộc tính: từ, ipa, nghĩa, ví dụ, audio)
-                 │
-                 ▼
-Khởi tạo Template cho Topic
-(Hệ thống tự động sinh template mặc định hoặc người dùng tùy chỉnh)
-                 │
-                 ▼
-Tạo danh sách TemplateElement & TemplateField
-(Gán position, kiểu phần tử, ánh xạ attribute và semantic_role)
-                 │
-                 ▼
-Nhập dữ liệu các TopicItem
-(Giá trị thuộc tính được lưu vào topic_item_attribute_values)
+                       [ Unified Studio ]
+          ┌────────────────────────────────────────┐
+          │  1. Định nghĩa cấu trúc Schema:        │
+          │     - Thuộc tính: word, ipa, meaning.. │
+          │                                        │
+          │  2. Thiết kế các Templates hiển thị:   │
+          │     - STANDARD (Default)               │
+          │     - LISTENING                        │
+          │     - REVERSE                          │
+          └──────────────────┬─────────────────────┘
+                             │
+                             ▼
+         Lưu trữ vào CSDL (schemas & templates gắn kết)
+                             │
+                             ▼
+         Người dùng tạo Topic mới:
+         - Gán Schema (mặc định: DEFAULT_ENGLISH)
+         - Gán active_template_id (mặc định: STANDARD)
+                             │
+                             ▼
+         Nhập từ vựng vào Topic (TopicItem & EAV Values)
+                             │
+                             ▼
+         Khi học: Đổi chế độ học (Standard / Listening / Reverse)
+         => Chỉ cần cập nhật topic.active_template_id!
 ```
 
 ### 3.2. Luồng render thẻ trong phiên học Flashcard
@@ -114,23 +136,19 @@ Backend truy vấn FSRS Records đến hạn ôn
 (WHERE user_id = :userId AND topic_item_id IN (...) AND due <= NOW())
                  │
                  ▼
-Backend tải cấu hình Template của Topic
-(Kèm danh sách TemplateElement và TemplateField theo position ASC)
+Backend xác định active_template của Topic (hoặc template theo mode yêu cầu)
+(Tải danh sách TemplateElement và TemplateField theo position ASC)
                  │
                  ▼
-Backend gộp giá trị thuộc tính của TopicItem vào Response
+Backend map dữ liệu EAV của từng TopicItem vào các trường của Template
                  │
                  ▼
-Mobile Client render Flashcard:
-├─ Mặt trước (Front): Các element có semantic_role = FRONT, PHONETIC, AUDIO...
-├─ Đường phân cách / nút lật (DIVIDER / BUTTON)
-└─ Mặt sau (Back): Các element có semantic_role = BACK, TRANSLATION, EXAMPLE...
+Mobile Client render Flashcard theo SemanticRole:
+├─ Mặt trước (Front): Các element trước SECTION_BREAK (hoặc TARGET_WORD, AUDIO...)
+├─ Mặt sau (Back): Các element sau SECTION_BREAK (hoặc DEFINITION, TRANSLATION, EXAMPLE...)
                  │
                  ▼
-Learner đánh giá độ nhớ (Again, Hard, Good, Easy)
-                 │
-                 ▼
-Backend cập nhật FsrsRecord (stability, difficulty, due, reps, lapses)
+Learner đánh giá độ nhớ (Again, Hard, Good, Easy) -> Cập nhật FsrsRecord
 ```
 
 ### 3.3. Xử lý dữ liệu khuyết thiếu & Thay đổi thuộc tính
@@ -145,28 +163,51 @@ Backend cập nhật FsrsRecord (stability, difficulty, due, reps, lapses)
 
 ### 4.1. Chi tiết các bảng liên quan
 
+#### Bảng `schemas`
+
+Lưu lược đồ thuộc tính độc lập và danh mục template của lược đồ.
+
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `bigint(20)` | PK, AUTO_INCREMENT | Định danh lược đồ |
+| `code` | `varchar(50)` | UNIQUE, NULLABLE | Mã định danh chuẩn cho schema hệ thống (`DEFAULT_ENGLISH`...) |
+| `name` | `varchar(255)` | NOT NULL | Tên lược đồ (ví dụ: "Tiếng Anh Chuẩn", "Kanji Nhật") |
+| `description` | `text` | NULLABLE | Mô tả chi tiết về lược đồ |
+| `is_system` | `bit(1)` | NOT NULL, DEFAULT 0 | Đánh dấu lược đồ mẫu mặc định của hệ thống |
+| `created_at` | `datetime(6)` | NOT NULL | Thời điểm tạo |
+| `updated_at` | `datetime(6)` | NOT NULL | Thời điểm cập nhật |
+
 #### Bảng `templates`
 
-Lưu cấu hình template của chủ đề.
+Lưu cấu hình template hiển thị của Schema (hỗ trợ nhiều mode học khác nhau).
 
 | Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
 | `id` | `bigint(20)` | PK, AUTO_INCREMENT | Định danh template |
-| `topic_id` | `bigint(20)` | FK -> `topics(id)`, NOT NULL | Chủ đề sở hữu template |
-| `name` | `varchar(255)` | NOT NULL | Tên template (ví dụ: "Template Từ vựng Cơ bản", "Template Nghe đoán từ") |
+| `schema_id` | `bigint(20)` | FK -> `schemas(id)`, NOT NULL | Lược đồ sở hữu template này |
+| `code` | `varchar(50)` | NULLABLE | Mã nhận diện mode học (`STANDARD`, `LISTENING`, `REVERSE`...) |
+| `name` | `varchar(255)` | NOT NULL | Tên template ("Thẻ Chuẩn", "Luyện nghe", "Đảo chiều") |
+| `is_default` | `bit(1)` | NOT NULL, DEFAULT 0 | Đánh dấu template mặc định được chọn khi tạo Topic |
 | `created_at` | `datetime(6)` | NOT NULL | Thời điểm tạo |
 | `updated_at` | `datetime(6)` | NOT NULL | Thời điểm cập nhật |
 
+#### Bảng `topics` (Trích đoạn các trường liên quan)
+
+| Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | `bigint(20)` | PK, AUTO_INCREMENT | Định danh chủ đề |
+| `active_template_id` | `bigint(20)` | FK -> `templates(id)`, NULLABLE | Template/Chế độ học đang áp dụng cho Topic |
+
 #### Bảng `template_elements`
 
-Lưu các phần tử thành phần của một template theo thứ tự hiển thị.
+Lưu các phần tử thành phần của một template theo thứ tự hiển thị (Layout Frappe style).
 
 | Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
 | `id` | `bigint(20)` | PK, AUTO_INCREMENT | Định danh phần tử |
 | `template_id` | `bigint(20)` | FK -> `templates(id)`, NOT NULL | Template chứa phần tử |
 | `position` | `int(11)` | NOT NULL | Thứ tự vị trí xuất hiện (0, 1, 2...) |
-| `type` | `varchar(50)` | NOT NULL | Kiểu phần tử: `FIELD`, `DIVIDER`, `BUTTON` |
+| `type` | `varchar(50)` | NOT NULL | Kiểu phần tử: `FIELD`, `SECTION_BREAK`, `COLUMN_BREAK` |
 
 > Ràng buộc duy nhất: `uk_template_element_position (template_id, position)`.
 
@@ -178,8 +219,8 @@ Lưu chi tiết cấu hình hiển thị cho các phần tử kiểu `FIELD`.
 | :--- | :--- | :--- | :--- |
 | `id` | `bigint(20)` | PK, AUTO_INCREMENT | Định danh cấu hình field |
 | `element_id` | `bigint(20)` | FK -> `template_elements(id)`, NOT NULL, UNIQUE | Phần tử tương ứng (quan hệ 1-1) |
-| `schema_attribute_id` | `bigint(20)` | FK -> `schema_attributes(id)`, NOT NULL | Thuộc tính dữ liệu được hiển thị |
-| `semantic_role` | `varchar(50)` | NULLABLE | Vai trò ngữ nghĩa (`FRONT`, `BACK`, `EXAMPLE`, `AUDIO`, `IMAGE`, v.v.) |
+| `schema_attribute_id` | `bigint(20)` | FK -> `schema_attributes(id)`, NOT NULL | Thuộc tính dữ liệu được hiển thị (cùng Schema) |
+| `semantic_role` | `varchar(50)` | NULLABLE | Vai trò ngữ nghĩa (`TARGET_WORD`, `DEFINITION`, `AUDIO`, v.v.) |
 | `field_label` | `varchar(255)` | NULLABLE | Nhãn tuỳ chỉnh hiển thị trước giá trị |
 | `hide_if_empty` | `bit(1)` | NOT NULL, DEFAULT 0 | Ẩn trường nếu giá trị rỗng |
 | `audio_action` | `bit(1)` | NOT NULL, DEFAULT 0 | Kích hoạt chức năng phát âm khi nhấn vào trường |
@@ -216,29 +257,52 @@ erDiagram
     collections ||--o{ topics : contains
     topics ||--o{ topics : "parent-child"
     topics ||--|| topic_schemas : "has (1-1)"
-    topic_schemas ||--o{ schema_attribute_groups : contains
+    schemas ||--o{ topic_schemas : "applies to (1-N)"
+    schemas ||--o{ schema_attribute_groups : contains
     schema_attribute_groups ||--o{ schema_attributes : contains
+    schemas ||--o{ templates : "defines views (1-N)"
+    topics }o--o| templates : "active learning mode (active_template_id)"
+    templates ||--o{ template_elements : contains
+    template_elements ||--o| template_fields : "specifies (type=FIELD)"
+    schema_attributes ||--o{ template_fields : "mapped to"
     topics ||--o{ topic_items : contains
     topic_items ||--o{ topic_item_attribute_groups : has
     topic_item_attribute_groups ||--o{ topic_item_attribute_values : contains
     schema_attributes ||--o{ topic_item_attribute_values : "defines schema for"
-    topics ||--o{ templates : "configures"
-    templates ||--o{ template_elements : contains
-    template_elements ||--o| template_fields : "specifies (type=FIELD)"
-    schema_attributes ||--o{ template_fields : "mapped to"
     users ||--o{ fsrs_records : reviews
     topic_items ||--o{ fsrs_records : "tracked by"
+
+    schemas {
+        bigint id PK
+        varchar code UK
+        varchar name
+        text description
+        bit is_system
+        datetime created_at
+        datetime updated_at
+    }
+
+    topics {
+        bigint id PK
+        bigint collection_id FK
+        bigint parent_id FK
+        bigint active_template_id FK
+        varchar name
+        datetime created_at
+        datetime updated_at
+    }
 
     topic_schemas {
         bigint id PK
         bigint topic_id FK_UK
+        bigint schema_id FK
         datetime created_at
         datetime updated_at
     }
 
     schema_attribute_groups {
         bigint id PK
-        bigint schema_id FK
+        bigint schema_id FK "FK trỏ sang schemas"
         varchar name
         varchar label
         bit multiple
@@ -261,8 +325,10 @@ erDiagram
 
     templates {
         bigint id PK
-        bigint topic_id FK
+        bigint schema_id FK
+        varchar code
         varchar name
+        bit is_default
         datetime created_at
         datetime updated_at
     }
@@ -271,14 +337,14 @@ erDiagram
         bigint id PK
         bigint template_id FK
         int position
-        varchar type "FIELD, DIVIDER, BUTTON"
+        varchar type "FIELD, SECTION_BREAK, COLUMN_BREAK"
     }
 
     template_fields {
         bigint id PK
         bigint element_id FK_UK
         bigint schema_attribute_id FK
-        varchar semantic_role "FRONT, BACK, EXAMPLE, AUDIO..."
+        varchar semantic_role "TARGET_WORD, DEFINITION, AUDIO..."
         varchar field_label
         bit hide_if_empty
         bit audio_action
@@ -307,19 +373,45 @@ erDiagram
 
 | Bảng | Vai trò | Ghi chú |
 | :--- | :--- | :--- |
-| `topics` | Đơn vị tổ chức kiến thức | Sở hữu schema thuộc tính riêng (1-1) và liên kết với template thẻ học. |
-| `topic_schemas` | Lược đồ thuộc tính của Topic | Quản lý tập hợp các nhóm thuộc tính động của từng chủ đề. |
-| `schema_attribute_groups` | Nhóm thuộc tính schema | Gom nhóm các thuộc tính liên quan (ví dụ main, examples). |
+| `topics` | Đơn vị tổ chức kiến thức | Liên kết 1-1 với `topic_schemas` và trỏ tới `active_template_id` của Schema. |
+| `schemas` | Lược đồ thuộc tính độc lập | Quản lý tập hợp các nhóm, thuộc tính động và danh mục templates hiển thị. |
+| `topic_schemas` | Cầu nối Topic - Schema | Entity trung gian gán Topic với Schema tương ứng (1-1 với Topic, N-1 với Schema). |
+| `schema_attribute_groups` | Nhóm thuộc tính schema | Gom nhóm các thuộc tính liên quan (ví dụ main, examples), thuộc `schemas`. |
 | `schema_attributes` | Định nghĩa thuộc tính | Tên trường, nhãn, kiểu dữ liệu, thứ tự hiển thị cơ bản. |
+| `templates` | Mẫu hiển thị thẻ của Schema | Thuộc về `schemas`, đại diện cho các mode học (Standard, Listening, Reverse...). |
+| `template_elements` | Khối phần tử trên thẻ | Lưu thứ tự `position` và kiểu (`FIELD`, `SECTION_BREAK`, `COLUMN_BREAK`). |
+| `template_fields` | Thiết lập trường hiển thị | Map phần tử với `schema_attribute_id` (cùng Schema), gán `semantic_role` và styling. |
 | `topic_items` | Mục từ vựng thực tế | Từng mục kiến thức trong chủ đề, mang các giá trị thuộc tính tương ứng. |
-| `templates` | Cấu hình giao diện thẻ của Topic | Mỗi topic có thể có template xác định cách render flashcard cho toàn bộ các item. |
-| `template_elements` | Khối phần tử trên thẻ | Lưu thứ tự `position` và phân loại phần tử (`FIELD`, `DIVIDER`, `BUTTON`). |
-| `template_fields` | Thiết lập trường hiển thị | Map phần tử với `schema_attribute_id`, gán `semantic_role` và các thuộc tính styling. |
 | `fsrs_records` | Trạng thái ghi nhớ FSRS | Theo dõi độ ổn định (stability), độ khó (difficulty) và lịch ôn tập `due` cho từng `(user_id, topic_item_id)`. |
+
+### 4.3. Chiến lược Tiến hóa Lược đồ: Copy-on-Write (Fork) & Additive Evolution
+
+Nhằm đảm bảo tính toàn vẹn dữ liệu khi nhiều Topic cùng chia sẻ một Schema:
+
+1. **Template làm lớp hiển thị đa chế độ (Multi-mode Views)**: 
+   - `Template` chính là View Layer, còn `Schema` là Data Contract.
+   - Một Schema có sẵn nhiều Template ứng với các chế độ học (Standard, Listening, Reverse). Topic chỉ cần chuyển đổi `active_template_id` là có thể đổi cách học ngay tức thì mà không cần đụng chạm dữ liệu từ vựng.
+2. **Tiến hóa mở rộng (Additive Evolution)**:
+   - Trên Schema dùng chung, chỉ cho phép **thêm mới** thuộc tính (các thuộc tính mới mặc định là tùy chọn).
+   - Hệ thống ngăn chặn việc xóa hoặc đổi kiểu dữ liệu của các thuộc tính đang có dữ liệu (`topic_item_attribute_values`) hoặc đang được tham chiếu bởi `template_fields`.
+3. **Copy-on-Write (Fork Schema & Templates)**:
+   - Khi người dùng muốn tùy biến sâu cấu trúc thuộc tính hoặc sửa đổi các template cho riêng Topic của mình:
+   - Gọi API `POST /api/topics/{topicId}/schema/fork`.
+   - Hệ thống thực thi trong một `@Transactional` duy nhất:
+     1. Nhân bản (clone) Schema hiện tại thành một Schema độc lập mới (`code = null`, `is_system = false`).
+     2. Nhân bản toàn bộ nhóm thuộc tính (`SchemaAttributeGroup`) và thuộc tính con (`SchemaAttribute`), xây dựng bảng ánh xạ ID cũ -> ID mới.
+     3. Nhân bản toàn bộ danh sách `Template` của Schema cũ sang Schema mới.
+     4. Nhân bản toàn bộ `TemplateElement` và `TemplateField` của từng template, re-map `schema_attribute_id` sang thuộc tính mới tương ứng.
+     5. Cập nhật `topic_schemas.schema_id` sang Schema mới.
+     6. Cập nhật `topic.active_template_id` sang Template clone tương ứng.
+     7. Tự động re-map toàn bộ khóa ngoại trong `topic_item_attribute_values` và `topic_item_attribute_groups` của Topic đó sang các thuộc tính mới vừa clone.
+     8. Sau khi fork, Topic sở hữu Schema và bộ Template hoàn toàn riêng biệt, tự do tùy biến mà không ảnh hưởng tới bất kỳ Topic nào khác.
 
 ---
 
 ## 5. Enumeration trong Mã nguồn Backend
+
+Các enum thuộc package `vn.ptit.snapvocab.domain.enumeration`:
 
 ### `SemanticRole`
 
@@ -327,28 +419,24 @@ erDiagram
 
 ```java
 public enum SemanticRole {
-    FRONT,          // Mặt trước thẻ (từ khóa chính, câu hỏi)
-    BACK,           // Mặt sau thẻ (giải nghĩa chính, câu trả lời)
-    EXAMPLE,        // Câu ví dụ hoặc ngữ cảnh
-    AUDIO,          // Âm thanh phát âm
-    IMAGE,          // Ảnh minh họa
-    PHONETIC,       // Phiên âm ngữ âm (IPA)
-    TRANSLATION,    // Bản dịch nghĩa tiếng Việt bổ trợ
-    HINT,           // Gợi ý khi cần
-    TAG,            // Nhãn phân loại hoặc cấp độ
-    EXTRA           // Thông tin phụ hoặc ghi chú
+    TARGET_WORD,        // Từ vựng mục tiêu / câu hỏi chính
+    EXAMPLE_SENTENCE,   // Câu ví dụ minh họa hoặc ngữ cảnh
+    NATIVE_TRANSLATION, // Bản dịch tiếng mẹ đẻ (tiếng Việt) bổ trợ
+    DEFINITION,         // Định nghĩa / giải nghĩa từ vựng
+    AUDIO,              // Dữ liệu âm thanh phát âm
+    IMAGE               // Hình ảnh minh họa trực quan
 }
 ```
 
 ### `TemplateElementType`
 
-Phân loại phần tử bố cục trong template:
+Phân loại phần tử bố cục trong template (chuẩn Frappe layout):
 
 ```java
 public enum TemplateElementType {
     FIELD,          // Trường dữ liệu hiển thị (liên kết 1-1 với TemplateField)
-    DIVIDER,        // Đường kẻ phân tách bố cục (ví dụ ngăn cách Front và Back)
-    BUTTON          // Nút tương tác (nút lật thẻ, nút nghe âm thanh)
+    COLUMN_BREAK,   // Ngắt cột bố cục (chia layout nhiều cột)
+    SECTION_BREAK   // Phân tách khối thẻ (ngăn cách Mặt trước / Mặt sau)
 }
 ```
 
@@ -360,7 +448,8 @@ Căn lề văn bản của trường hiển thị:
 public enum Alignment {
     LEFT,
     CENTER,
-    RIGHT
+    RIGHT,
+    JUSTIFY
 }
 ```
 
@@ -382,38 +471,49 @@ public enum CardState {
 
 ## 6. Quy tắc Nghiệp vụ (Business Rules)
 
-### 6.1. Quản lý Template & Bố cục
+### 6.1. Quản lý Schema & Template (Unified Studio)
 
-1. **Gắn kết theo Topic**: Mỗi `Topic` có một `Template` quy định layout flashcard cho toàn bộ các `TopicItem` thuộc chủ đề đó.
-2. **Tính toàn vẹn của thứ tự (`position`)**: Trường `position` trong `template_elements` phải là số nguyên không âm và là duy nhất trong phạm vi một template (ràng buộc `uk_template_element_position`). Khi client hiển thị, các phần tử được sắp xếp theo thứ tự `position ASC`.
-3. **Quan hệ 1-1 giữa Element và Field**: Mỗi phần tử có kiểu `type = FIELD` bắt buộc phải có đúng một bản ghi `template_fields` tương ứng; các kiểu `DIVIDER` hoặc `BUTTON` không chứa `template_fields`.
-4. **Tính hợp lệ của thuộc tính**: `topic_attribute_id` trong `template_fields` phải thuộc về danh mục thuộc tính của chính `Topic` đó (thông qua `topic_attribute_groups`).
-5. **Xóa tầng (Cascade delete)**: Khi xóa một `Topic`, hệ thống cascade xóa `Template`, toàn bộ `TemplateElement`, `TemplateField` và `TopicItem` liên quan.
+1. **Gắn kết Template vào Schema**: Mỗi `Template` thuộc về một `Schema` (`schemas (1) --- (N) templates`). Một Schema có thể có nhiều Template tương ứng với các chế độ học khác nhau (`STANDARD`, `LISTENING`, `REVERSE`).
+2. **Định danh Hệ thống bằng `code`**:
+   - Schema mẫu hệ thống có `code` bất biến (ví dụ: `DEFAULT_ENGLISH`) và `is_system = true`.
+   - Template mẫu hệ thống có `code` bất biến (ví dụ: `STANDARD`, `LISTENING`, `REVERSE`) và `is_default` xác định template mặc định ban đầu.
+   - Tuyệt đối không hardcode ID số tự tăng trong code logic hay seed data.
+3. **Toàn vẹn khóa ngoại của Field**: `schema_attribute_id` trong `template_fields` bắt buộc phải thuộc về chính `Schema` sở hữu Template đó (thông qua `schema_attribute_groups`). Điều này ngăn chặn 100% lỗi template trỏ nhầm sang thuộc tính của schema khác.
+4. **Tính toàn vẹn của thứ tự (`position`)**: Trường `position` trong `template_elements` phải là số nguyên không âm và là duy nhất trong phạm vi một template (ràng buộc `uk_template_element_position`). Khi client hiển thị, các phần tử được sắp xếp theo thứ tự `position ASC`.
+5. **Quan hệ 1-1 giữa Element và Field**: Mỗi phần tử có kiểu `type = FIELD` bắt buộc phải có đúng một bản ghi `template_fields` tương ứng; các kiểu `SECTION_BREAK` hoặc `COLUMN_BREAK` không chứa `template_fields`.
+6. **Xóa tầng (Cascade delete)**: Khi xóa một `Schema`, hệ thống cascade xóa toàn bộ `Template`, `TemplateElement` và `TemplateField` liên quan.
 
-### 6.2. Hiển thị & Rendering trên Ứng dụng Di động
+### 6.2. Hiển thị & Đa chế độ học (Multi-mode Learning)
 
-1. **Phân định hai mặt thẻ dựa theo `SemanticRole`**:
-   - Mặt trước (Front): Hiển thị các trường có `semantic_role` là `FRONT`, kèm theo các trường hỗ trợ như `PHONETIC`, `AUDIO` (nếu có).
-   - Mặt sau (Back): Hiển thị các trường có `semantic_role` là `BACK`, `TRANSLATION`, `EXAMPLE`, `EXTRA`, `HINT`.
-2. **Ẩn trường trống (`hide_if_empty = true`)**: Nếu một mục từ không có dữ liệu cho thuộc tính tương ứng, ứng dụng di động sẽ tự động bỏ qua khối hiển thị đó mà không để lại khoảng trống bất thường.
-3. **Hành vi âm thanh (`audio_action = true`)**: Khi người dùng nhấn vào trường có cờ này hoặc trường có vai trò `AUDIO`, ứng dụng sẽ kích hoạt phát file âm thanh phát âm.
-4. **Định dạng linh hoạt**: Các thuộc tính `font_size`, `alignment`, `color` trên `template_fields` cho phép giao diện ứng dụng tự động áp dụng styling mà không cần can thiệp mã nguồn ứng dụng di động.
+1. **Chọn Chế độ học cho Topic**: Mỗi `Topic` trỏ tới `active_template_id` của Schema tương ứng.
+   - Tạo Topic mới: Mặc định gán Schema hệ thống (`DEFAULT_ENGLISH`) và Template mặc định (`is_default = true`, tức `STANDARD`).
+   - Đổi chế độ học: Người học có thể đổi chế độ ôn tập (Standard -> Listening -> Reverse) ngay trên Topic settings hoặc trước phiên học. Hệ thống chỉ cập nhật `topic.active_template_id`.
+   - Không nhân bản dữ liệu: Dữ liệu từ vựng EAV (`topic_items`) và tiến trình FSRS (`fsrs_records`) được bảo toàn trọn vẹn.
+2. **Phân định hai mặt thẻ dựa theo `SECTION_BREAK` & `SemanticRole`**:
+   - Mặt trước (Front): Các phần tử xuất hiện trước `SECTION_BREAK` đầu tiên (ví dụ `TARGET_WORD`, `AUDIO`).
+   - Mặt sau (Back): Các phần tử xuất hiện sau `SECTION_BREAK` (ví dụ `DEFINITION`, `NATIVE_TRANSLATION`, `EXAMPLE_SENTENCE`, `IMAGE`).
+3. **Ẩn trường trống (`hide_if_empty = true`)**: Nếu một mục từ không có dữ liệu cho thuộc tính tương ứng, ứng dụng di động sẽ tự động bỏ qua khối hiển thị đó mà không để lại khoảng trống bất thường.
+4. **Hành vi âm thanh (`audio_action = true`)**: Khi người dùng nhấn vào trường có cờ này hoặc trường có vai trò `AUDIO`, ứng dụng sẽ kích hoạt phát file âm thanh phát âm.
 
 ### 6.3. Quản lý Ôn tập FSRS
 
 1. **Theo dõi tiến trình trực tiếp**: Trạng thái ôn tập của từng người học được lưu tại bảng `fsrs_records` cho từng cặp `(user_id, topic_item_id)`.
-2. **Độc lập giao diện**: Thay đổi cấu hình template của Topic chỉ làm thay đổi cách hiển thị thẻ, hoàn toàn không làm gián đoạn hoặc sai lệch các tham số FSRS (`stability`, `difficulty`, `due`, `reps`, `lapses`).
+2. **Độc lập giao diện**: Thay đổi chế độ học (`active_template_id`) hoặc sửa đổi layout template chỉ làm thay đổi cách hiển thị thẻ, hoàn toàn không làm gián đoạn hoặc sai lệch các tham số FSRS (`stability`, `difficulty`, `due`, `reps`, `lapses`).
 
 ---
 
 ## 7. Thiết kế API Endpoints
 
-### 7.1. Quản lý Topic Template
+### 7.1. Quản lý Topic & Template
 
 | Phương thức | Đường dẫn | Mô tả | Quyền truy cập |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/topics/{topicId}/template` | Lấy thông tin template và danh sách elements, fields của chủ đề | Bearer JWT |
-| `PUT` | `/api/v1/topics/{topicId}/template` | Cập nhật cấu hình template cho chủ đề | Bearer JWT |
+| `POST` | `/api/v1/collections/{collectionId}/topics` | Tạo Topic mới (tự động gán Schema & Template mặc định nếu không truyền) | Bearer JWT |
+| `PUT` | `/api/v1/topics/{topicId}/active-template/{templateId}` | Thay đổi chế độ học (active template) cho Topic | Bearer JWT |
+| `POST` | `/api/v1/topics/{topicId}/schema/fork` | Fork Schema và toàn bộ Templates riêng cho Topic | Bearer JWT |
+| `GET` | `/api/v1/schemas/{schemaId}/templates` | Lấy danh sách các templates của một Schema | Bearer JWT |
+| `GET` | `/api/v1/templates/{id}` | Lấy chi tiết một Template kèm các Elements và Fields | Bearer JWT |
+| `PUT` | `/api/v1/templates/{id}` | Cập nhật layout cho một Template | Bearer JWT |
 
 #### Response mẫu: Cấu hình Template của Topic
 
@@ -421,9 +521,11 @@ public enum CardState {
 {
   "statusCode": 200,
   "data": {
-    "id": 12,
-    "topicId": 45,
-    "name": "Template Từ vựng Tiếng Anh Chuẩn",
+    "id": 1,
+    "schemaId": 1,
+    "code": "STANDARD",
+    "name": "Standard Flashcard",
+    "isDefault": true,
     "elements": [
       {
         "id": 101,
@@ -431,8 +533,8 @@ public enum CardState {
         "type": "FIELD",
         "field": {
           "id": 201,
-          "topicAttributeId": 5,
-          "semanticRole": "FRONT",
+          "schemaAttributeId": 1,
+          "semanticRole": "TARGET_WORD",
           "fieldLabel": "Từ vựng",
           "hideIfEmpty": false,
           "audioAction": false,
@@ -447,9 +549,9 @@ public enum CardState {
         "type": "FIELD",
         "field": {
           "id": 202,
-          "topicAttributeId": 6,
-          "semanticRole": "PHONETIC",
-          "fieldLabel": "Phiên âm",
+          "schemaAttributeId": 4,
+          "semanticRole": "AUDIO",
+          "fieldLabel": "Phát âm",
           "hideIfEmpty": true,
           "audioAction": true,
           "fontSize": 16,
@@ -460,7 +562,7 @@ public enum CardState {
       {
         "id": 103,
         "position": 2,
-        "type": "DIVIDER",
+        "type": "SECTION_BREAK",
         "field": null
       },
       {
@@ -469,9 +571,9 @@ public enum CardState {
         "type": "FIELD",
         "field": {
           "id": 203,
-          "topicAttributeId": 7,
-          "semanticRole": "BACK",
-          "fieldLabel": "Nghĩa",
+          "schemaAttributeId": 3,
+          "semanticRole": "DEFINITION",
+          "fieldLabel": "Định nghĩa",
           "hideIfEmpty": false,
           "audioAction": false,
           "fontSize": 20,
@@ -485,8 +587,8 @@ public enum CardState {
         "type": "FIELD",
         "field": {
           "id": 204,
-          "topicAttributeId": 8,
-          "semanticRole": "EXAMPLE",
+          "schemaAttributeId": 5,
+          "semanticRole": "EXAMPLE_SENTENCE",
           "fieldLabel": "Ví dụ",
           "hideIfEmpty": true,
           "audioAction": false,
@@ -506,7 +608,7 @@ public enum CardState {
 
 | Phương thức | Đường dẫn | Mô tả | Quyền truy cập |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/topics/{topicId}/study-session` | Tải phiên ôn tập: bao gồm template và các mục đến hạn kèm dữ liệu thuộc tính | Bearer JWT |
+| `GET` | `/api/v1/topics/{topicId}/study-session` | Tải phiên ôn tập: template đang active và các mục đến hạn | Bearer JWT |
 | `POST` | `/api/v1/fsrs-records/{id}/review` | Gửi kết quả đánh giá thẻ (Again, Hard, Good, Easy) | Bearer JWT |
 
 #### Response mẫu: Dữ liệu phiên học Flashcard
@@ -516,23 +618,28 @@ public enum CardState {
   "statusCode": 200,
   "data": {
     "topicId": 45,
-    "template": {
-      "id": 12,
-      "name": "Template Từ vựng Tiếng Anh Chuẩn",
+    "activeTemplate": {
+      "id": 1,
+      "code": "STANDARD",
+      "name": "Standard Flashcard",
       "elements": [
         {
           "position": 0,
           "type": "FIELD",
-          "semanticRole": "FRONT",
-          "attributeId": 5,
+          "semanticRole": "TARGET_WORD",
+          "attributeId": 1,
           "fontSize": 24,
           "alignment": "CENTER"
         },
         {
           "position": 1,
+          "type": "SECTION_BREAK"
+        },
+        {
+          "position": 2,
           "type": "FIELD",
-          "semanticRole": "BACK",
-          "attributeId": 7,
+          "semanticRole": "DEFINITION",
+          "attributeId": 3,
           "fontSize": 20,
           "alignment": "LEFT"
         }
@@ -551,10 +658,10 @@ public enum CardState {
           "lapses": 0
         },
         "values": [
-          { "attributeId": 5, "attributeName": "word", "value": "perseverance" },
-          { "attributeId": 6, "attributeName": "ipa", "value": "/ˌpɜːrsəˈvɪərəns/" },
-          { "attributeId": 7, "attributeName": "meaning", "value": "sự kiên trì, bền bỉ" },
-          { "attributeId": 8, "attributeName": "example", "value": "Success requires perseverance." }
+          { "attributeId": 1, "attributeName": "word", "value": "perseverance" },
+          { "attributeId": 2, "attributeName": "phonetic", "value": "/ˌpɜːrsəˈvɪərəns/" },
+          { "attributeId": 3, "attributeName": "meaning", "value": "sự kiên trì, bền bỉ" },
+          { "attributeId": 5, "attributeName": "example", "value": "Success requires perseverance." }
         ]
       }
     ]
@@ -566,39 +673,57 @@ public enum CardState {
 
 ## 8. Dữ liệu Mẫu (Seed Data)
 
-Dưới đây là kịch bản SQL mẫu khởi tạo template cơ bản cho một chủ đề từ vựng:
+Dưới đây là kịch bản SQL mẫu khởi tạo Schema hệ thống và 3 Template tương ứng:
 
 ```sql
--- 1. Khởi tạo template cho topic_id = 1
-INSERT INTO templates (id, topic_id, name, created_at, updated_at)
-VALUES (1, 1, 'Mẫu Thẻ Từ Vựng Cơ Bản', NOW(), NOW());
+-- 1. Khởi tạo Schema hệ thống DEFAULT_ENGLISH
+INSERT INTO schemas (id, code, name, description, is_system, created_at, updated_at)
+VALUES (1, 'DEFAULT_ENGLISH', 'Tiếng Anh Chuẩn', 'Schema từ vựng tiếng Anh mặc định', 1, NOW(), NOW());
 
--- 2. Khởi tạo các phần tử TemplateElement
+-- 2. Khởi tạo nhóm thuộc tính và các thuộc tính
+INSERT INTO schema_attribute_groups (id, schema_id, name, label, multiple, position, created_at, updated_at)
+VALUES (1, 1, 'main', 'Thông tin từ vựng', 0, 0, NOW(), NOW());
+
+INSERT INTO schema_attributes (id, group_id, name, label, data_type, required, position, created_at, updated_at) VALUES
+(1, 1, 'word', 'Từ vựng', 'TEXT', 1, 0, NOW(), NOW()),
+(2, 1, 'phonetic', 'Phiên âm', 'TEXT', 0, 1, NOW(), NOW()),
+(3, 1, 'meaning', 'Định nghĩa', 'TEXT', 1, 2, NOW(), NOW()),
+(4, 1, 'audio', 'Phát âm', 'AUDIO', 0, 3, NOW(), NOW()),
+(5, 1, 'example', 'Ví dụ', 'TEXT', 0, 4, NOW(), NOW()),
+(6, 1, 'image', 'Hình ảnh', 'IMAGE', 0, 5, NOW(), NOW());
+
+-- 3. Khởi tạo 3 Template cho Schema (Standard, Listening, Reverse)
+INSERT INTO templates (id, schema_id, code, name, is_default, created_at, updated_at) VALUES
+(1, 1, 'STANDARD', 'Thẻ Chuẩn', 1, NOW(), NOW()),
+(2, 1, 'LISTENING', 'Luyện Nghe', 0, NOW(), NOW()),
+(3, 1, 'REVERSE', 'Đảo Chiều (Đoán Từ)', 0, NOW(), NOW());
+
+-- 4. Cấu hình Elements & Fields cho STANDARD Template
 INSERT INTO template_elements (id, template_id, position, type) VALUES
 (1, 1, 0, 'FIELD'),
-(2, 1, 1, 'FIELD'),
-(3, 1, 2, 'DIVIDER'),
-(4, 1, 3, 'FIELD'),
-(5, 1, 4, 'FIELD');
+(2, 1, 1, 'SECTION_BREAK'),
+(3, 1, 2, 'FIELD'),
+(4, 1, 3, 'FIELD');
 
--- 3. Cấu hình chi tiết TemplateField
-INSERT INTO template_fields (element_id, topic_attribute_id, semantic_role, field_label, hide_if_empty, audio_action, font_size, alignment, color) VALUES
-(1, 1, 'FRONT', 'Từ vựng', 0, 0, 24, 'CENTER', '#111827'),
-(2, 2, 'PHONETIC', 'Phiên âm', 1, 1, 16, 'CENTER', '#6B7280'),
-(4, 3, 'BACK', 'Giải nghĩa', 0, 0, 20, 'LEFT', '#1F2937'),
-(5, 4, 'EXAMPLE', 'Ví dụ', 1, 0, 15, 'LEFT', '#4B5563');
+INSERT INTO template_fields (element_id, schema_attribute_id, semantic_role, field_label, hide_if_empty, audio_action, font_size, alignment, color) VALUES
+(1, 1, 'TARGET_WORD', 'Từ vựng', 0, 0, 24, 'CENTER', '#111827'),
+(3, 3, 'DEFINITION', 'Giải nghĩa', 0, 0, 20, 'LEFT', '#1F2937'),
+(4, 5, 'EXAMPLE_SENTENCE', 'Ví dụ', 1, 0, 15, 'LEFT', '#4B5563');
 ```
 
 ---
 
 ## 9. Chuyển dịch Kiến trúc & Tương thích
 
-Hệ thống đã hoàn tất tái cấu trúc, thay thế hoàn toàn mô hình thực thể cũ (`decks`, `notes`, `cards`, `card_templates`) sang mô hình mới:
+Hệ thống đã hoàn tất tái cấu trúc, hoàn thiện mô hình:
 
-1. **Từ vựng & Thư mục**: Thay thế `Deck` bằng `Collection` (hỗ trợ phân loại `SYSTEM` hoặc `USER`) và `Topic` (hỗ trợ quan hệ phân cấp cha - con).
-2. **Nội dung thẻ**: Thay thế bảng `Note` cứng bằng `TopicItem` kết hợp thuộc tính động EAV (`topic_attributes`, `topic_item_attribute_values`).
-3. **Mẫu hiển thị**: Thay thế `CardTemplate` cũ bằng bộ ba `templates`, `template_elements`, `template_fields` gắn liền với `Topic`.
-4. **Theo dõi ôn tập**: Thay thế bảng `Card` bằng `fsrs_records` kết nối trực tiếp `users` và `topic_items`.
+1. **Từ vựng & Thư mục**: `Collection` (phân loại `SYSTEM` hoặc `USER`) và `Topic` (hỗ trợ phân cấp cây cha - con).
+2. **Lược đồ & Hiển thị Thẻ**: 
+   - `Schema` độc lập đóng vai trò Data Contract.
+   - `templates` gắn với `Schema` đóng vai trò View Layer (hỗ trợ nhiều chế độ học cho cùng một bộ từ vựng).
+   - `Topic` liên kết với `Schema` qua `topic_schemas` và trỏ tới `active_template_id`.
+3. **Nội dung thẻ**: `TopicItem` kết hợp thuộc tính động EAV (`schema_attributes`, `topic_item_attribute_values`).
+4. **Theo dõi ôn tập**: `fsrs_records` kết nối trực tiếp `users` và `topic_items`, hoàn toàn độc lập với việc thay đổi chế độ học.
 
 ---
 
@@ -607,20 +732,26 @@ Hệ thống đã hoàn tất tái cấu trúc, thay thế hoàn toàn mô hình
 | Phân hệ | Mối liên hệ và tương tác |
 | :--- | :--- |
 | **Thuật toán SRS FSRS** | FSRS tính toán lịch ôn tập và lưu trữ trực tiếp trên bảng `fsrs_records`. Template chỉ quyết định lớp hiển thị của thẻ, không làm thay đổi các biến số tính toán của thuật toán. |
-| **Quét từ vựng (Scan-to-Vocabulary)** | Dữ liệu từ vựng nhận diện qua OCR/LLM sau khi xác nhận sẽ được lưu thành `TopicItem` thuộc một `Topic` đã chọn. Mục từ này ngay lập tức thừa hưởng template hiển thị của Topic đó. |
+| **Quét từ vựng (Scan-to-Vocabulary)** | Dữ liệu từ vựng nhận diện qua OCR/LLM sau khi xác nhận sẽ được lưu thành `TopicItem` thuộc một `Topic` đã chọn. Mục từ này ngay lập tức hiển thị theo template đang active của Topic đó. |
 | **Gamification & Thống kê** | Mỗi lượt gửi kết quả đánh giá FSRS thành công được tính vào chỉ số hoàn thành mục tiêu học tập hàng ngày và tích lũy điểm kinh nghiệm (XP) cho người học. |
 
 ---
 
 ## 11. Phụ lục: Lịch sử Quyết định Thiết kế
 
-Trong quá trình xây dựng hệ thống flashcard, bài toán quản lý giao diện thẻ học đã được cân nhắc qua các phương án:
+Trong quá trình xây dựng hệ thống flashcard, bài toán quản lý giao diện thẻ học đã được nâng cấp qua các giai đoạn:
 
-1. **Phương án cấu hình cố định trên từng thẻ**: Lưu loại thẻ cố định trên từng bản ghi. Bị loại bỏ vì không đáp ứng được yêu cầu mở rộng thuộc tính linh hoạt theo chủ đề.
-2. **Phương án cấu hình template độc lập tự do**: Cho phép người dùng tạo template rời và gán nhiều template vào một danh mục từ. Bị loại bỏ do gây phức tạp hóa trải nghiệm trên ứng dụng di động và làm phát sinh bài toán trùng lặp thẻ anh em (sibling cards).
-3. **Phương án Topic Template gắn thuộc tính ngữ nghĩa (`SemanticRole`)**: Mỗi `Topic` quản lý một bộ thuộc tính (`TopicAttribute`) và có một `Template` định nghĩa bố cục cùng vai trò ngữ nghĩa của các thuộc tính đó. Đây là **phương án được phê duyệt chính thức**.
+1. **Giai đoạn 1 (Cố định cứng)**: Lưu loại thẻ cố định trên từng bản ghi Note/Card. Bị loại bỏ vì không đáp ứng được yêu cầu thuộc tính động EAV.
+2. **Giai đoạn 2 (Topic Template riêng lẻ)**: Mỗi Topic sở hữu Template riêng (`templates.topic_id`). Bị nâng cấp vì dẫn đến việc trùng lặp template trên hàng ngàn topic, khó hỗ trợ Đa chế độ học (Multi-mode Learning) và tách rời cấu hình dữ liệu/giao diện.
+3. **Giai đoạn 3 (Schema-Template Unified Studio - Frappe style)**:
+   - `Template` thuộc về `Schema` (`schemas (1) --- (N) templates`).
+   - Một Schema có sẵn nhiều Template (Standard, Listening, Reverse).
+   - Topic chỉ cần chọn `active_template_id` để chuyển chế độ học.
+   - Khi cần tùy biến sâu cho Topic, hệ thống tự động Fork cả Schema và Templates sang bản sao riêng biệt trong 1 transaction.
+   - Định danh hệ thống bằng chuỗi `code` bất biến thay vì ID số tự tăng.
 
-**Lợi ích của thiết kế hiện tại:**
-- **Nhất quán mô hình dữ liệu**: Tương thích hoàn toàn với mô hình EAV của `TopicItem`, dữ liệu không bị nhân bản thừa thãi.
-- **Tách bạch giao diện và thuật toán**: Bố cục thẻ (`Template`) độc lập với trạng thái ghi nhớ của người học (`fsrs_records`).
-- **Tối ưu trải nghiệm di động**: Ứng dụng di động chỉ cần đọc cấu hình `position` và `semantic_role` để hiển thị giao diện mượt mà, không yêu cầu phân tích cú pháp HTML/CSS phức tạp.
+**Lợi ích vượt trội của thiết kế hiện tại:**
+- **Đa chế độ học không nhân bản dữ liệu**: Học nghe, học chữ hay đảo chiều đều dùng chung 1 bộ từ vựng EAV và 1 tiến trình FSRS duy nhất.
+- **Toàn vẹn quan hệ 100%**: TemplateField chỉ trỏ vào thuộc tính của chính Schema đó, loại bỏ hoàn toàn lỗi orphan references.
+- **Trải nghiệm thiết kế Frappe Studio thống nhất**: Tạo/sửa trường dữ liệu và thiết kế thẻ học cùng một nơi.
+- **Tối ưu CSDL**: Hàng ngàn Topic chia sẻ chung Schema và Template hệ thống, giảm thiểu dữ liệu trùng lặp tối đa.
