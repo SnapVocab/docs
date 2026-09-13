@@ -157,6 +157,22 @@ Learner đánh giá độ nhớ (Again, Hard, Good, Easy) -> Cập nhật FsrsRe
 2. **Thay đổi cấu hình Template**: Khi cập nhật Template của Topic (thay đổi thứ tự `position`, đổi vai trò `semantic_role` hoặc màu sắc, kích cỡ chữ), toàn bộ các `TopicItem` thuộc Topic lập tức được áp dụng giao diện mới trong phiên học tiếp theo mà không cần cập nhật dữ liệu từng item.
 3. **Tiến độ FSRS độc lập**: Trạng thái học tập của từng từ (`fsrs_records`) hoàn toàn độc lập với việc thay đổi giao diện thẻ, bảo đảm dữ liệu ghi nhớ không bị ảnh hưởng khi tinh chỉnh layout.
 
+### 3.4. Phân quyền và Phạm vi hiển thị Schema (Ownership & Multi-tenancy Isolation)
+
+Để đảm bảo tính riêng tư, bảo mật và tránh rò rỉ cấu hình schema giữa các người dùng:
+
+1. **Schema Mặc định / Hệ thống (`is_system = true` hoặc `user_id IS NULL`)**:
+   - Tất cả người dùng (kể cả khách vãng lai) đều có quyền đọc danh sách (`GET /api/schemas`) và xem chi tiết (`GET /api/schemas/{id}`) để áp dụng làm mẫu chuẩn.
+   - Chỉ người dùng có vai trò Quản trị viên (`ROLE_ADMIN`) mới có quyền chỉnh sửa (`PUT`) hoặc xóa (`DELETE`).
+2. **Schema Cá nhân do người dùng tạo / fork (`user_id = :currentUserId`, `is_system = false`)**:
+   - Thuộc sở hữu riêng của người tạo.
+   - Khi gọi `GET /api/schemas`, hệ thống lọc tự động: người dùng chỉ thấy các Schema hệ thống cộng với các Schema do chính mình tạo (`WHERE is_system = true OR user_id = :currentUserId`), **tuyệt đối không hiển thị Schema của người dùng khác**.
+   - Khi truy cập trực tiếp `GET /api/schemas/{id}`, nếu schema thuộc người khác và người gọi không phải ADMIN, hệ thống sẽ chặn và trả về `403 Forbidden` (`AccessDeniedException`).
+   - Chỉ chủ sở hữu (hoặc ADMIN) mới có quyền cập nhật (`PUT /api/schemas/{id}`) hoặc xóa (`DELETE /api/schemas/{id}`).
+3. **Cơ chế gán sở hữu tự động khi Tạo mới hoặc Fork**:
+   - Khi tạo độc lập qua `POST /api/schemas`: tự động gán `user = currentUser` và `is_system = false`.
+   - Khi tạo qua Topic `POST /api/topics/{topicId}/schema` hoặc fork qua `POST /api/topics/{topicId}/schema/fork`: tự động gán `user = topic.getCollection().getOwner()` và `is_system = false`.
+
 ---
 
 ## 4. Mô hình Dữ liệu
@@ -171,6 +187,7 @@ Lưu lược đồ thuộc tính độc lập và danh mục template của lư�
 | :--- | :--- | :--- | :--- |
 | `id` | `bigint(20)` | PK, AUTO_INCREMENT | Định danh lược đồ |
 | `code` | `varchar(50)` | UNIQUE, NULLABLE | Mã định danh chuẩn cho schema hệ thống (`DEFAULT_ENGLISH`...) |
+| `user_id` | `bigint(20)` | FK -> `users(id)`, NULLABLE | Người dùng sở hữu schema (NULL cho schema hệ thống) |
 | `name` | `varchar(255)` | NOT NULL | Tên lược đồ (ví dụ: "Tiếng Anh Chuẩn", "Kanji Nhật") |
 | `description` | `text` | NULLABLE | Mô tả chi tiết về lược đồ |
 | `is_system` | `bit(1)` | NOT NULL, DEFAULT 0 | Đánh dấu lược đồ mẫu mặc định của hệ thống |
@@ -269,12 +286,14 @@ erDiagram
     topic_items ||--o{ topic_item_attribute_groups : has
     topic_item_attribute_groups ||--o{ topic_item_attribute_values : contains
     schema_attributes ||--o{ topic_item_attribute_values : "defines schema for"
+    users ||--o{ schemas : "owns (1-N)"
     users ||--o{ fsrs_records : reviews
     topic_items ||--o{ fsrs_records : "tracked by"
 
     schemas {
         bigint id PK
         varchar code UK
+        bigint user_id FK
         varchar name
         text description
         bit is_system

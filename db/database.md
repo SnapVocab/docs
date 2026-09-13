@@ -192,6 +192,7 @@ Kế thừa `BaseTimeEntity`. Định nghĩa lược đồ cấu trúc thuộc t
 | :--- | :--- | :--- | :--- |
 | `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID lược đồ |
 | `code` | VARCHAR(50) | UNIQUE, NULLABLE | Mã định danh chuẩn cho schema hệ thống (`DEFAULT_ENGLISH`...) |
+| `user_id` | BIGINT | FK -> `users(id)`, NULLABLE | Người dùng sở hữu schema (NULL cho schema hệ thống) |
 | `name` | VARCHAR(255) | NOT NULL | Tên lược đồ (vd: Standard English, Kanji...) |
 | `description` | TEXT | NULL | Mô tả chi tiết về lược đồ |
 | `is_system` | BOOLEAN | DEFAULT FALSE, NOT NULL | Đánh dấu lược đồ mẫu mặc định của hệ thống |
