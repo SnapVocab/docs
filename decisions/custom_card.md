@@ -486,6 +486,21 @@ public enum CardState {
 }
 ```
 
+### `DataType`
+
+Định nghĩa kiểu dữ liệu chuẩn cho các thuộc tính (`SchemaAttribute`):
+
+```java
+public enum DataType {
+    TEXT,       // Văn bản, chuỗi ký tự, từ vựng, phiên âm, định nghĩa...
+    AUDIO,      // Tệp âm thanh hoặc URL phát âm
+    IMAGE,      // Hình ảnh minh họa
+    NUMBER,     // Giá trị số (số nguyên, số thực, đếm)
+    BOOLEAN,    // Giá trị đúng/sai, có/không
+    DATE        // Ngày tháng, thời gian
+}
+```
+
 ---
 
 ## 6. Quy tắc Nghiệp vụ (Business Rules)
