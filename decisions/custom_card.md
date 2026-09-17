@@ -24,7 +24,7 @@ SnapVocab áp dụng mô hình **Unified Studio** (tương tự kiến trúc Doc
   - `STANDARD`: Thẻ chuẩn (Mặt trước: Từ vựng + Phiên âm + Audio; Mặt sau: Nghĩa + Ví dụ + Ảnh).
   - `LISTENING`: Luyện nghe (Mặt trước: Audio; Mặt sau: Từ vựng + Phiên âm + Nghĩa + Ví dụ).
   - `REVERSE`: Đảo chiều (Mặt trước: Nghĩa + Ảnh; Mặt sau: Từ vựng + Phiên âm + Audio).
-- **Topic chọn Chế độ học (`topic.active_template_id`)**: `Topic` liên kết với `Schema` (qua `TopicSchema`), và trỏ tới một `Template` hiện hành (`activeTemplate`) của Schema đó. Chuyển đổi chế độ học chỉ đơn giản là đổi `active_template_id` trên Topic, dữ liệu từ vựng EAV (`topic_items`) và tiến trình FSRS (`fsrs_records`) được giữ nguyên 100%.
+- **Topic chọn Chế độ học (`topic.active_template_id`)**: `Topic` liên kết trực tiếp với `Schema` (`topics.schema_id`), và trỏ tới một `Template` hiện hành (`activeTemplate`) của Schema đó. Chuyển đổi chế độ học chỉ đơn giản là đổi `active_template_id` trên Topic, dữ liệu từ vựng EAV (`topic_items`) và tiến trình FSRS (`fsrs_records`) được giữ nguyên 100%.
 - **Nhận diện hệ thống bằng Mã chuẩn (`code`)**: Các Schema và Template chuẩn của hệ thống được xác định bằng `code` chuỗi bất biến (ví dụ: `DEFAULT_ENGLISH`, `STANDARD`, `LISTENING`, `REVERSE`), tuyệt đối không phụ thuộc vào ID tự tăng của database.
 - **Copy-on-Write (Fork) tự động**: Khi người dùng muốn tùy biến sâu cấu trúc thuộc tính hoặc layout thẻ cho riêng Topic của mình, hệ thống thực hiện nhân bản (fork) đồng thời cả Schema và toàn bộ Template của nó thành một bản sao độc lập cho Topic.
 
@@ -44,13 +44,13 @@ Chức năng này thuộc phân hệ **Learning Engine**, cung cấp cấu hình
 
 ## 2. Khái niệm cốt lõi
 
-### 2.1. Lược đồ Thuộc tính (`Schema`, `TopicSchema` & `SchemaAttribute`)
+### 2.1. Lược đồ Thuộc tính (`Schema` & `SchemaAttribute`)
 
 Cấu trúc thuộc tính được tổ chức theo mô hình độc lập và tái sử dụng:
 - **`Schema` độc lập**: Định nghĩa cấu trúc khung gồm các nhóm thuộc tính (`SchemaAttributeGroup`), thuộc tính (`SchemaAttribute`) và các mẫu hiển thị (`Template`). Một `Schema` có thể được dùng chung cho hàng ngàn chủ đề (`Topic`).
   - `code`: Mã định danh chuẩn cho các schema hệ thống (ví dụ: `DEFAULT_ENGLISH`). Với schema người dùng tạo, trường này có thể là `null`.
   - `is_system`: Cờ đánh dấu schema mặc định của hệ thống (`true`/`false`).
-- **`TopicSchema` trung gian**: Mỗi `Topic` liên kết 1-1 với một bản ghi `TopicSchema`, bản ghi này trỏ khóa ngoại `schema_id` tới `Schema` (Quan hệ `Topic (1) --- (1) TopicSchema (N) --- (1) Schema`).
+- **Liên kết Topic - Schema**: Mỗi `Topic` liên kết trực tiếp với `Schema` qua khóa ngoại `schema_id` (Quan hệ `Topic (N) --- (1) Schema`).
 - Mỗi nhóm (`SchemaAttributeGroup`) chứa các thuộc tính (`SchemaAttribute`) xác định tên thuộc tính, nhãn hiển thị (`label`), kiểu dữ liệu (`dataType`), thứ tự (`position`) và trạng thái bắt buộc (`required`).
 - Các mục từ trong chủ đề (`TopicItem`) lưu giá trị thực tế tương ứng trong bảng `topic_item_attribute_values`.
 

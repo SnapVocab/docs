@@ -154,7 +154,7 @@ Kế thừa `BaseCreatedAtEntity`.
 
 ## 2. Collections, Topics & EAV Data Engine
 
-Cấu trúc thu thập, tổ chức và quản lý dữ liệu từ vựng theo cấu trúc phân cấp linh hoạt: Collection -> Topic -> TopicSchema -> TopicItem. Dữ liệu chi tiết của từng từ vựng học tập được lưu theo mô hình EAV (Entity-Attribute-Value) để đáp ứng cấu trúc đa dạng của từng chủ đề. Mỗi Topic sở hữu đúng một TopicSchema để quản lý định nghĩa các thuộc tính.
+Cấu trúc thu thập, tổ chức và quản lý dữ liệu từ vựng theo cấu trúc phân cấp linh hoạt: Collection -> Topic -> TopicItem. Dữ liệu chi tiết của từng từ vựng học tập được lưu theo mô hình EAV (Entity-Attribute-Value) để đáp ứng cấu trúc đa dạng của từng chủ đề. Mỗi Topic liên kết trực tiếp với một Schema (`schema_id`) để quản lý định nghĩa các thuộc tính và danh mục Templates hiển thị.
 
 ### Bảng `collections`
 Kế thừa `BaseTimeEntity`.
@@ -177,6 +177,7 @@ Kế thừa `BaseTimeEntity`.
 | `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID chủ đề |
 | `collection_id` | BIGINT | FK -> `collections(id)`, NOT NULL | Thuộc bộ sưu tập nào |
 | `parent_id` | BIGINT | FK -> `topics(id)`, NULLABLE | Chủ đề cha (hỗ trợ phân cấp cây chủ đề) |
+| `schema_id` | BIGINT | FK -> `schemas(id)`, NULLABLE | Lược đồ thuộc tính áp dụng cho Topic (N-1 với Schema) |
 | `active_template_id` | BIGINT | FK -> `templates(id)`, NULLABLE | Template / Chế độ học đang kích hoạt cho Topic |
 | `name` | VARCHAR(255) | NOT NULL | Tên chủ đề |
 | `translation` | VARCHAR(255) | NULL | Dịch nghĩa chủ đề |
@@ -197,17 +198,6 @@ Kế thừa `BaseTimeEntity`. Định nghĩa lược đồ cấu trúc thuộc t
 | `description` | TEXT | NULL | Mô tả chi tiết về lược đồ |
 | `is_system` | BOOLEAN | DEFAULT FALSE, NOT NULL | Đánh dấu lược đồ mẫu mặc định của hệ thống |
 | `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
-| `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
-
-### Bảng `topic_schemas`
-Kế thừa `BaseTimeEntity`. Đóng vai trò entity trung gian liên kết giữa Topic và Schema (Topic 1-1 TopicSchema N-1 Schema).
-
-| Field | Type | Quan hệ / Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID bản ghi liên kết topic - schema |
-| `topic_id` | BIGINT | FK -> `topics(id)`, UNIQUE, NOT NULL | Thuộc chủ đề nào (Quan hệ 1-1 với Topic) |
-| `schema_id` | BIGINT | FK -> `schemas(id)`, NOT NULL | Áp dụng lược đồ nào (N-1 với Schema) |
-| `created_at` | DATETIME(6) | NOT NULL | Thời điểm gán |
 | `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
 
 ### Bảng `schema_attribute_groups`
@@ -271,9 +261,8 @@ Kế thừa `BaseTimeEntity`.
 
 ### Ràng buộc & Indexes (Collections, Topics & EAV)
 - `collections`: Index trên `owner_id` và `type`.
-- `topics`: Index trên `collection_id`, `parent_id` và `active_template_id`.
+- `topics`: Index trên `collection_id`, `parent_id`, `schema_id` và `active_template_id`.
 - `schemas`: Unique index trên `code`.
-- `topic_schemas`: Unique index trên `topic_id`, Index trên `schema_id`.
 - `schema_attribute_groups`: Unique index ghép trên `(schema_id, name)`.
 - `schema_attributes`: Unique index ghép trên `(group_id, name)`.
 - `topic_items`: Index trên `topic_id` để phân trang và load item theo chủ đề.
@@ -282,7 +271,7 @@ Kế thừa `BaseTimeEntity`.
 
 ### Cơ chế Quản lý Lược đồ: Copy-on-Write (Fork) & Additive Evolution
 1. **Schema độc lập & Tích hợp Templates**: 1 Schema định nghĩa cấu trúc dữ liệu (`schema_attributes`) và chứa danh mục các mẫu hiển thị (`templates`) cho nhiều chế độ học (Standard, Listening, Reverse...).
-2. **Topic chọn Template kích hoạt**: Topic liên kết với Schema qua `topic_schemas` và chọn một `active_template_id` để hiển thị trong các buổi học. Chuyển đổi chế độ học chỉ cập nhật `active_template_id`, không làm nhân bản dữ liệu EAV hay lịch ôn FSRS.
+2. **Topic chọn Template kích hoạt**: Topic liên kết trực tiếp với Schema qua `topics.schema_id` và chọn một `active_template_id` để hiển thị trong các buổi học. Chuyển đổi chế độ học chỉ cập nhật `active_template_id`, không làm nhân bản dữ liệu EAV hay lịch ôn FSRS.
 3. **Tiến hóa mở rộng (Additive Evolution)**: Đối với Schema dùng chung, chỉ cho phép **thêm mới** các nhóm/thuộc tính (thuộc tính mới là tùy chọn). Không cho phép xóa thuộc tính nếu thuộc tính đó đang được liên kết bởi `topic_item_attribute_values` hoặc `template_fields`.
 4. **Copy-on-Write (Fork Schema & Templates)**: Khi người dùng muốn tùy biến sâu cấu trúc thuộc tính hoặc sửa layout template cho riêng một Topic, hệ thống hỗ trợ **Fork** Schema dùng chung thành một Schema riêng biệt cho Topic đó (`POST /api/topics/{topicId}/schema/fork`). Hệ thống nhân bản đồng thời Schema, các Groups, Attributes, toàn bộ Templates, Elements và Fields (re-map attribute ID tương ứng), đồng thời cập nhật `topic.active_template_id` và re-map dữ liệu EAV trong 1 transaction duy nhất.
 
