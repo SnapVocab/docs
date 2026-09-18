@@ -3,7 +3,7 @@
 > Tài liệu kiến trúc hệ thống tổng thể cho SnapVocab, được xây dựng dựa trên [specs.md](../spec/specs.md), [buss_mainflow.md](../spec/buss_mainflow.md), [phan_ra_phan_he_he_thong.md](../spec/phan_ra_phan_he_he_thong.md), [phan_ra_tinh_nang.md](../spec/phan_ra_tinh_nang.md) và [phan_ra_man_hinh.md](../spec/phan_ra_man_hinh.md).
 
 >
-> **Canonical sync (2026-08-23):** Source = [`../spec/specs.md`](../spec/specs.md). AI = Florence-2+SAM+CLIP (F2-v13) · Learning = Collection/Topic/TopicItem/Template · SRS = FSRS (fsrs_records) · Actors = Guest/Learner/Admin · FR: Game=09, Noti=10, Storage=11, OpenAPI=12, Admin=13 · 4 milestones.
+> **Canonical sync (2026-08-23):** Source = [`../spec/specs.md`](../spec/specs.md). AI = Florence-2 zero-shot (+ CLIP tùy chọn; SAM đã gỡ, xem §3.3) · Learning = Collection/Topic/TopicItem/Template · SRS = FSRS (fsrs_records) · Actors = Guest/Learner/Admin · FR: Game=09, Noti=10, Storage=11, OpenAPI=12, Admin=13 · 4 milestones.
 
 ---
 
@@ -13,7 +13,7 @@ SnapVocab là hệ thống mobile-first hỗ trợ học từ vựng tiếng Anh
 
 ### 1.1 Mục tiêu chính
 
-- **Scan-to-learn end-to-end**: Learner chụp/chọn ảnh → AI nhận diện vật thể (Florence-2 + SAM + CLIP zero-shot) → backend ánh xạ sang từ vựng → Learner lưu vào danh sách học cá nhân (Topic cá nhân).
+- **Scan-to-learn end-to-end**: Learner chụp/chọn ảnh → AI nhận diện vật thể (Florence-2 zero-shot) → backend ánh xạ sang từ vựng → Learner lưu vào danh sách học cá nhân (Topic cá nhân).
 - **Learning engine độc lập**: Saved vocabulary (Topic/TopicItem), Flashcard với Topic Template, Quiz, SRS (FSRS trên `fsrs_records`) và Progress tracking là các module phát triển dần theo milestone.
 - **AI service tách rời backend**: Florence-2 pipeline chạy trong FastAPI service riêng (Python + GPU), backend Spring Boot chỉ điều phối và xử lý nghiệp vụ.
 - **Data ownership rõ ràng**: MySQL/MariaDB là source of truth cho dữ liệu nghiệp vụ; Object Storage chỉ lưu file/media binary; Redis dùng cho cache/ranking hỗ trợ (từ M3/M4).
@@ -25,7 +25,7 @@ SnapVocab là hệ thống mobile-first hỗ trợ học từ vựng tiếng Anh
 | Chủ đề | Quyết định | Ghi chú |
 | --- | --- | --- |
 | Source of truth | [specs.md](../spec/specs.md) | Mọi BF/SS/MH/SA phải truy vết về file này |
-| AI pipeline | Florence-2 + SAM + CLIP (F2-v13) zero-shot | **Không** dùng YOLO làm model chính |
+| AI pipeline | Florence-2 zero-shot (OD + self-grounding; CLIP chỉ khi bật từ vựng nền) | **Không** dùng YOLO làm model chính; **không** dùng SAM |
 | Actor | Guest, Learner, Admin | Admin dùng CMS web tách biệt |
 | Learning domain | `Collection` (SYSTEM/USER) → `Topic` → `TopicItem` | "Saved vocabulary" = TopicItem trong Topic cá nhân; **không** entity `SavedWord/UserWord` |
 | SRS | FSRS trên `FsrsRecord` (`fsrs_records`) | Trạng thái state/due/stability/difficulty gắn với cặp `(user_id, topic_item_id)` |
@@ -76,8 +76,8 @@ SnapVocab là hệ thống mobile-first hỗ trợ học từ vựng tiếng Anh
                 │           │            │              │
     ┌───────────▼───┐ ┌─────▼──────┐ ┌──▼───────────┐ ┌▼──────────────────┐
     │ MySQL/MariaDB │ │ Redis      │ │ Cloudflare   │ │ FastAPI AI Service│
-    │ (JPA/Hib.)    │ │ (Redisson) │ │ R2 / MinIO   │ │ (Florence-2 +    │
-    │               │ │            │ │ (S3-compat.) │ │  SAM + CLIP)     │
+    │ (JPA/Hib.)    │ │ (Redisson) │ │ R2 / MinIO   │ │ (Florence-2,     │
+    │               │ │            │ │ (S3-compat.) │ │  CLIP tùy chọn)  │
     │ Source of     │ │ Cache,     │ │ Private      │ │ GPU T4+          │
     │  Truth        │ │ Leaderboard│ │  Bucket      │ │ Zero-shot        │
     └───────────────┘ └────────────┘ └──────────────┘ └──────────────────┘
@@ -90,7 +90,7 @@ SnapVocab là hệ thống mobile-first hỗ trợ học từ vựng tiếng Anh
 | Mobile App | React Native, Expo, TypeScript, Expo Router | UI người dùng, camera/gallery, flashcard/quiz/SRS, gọi backend API |
 | Admin CMS | Web App nội bộ (JWT ROLE_ADMIN) | Quản lý user, dictionary, topic, templates, gamification, thống kê |
 | Backend API | Java 17, Spring Boot REST API | Auth, user, dictionary, topic, recognition orchestration, vocabulary, flashcard, quiz, SRS, progress, gamification, shop, notification, storage, admin, OpenAPI |
-| AI Service | Python FastAPI + Florence-2-large + SAM (ViT-H) + CLIP (ViT-B/32) | Nhận ảnh, chạy pipeline nhận diện từ vựng mở, trả label/detectionSource/clipScore/bbox/cropUrl |
+| AI Service | Python FastAPI + Florence-2 (base trên CPU, large trên GPU) + CLIP ViT-B/32 (tùy chọn) | Nhận ảnh, chạy pipeline nhận diện từ vựng mở, trả label/headword/source/reliability/box |
 | Database | MySQL/MariaDB + JPA/Hibernate | Lưu toàn bộ dữ liệu nghiệp vụ: user, word, learning, gamification, notification |
 | Cache | Redis/Redisson | Cache dictionary, leaderboard sorted set, home summary, rate limiting |
 | Object Storage | Cloudflare R2 (prod) / MinIO (dev), S3-compatible API | Lưu avatar, ảnh scan, ảnh crop flashcard, tài nguyên vật phẩm |
@@ -134,7 +134,7 @@ SnapVocab là hệ thống mobile-first hỗ trợ học từ vựng tiếng Anh
 
 - Xác thực, phân quyền và tạo user context từ JWT.
 - Cung cấp REST API cho mobile và admin CMS.
-- Điều phối nhận diện ảnh: nhận request → lưu ảnh nếu cần → gọi AI service → lọc độ tin cậy (source, clipScore) → map object sang vocabulary.
+- Điều phối nhận diện ảnh: nhận request → lưu ảnh nếu cần → xếp hàng job → gọi AI service → lọc theo `reliability` → map object sang vocabulary (label, rồi headword).
 - Xử lý nghiệp vụ learning: Collection/Topic/TopicItem, flashcard (Topic Template), quiz, SRS (FsrsRecord), progress.
 - Xử lý gamification: XP, Coin, Mission, Badge, Leaderboard, Shop theo milestone M4.
 - Giao tiếp database, Redis và object storage.
@@ -164,45 +164,53 @@ common
 
 **Trách nhiệm:**
 
-- Nhận ảnh hoặc URL/object key tạm thời từ backend.
-- Chạy pipeline Florence-2 + SAM + CLIP (cấu hình F2-v13 zero-shot).
-- Trả kết quả nhận diện có cấu trúc.
-- **Không** sở hữu dữ liệu user/learning. **Không** chia sẻ database với backend.
+- Nhận ảnh (multipart) từ backend; **không** nhận trực tiếp từ mobile.
+- Chạy pipeline Florence-2 zero-shot; CLIP chỉ được nạp khi bật bước từ vựng nền.
+- Trả kết quả nhận diện có cấu trúc và lỗi có mã.
+- **Không** sở hữu dữ liệu user/learning. **Không** chia sẻ database với backend. **Không** lưu ảnh.
 
-**Pipeline chi tiết:**
+**Pipeline mặc định:**
 
 ```text
 Input Image
-  → Florence-2: OD (<OD>) + Dense Region Caption + Self-grounding + Tiled OD
-  → NMS/WBF khử box trùng
-  → Lọc ngôn ngữ: WordNet (từ điển + danh từ chỉ vật cụ thể)
-  → Xác thực CLIP: sàn 0,23 + biên độ 0,02
-  → Xác thực hình học SAM: mask quá nhỏ (< 400px) → loại
-  → Cắt nền RGBA (SAM) cho ảnh flashcard
-  → Output: label ∈ dict, detectionSource, clipScore, boundingBox, cropUrl
-  → 1 thẻ / từ (max 1 entry per unique label)
+  → Xoay theo EXIF (ảnh chụp dọc từ điện thoại), resize cạnh dài ≤ MAX_INPUT_SIZE
+  → Florence-2: <OD> + self-grounding (3 lượt gọi model)
+  → Loại box quá nhỏ (< 0,4% ảnh) / quá lớn (> 85% ảnh, thường là nền)
+  → Lọc nhãn theo từ điển (WordNet, kiểm tra từ cuối của nhãn)
+  → NMS 2 tầng + mỗi nhãn giữ 1 box
+  → Gắn headword + reliability
+  → Output: label, headword, source, reliability, box, image_width/height
 ```
 
-**Internal API Contract:**
+Các bước tiled OD, dense caption, từ vựng nền (kèm CLIP xác thực) vẫn có trong code nhưng **tắt mặc định**. Số đo thực tế (Florence-2-base, CPU) cho thấy self-grounding cho nhiều nhãn đúng nhất trên mỗi giây; tiled OD và dense caption tốn thêm 20–30s mà chỉ thêm khoảng 1 nhãn; từ vựng nền thêm nhãn nhưng ~40% là sai. Bước cắt nền bằng SAM **đã gỡ bỏ**: app hiển thị ảnh gốc và tự vẽ box.
+
+| Cấu hình | Model | Dùng khi |
+| --- | --- | --- |
+| `.env.example` | Florence-2-base, OD + self-grounding | CPU / dev |
+| `.env.gpu` | Florence-2-large, thêm tiled OD + từ vựng nền (CLIP) | GPU ≥ 4GB VRAM |
+
+**Internal API Contract:** xem chi tiết ở [server.md §5.3](server.md#53-internal-api-contract).
 
 | Field | Mô tả |
 | --- | --- |
-| `requestId` | ID truy vết request nhận diện (do backend sinh) |
-| `image` | File ảnh hoặc URL/object key tạm thời |
-| `objects[].label` | Nhãn đã qua chuỗi lọc ngôn ngữ, bảo đảm thuộc từ điển |
-| `objects[].detectionSource` | Nguồn sinh nhãn: `OD`, `GROUNDING`, `SELF`, `DENSE`, `BASE`. UI dùng để map thẻ màu High/Medium/Low |
-| `objects[].clipScore` | Điểm xác thực ngữ nghĩa (Cosine Similarity) |
-| `objects[].boundingBox` | Tọa độ [x1, y1, x2, y2] |
-| `objects[].cropUrl` | URL ảnh cắt nền trong suốt (RGBA) cho flashcard |
-| `processingTimeMs` | Thời gian xử lý (~15–30s/ảnh full mode, GPU T4) |
-| `error` | Error có cấu trúc: invalid image, model error, no-object |
+| Header `X-Request-Id` | `requestId` do backend sinh; AI trả lại trong `request_id` và ghi log |
+| Header `X-Service-Token` | Bắt buộc khi AI đặt `SERVICE_TOKEN` |
+| `detections[].label` | Nhãn tiếng Anh, đã qua lọc từ điển |
+| `detections[].headword` | Từ cuối của nhãn ở dạng số ít (`coffee mugs` → `mug`), dùng tra dự phòng |
+| `detections[].source` | `od`, `od_tile`, `self`, `dense`, `base` |
+| `detections[].reliability` | `HIGH` / `MEDIUM` / `LOW`, suy ra từ `source` |
+| `detections[].score` | Hằng số theo nguồn, chỉ để xếp hạng — **không** phải độ tin cậy |
+| `detections[].box` | `{x1, y1, x2, y2}` theo pixel trong hệ `image_width × image_height` (ảnh đã xoay EXIF và resize) |
+| `model_version` | Model + các bước bật, vd `Florence-2-base/od+self` |
+| `processing_time_ms` | Thời gian chạy model, không tính thời gian xếp hàng |
+| Lỗi | `{"error": {"code", "message"}}`: `INVALID_REQUEST`, `INVALID_IMAGE`, `UNAUTHORIZED`, `MODEL_NOT_READY`, `MODEL_ERROR` |
 
 **Endpoints nội bộ:**
 
 | Method | Endpoint | Mô tả |
 | --- | --- | --- |
-| POST | `/api/recognize` | Nhận ảnh, trả danh sách detected objects |
-| GET | `/api/health` | Health check + model readiness |
+| POST | `/api/v1/detect` | Nhận ảnh (field `file`), trả danh sách detected objects |
+| GET | `/health` | Trạng thái nạp model, `model_version`, `gpu_available` |
 
 ---
 
@@ -229,8 +237,8 @@ Hệ thống backend được chia thành **18 phân hệ** thuộc 5 lớp ch�
 | --- | --- | --- | --- |
 | Dictionary | SS-04 | Word, definition, translation, pronunciation, relations, object-word mapping, import | M1 |
 | Topic | SS-05 | Collection/Topic/TopicItem, mô hình EAV, duyệt chủ đề | M1 |
-| Recognition | SS-06 | Orchestrate: nhận ảnh → gọi AI → lọc theo cặp (source, clipScore) → gom label → map dictionary → trả kết quả | M2 |
-| AI Service | SS-07 | Florence-2 + SAM + CLIP pipeline, FastAPI, GPU inference | M2 |
+| Recognition | SS-06 | Orchestrate: upload-url → quota → hàng đợi → gọi AI → lọc theo `reliability` → lưu kết quả → map dictionary khi poll | M2 |
+| AI Service | SS-07 | Florence-2 pipeline (CLIP tùy chọn), FastAPI, GPU inference | M2 |
 | Vocabulary | SS-08 | TopicItem (Saved vocabulary) thuộc Topic cá nhân của Learner, source tracking, unique per Topic | M1–M2 |
 
 ### 4.4 Lớp Learning Engine
@@ -360,72 +368,74 @@ sequenceDiagram
     participant M as Mobile App
     participant B as Backend API
     participant S as Object Storage
+    participant W as Scan Worker (1 luồng)
     participant AI as FastAPI AI Service
     participant DB as Database
 
-    M->>B: POST /storage/upload-init
-    B-->>M: Trả presigned URL
-    M->>S: PUT presignedUrl (Upload ảnh)
-    M->>B: POST /recognition/scan (objectKey)
-    B->>B: Kiểm tra quota scan/ngày
+    M->>B: POST /api/scan/upload-url {contentType}
+    B-->>M: {uploadUrl, objectName = scans/{userId}/{uuid}.jpg}
+    M->>S: PUT uploadUrl (Content-Type đúng như đã khai)
+    M->>B: POST /api/scan {objectKey}
+    B->>B: Key thuộc user? Ảnh có trong storage và ≤ 10MB?
+    B->>DB: [khóa theo user] Đếm scan hôm nay (status ≠ FAILED)
     B->>DB: Tạo ScanRequest(status=PENDING)
-    B-->>M: 202 Accepted + {requestId, status=PENDING}
-    
-    B->>AI: (Async Worker) POST /api/recognize (requestId, image)
-    Note over AI: Florence-2 OD + Dense Region + Self-grounding<br>+ Tiled OD → WordNet filter → CLIP verify<br>→ SAM crop (~15-30s GPU T4)
-    
-    loop Polling (mỗi 2-3s, timeout giao diện 90s)
-        M->>B: GET /recognition/results/{requestId}
-        B-->>M: {requestId, status=PENDING/PROCESSING}
+    B->>W: Đẩy job vào hàng đợi (đầy → FAILED AI_QUEUE_FULL, trả 503)
+    B-->>M: 202 Accepted {requestId, status=PENDING}
+
+    W->>DB: ScanRequest → PROCESSING
+    W->>S: Tải ảnh theo objectKey
+    W->>AI: POST /api/v1/detect (X-Request-Id = requestId)
+    Note over AI: EXIF → Florence-2 OD + self-grounding<br>→ lọc diện tích + từ điển → NMS
+    AI-->>W: {detections: [{label, headword, source, reliability, box}], image_width, image_height}
+    W->>W: Lọc theo scan.min-reliability
+    W->>DB: ScanRequest → DONE (result_json = box, model_version, processing_time_ms)
+
+    loop Poll mỗi 2-3s, timeout giao diện 90s
+        M->>B: GET /api/scan/{requestId}
+        B-->>M: {status = PENDING / PROCESSING}
     end
 
-    AI-->>B: {objects: [{label, detectionSource, clipScore, bbox, cropBase64}]}
-    B->>S: PUT cropBase64 lên bucket
-    B->>DB: Lưu StorageMetadata(type=CROP, state=TEMP) -> cropKey
-    B->>B: Lọc kết quả theo (sourceAllowlist, clipScoreFloor)
-    B->>B: Gom trùng label (nhiều box → 1 từ)
-    B->>DB: Ánh xạ label → Word (tra cứu + mapping/synonym)
-    B->>DB: Cập nhật ScanRequest(status=DONE)
-    
-    M->>B: GET /recognition/results/{requestId}
-    B-->>M: {requestId, status=DONE, words: [{..., cropKey}]}
-    
-    M->>M: Hiển thị kết quả, Learner chọn từ muốn lưu
-    M->>B: GET /storage/access-url/{cropKey} (Lấy URL để hiển thị tạm)
-    M->>B: POST /topics/{id}/items (wordId, source=SCAN, cropKey)
-    B->>DB: Đánh dấu StorageMetadata(cropKey) state=PERMANENT
+    M->>B: GET /api/scan/{requestId}
+    B->>DB: Đọc result_json, tra Word theo label rồi headword
+    B-->>M: {status=DONE, result: {imageWidth, imageHeight, items: [{label, reliability, box, word}]}}
+
+    M->>M: Vẽ box lên ảnh gốc, Learner chọn từ muốn lưu
+    M->>B: POST /topics/{id}/items (wordId, source=SCAN)
     B->>DB: Tạo TopicItem + khởi tạo FsrsRecord (card_state=NEW)
     B-->>M: 201 Created
 ```
 
 **Xử lý ngoại lệ:**
 
-| Tình huống | Cách xử lý |
-| --- | --- |
-| No object detected | Trả empty state + CTA "Thử ảnh khác" |
-| All low reliability| Hiển thị cảnh báo "Không tìm thấy vật thể có độ tin cậy cao" + CTA retry |
-| Quota exceeded | Trả `QUOTA_EXCEEDED`, remaining=0, resetAt; không gọi AI service |
-| Queue full | Trả `AI_QUEUE_FULL` (khi in-process queue đầy); không trừ quota nếu job chưa nhận |
-| AI timeout (> 60s) | Worker đặt job FAILED, mobile poll nhận trạng thái FAILED và hiển thị "Xử lý quá lâu, thử lại" |
-| AI service unavailable | Lỗi nghiệp vụ thân thiện + retry |
-| Dictionary miss | Hiển thị label nhưng đánh dấu "Chưa có từ vựng tương ứng" |
-| Upload fail | Không tạo recognition hoàn chỉnh, cho phép thử lại |
-| Invalid image (MIME/size) | Client + server validate, trả lỗi gợi ý chọn ảnh khác |
+| Tình huống | Mã lỗi | Cách xử lý | Tính quota? |
+| --- | --- | --- | --- |
+| Không nhận diện được vật thể | — | `DONE` với `items` rỗng; empty state + CTA "Thử ảnh khác" | Có |
+| Toàn bộ box độ tin cậy thấp | — | Hiển thị kèm cảnh báo; nâng `scan.min-reliability` để lọc ở backend | Có |
+| Hết quota | `QUOTA_EXCEEDED` (429) | `data = {limit, used, remaining=0, resetAt}`; không gọi AI | — |
+| Hàng đợi đầy | `AI_QUEUE_FULL` (503) | Job đánh dấu `FAILED` ngay | Không |
+| Ảnh sai định dạng/quá lớn/chưa upload/không thuộc user | `INVALID_IMAGE` (400) | Kiểm tra trước khi tạo job | Không |
+| AI quá thời gian | `AI_TIMEOUT` | Job `FAILED`; mobile hiển thị "Xử lý quá lâu, thử lại" | Không |
+| AI không kết nối được / đang nạp model | `AI_UNAVAILABLE` | Job `FAILED`; gợi ý thử lại sau | Không |
+| Lỗi model | `AI_ERROR` | Job `FAILED` | Không |
+| Restart backend / job quá thời gian tối đa | `INTERRUPTED` | Job `FAILED` (bộ quét định kỳ + lúc khởi động) | Không |
+| Label không có trong từ điển | — | Item có `word = null`, đánh dấu "Chưa có từ vựng tương ứng" | — |
+| Upload storage lỗi | — | Chưa gọi `POST /api/scan`; mobile cho thử lại | Không |
+
+**Endpoint đồng bộ cũ:** `POST /api/scan` dạng `multipart/form-data` (backend phân biệt với luồng mới qua `Content-Type`) vẫn được giữ tạm trong lúc mobile chuyển sang luồng mới. Endpoint này cũng tạo `ScanRequest` và đi qua quota, nhưng giữ HTTP request mở đến khi AI trả lời và còn trả ảnh vẽ sẵn box nếu AI bật `RETURN_ANNOTATED_IMAGE`.
 
 ### 6.3 Capacity, Concurrency & Cost Estimation (AI Service)
 
-Để đảm bảo tính khả thi khi vận hành thực tế hệ thống nhận diện AI trên GPU giới hạn (ví dụ: T4 16GB VRAM), thiết kế kiến trúc quy định:
+Để hệ thống nhận diện chạy được trên GPU giới hạn (ví dụ T4 16GB, hoặc GPU 4GB với Florence-2-large fp16):
 
-- **Concurrency Limit:** Chỉ duy trì **1 worker / 1 GPU**. Không cấu hình multi-worker cho FastAPI AI Service để tránh cạn kiệt VRAM (OOM) khi phải nạp cùng lúc Florence-2, SAM và CLIP.
-- **Queue Limit:** Hàng đợi in-process (`@Async`) trên backend giới hạn độ sâu (ví dụ: tối đa 10 requests/worker). Nếu vượt quá, request mới lập tức bị từ chối với lỗi `AI_QUEUE_FULL`.
-- **Scan Quota:** Giới hạn mỗi người dùng được nhận diện tối đa 20 lượt/ngày. Kiểm soát thông qua Redis counter (lệnh `INCR`, `EXPIRE`) nhằm chặn ngay ở backend, giảm tải triệt để cho AI Service.
+- **Concurrency:** AI service chỉ chạy **1 ảnh tại một thời điểm** (semaphore `MAX_CONCURRENT_REQUESTS=1`). Chạy song song không nhanh hơn mà chỉ tranh VRAM.
+- **Hàng đợi backend:** 1 worker (`scan.workers`) và tối đa 3 job chờ (`scan.queue-capacity`). Với ~20s/ảnh trên GPU, job cuối vẫn xong trong 90s chờ của giao diện. Vượt quá → `AI_QUEUE_FULL`. Executor này cố ý **không** đăng ký làm Spring bean để `@Async` (gửi mail) vẫn dùng executor mặc định.
+- **Hàng đợi nằm trong bộ nhớ:** restart là mất job; bộ quét đánh dấu `INTERRUPTED` mọi job chưa xong lúc khởi động. Thiết kế giả định **một** instance backend; muốn chạy nhiều instance cần chuyển sang hàng đợi dùng chung (vd. Redis).
+- **Bộ quét job kẹt:** chạy mỗi 30s. `PROCESSING` quá `read-timeout + 30s` hoặc `PENDING` quá `ceil(queue-capacity / workers) × read-timeout + 30s` (mặc định 90s và 210s) → `INTERRUPTED`. Cột `version` (optimistic lock) chặn kết quả về muộn ghi đè job đã bị quét.
+- **Scan Quota:** 20 lượt/ngày/Learner, **đếm trực tiếp từ bảng `scan_requests`** (các dòng có trạng thái khác `FAILED` từ 0h giờ Việt Nam). Một khóa Redisson theo user (`scan:quota-lock:{userId}`) bảo đảm hai request đồng thời không vượt quota. Không dùng bộ đếm Redis riêng: lượt lỗi tự động không bị tính mà không cần code hoàn lượt, và số liệu luôn khớp lịch sử scan.
 - **Cost Estimation (T4 GPU - tham khảo AWS/GCP):**
-  - Chạy liên tục 24/7 (On-demand): Ước tính khoảng 200 - 400 USD/tháng. Phương án này quá tốn kém cho đồ án.
-  - Sử dụng Spot Instance / Serverless GPU (khuyến nghị cho đồ án): Chi phí theo block thời gian nhỏ (pay-per-second), tự động scale down về 0 khi không sử dụng.
-- **Demo Fast Mode:** Nhằm đảm bảo trải nghiệm lúc demo (đặc biệt nếu GPU chậm hoặc tải quá lớn), cung cấp cờ cấu hình "Fast Mode". Ở chế độ này:
-  - Bỏ qua "Tiled OD" và "SAM" (không cần cắt nền chi tiết bằng mask).
-  - Giảm latency xuống **< 10s/ảnh**.
-  - Giữ lại Florence-2 OD cơ bản và CLIP verify.
+  - Chạy liên tục 24/7 (On-demand): khoảng 200–400 USD/tháng — quá tốn cho đồ án.
+  - Spot Instance / Serverless GPU (khuyến nghị cho đồ án): trả theo thời gian dùng, scale về 0 khi không dùng.
+- **Cấu hình nhẹ là mặc định:** pipeline mặc định (OD + self-grounding, không tiled OD, không SAM) chính là "Fast Mode" trước đây. Bật thêm các bước qua biến môi trường khi có GPU mạnh.
 
 ### 6.4 Learning flow (BF-08, BF-10)
 
@@ -503,7 +513,7 @@ Mobile request upload URL
 | Storage | Mobile | Presigned upload, upload complete, access URL | Learner |
 | Word/Dictionary | Mobile, Backend internal | Search, word detail, pronunciation, mapping | Learner / System |
 | Topic | Mobile | Collections, Topics, TopicItems | Learner |
-| Recognition | Mobile | Image recognition → vocabulary result | Learner |
+| Recognition | Mobile | `/api/scan`: upload-url, submit, poll kết quả, quota | Learner |
 | Topic & Item Vocabulary | Mobile | Save/list/delete personal words (Topic/TopicItem) | Learner |
 | Flashcard & Template | Mobile | Cards/session/recall, Template & Element/Field CRUD | Learner |
 | Quiz | Mobile | Quiz generate/play/result/history | Learner |
@@ -513,7 +523,7 @@ Mobile request upload URL
 | Shop/Economy | Mobile | Shop browse/buy, inventory, equip | Learner |
 | Notification | Mobile | Notification list/read, device token, settings | Learner |
 | Admin | CMS | User mgmt, dict CRUD, topic, template, game config, stats, feedback | Admin |
-| AI Service (Internal) | Backend only | POST /api/recognize, GET /api/health | Internal/service token |
+| AI Service (Internal) | Backend only | POST /api/v1/detect, GET /health | Internal/`X-Service-Token` |
 
 ### 7.2 Response và error envelope
 
@@ -638,8 +648,7 @@ Tất cả API public/mobile dùng JSON envelope thống nhất:
 | Loại | Owner | Giới hạn | Ghi chú |
 | --- | --- | --- | --- |
 | Avatar | User | ≤ 5MB, image/* | Profile, edit-profile |
-| Scan image | User | ≤ 10MB, image/* | Lưu nếu cần history/debug; bucket private |
-| Crop image (SAM) | System/TopicItem | — | Ảnh cắt nền RGBA cho flashcard; gắn cropUrl |
+| Scan image | User | ≤ 10MB, image/jpeg · png · webp | Key `scans/{userId}/{uuid}.{ext}`; bucket private; chưa có job dọn |
 | Item asset | System/ShopItem | — | Icon/vật phẩm gamification |
 
 ### 10.3 Upload constraints
@@ -752,7 +761,7 @@ Mobile App Store / APK
 | Milestone | Thành phần kiến trúc cần hoàn thiện |
 | --- | --- |
 | **M1 — Core Auth & Vocabulary Lookup** | Mobile auth/profile/search/topic/vocabulary/flashcard basic · Backend auth/user/word/topic/storage · DB dictionary import (357K+ từ) · Swagger |
-| **M2 — Camera/Object Recognition MVP** | Camera/Detection UI · Recognition API (orchestrator) · FastAPI Florence-2+SAM+CLIP service · ObjectWordMapping · Scan image storage optional |
+| **M2 — Camera/Object Recognition MVP** | Camera/Detection UI · Recognition API (orchestrator) · FastAPI Florence-2 service · ObjectWordMapping · Scan image storage optional |
 | **M3 — Learning Engine** | Topic Template · Quiz API/UI · SRS engine (FSRS) · Progress aggregate · Notification (Push/In-app) · Learning events |
 | **M4 — Gamification & Production** | Mission/Badge/XP/Coin · Shop/Inventory · Leaderboard (Redis) · Admin CMS · R2 production · Observability/hardening |
 
@@ -850,7 +859,7 @@ vn.ptit.snapvocab
 | 4 | Reward bị cộng trùng (retry) | Sai coin/XP/leaderboard | Idempotent event key, unique transaction, distributed lock nếu concurrent |
 | 5 | Leaderboard query nặng | Home/game chậm | Redis sorted set / snapshot cache, không full-scan aggregate |
 | 6 | Media bị public ngoài ý muốn | Lộ dữ liệu cá nhân | Private bucket, presigned URL TTL ≤ 15 phút, owner validation |
-| 7 | Florence-2 hallucination | Từ sai trên flashcard | CLIP verification (sàn 0.23 + biên độ 0.02), SAM geometry check |
+| 7 | Florence-2 hallucination | Từ sai trên flashcard | Lọc từ điển + loại box quá nhỏ/lớn; CLIP xác thực (sàn 0.23) khi bật từ vựng nền; app hiển thị `reliability` |
 | 8 | Vocabulary collapse khi fine-tune | Mất khả năng gọi từ mới | MVP giữ zero-shot; fine-tune kèm phép đo word-F1 hai chiều |
 | 9 | JWT/refresh flow sai | User logout bất ngờ hoặc rủi ro bảo mật | Test auth lifecycle đầy đủ, revoke refresh token đúng |
 | 10 | Secret bị commit | Rủi ro bảo mật | Dùng env/secret manager, scan secrets, không copy config thật vào docs |
@@ -876,10 +885,10 @@ vn.ptit.snapvocab
 
 - [x] Kiến trúc tách rõ: Mobile App, Admin CMS, Backend API, AI Service, Database, Redis, Object Storage.
 - [x] 18 phân hệ (SS-01 → SS-18) bao phủ toàn bộ FR-01 → FR-13 trong specs.md.
-- [x] Luồng scan-to-learn đầy đủ: camera → storage optional → AI service (Florence-2+SAM+CLIP) → confidence filter → label dedup → dictionary mapping → personal vocabulary (TopicItem).
+- [x] Luồng scan-to-learn đầy đủ: camera → presigned upload → hàng đợi + poll → AI service (Florence-2) → reliability filter → label dedup → dictionary mapping (label, rồi headword) → personal vocabulary (TopicItem).
 - [x] Learning engine tách thành: Topic & Item Vocabulary, Flashcard & Template, Quiz, SRS (FSRS), Progress.
 - [x] Canonical model: Collection → Topic → TopicItem + Template + FsrsRecord. Không `SavedWord`/`UserWord`/`Deck`/`Note`/`Card`.
-- [x] AI pipeline: Florence-2 + SAM + CLIP (F2-v13 zero-shot). Không YOLO.
+- [x] AI pipeline: Florence-2 zero-shot (CLIP tùy chọn). Không YOLO, không SAM.
 - [x] SRS: FSRS trên FsrsRecord gắn cặp (user_id, topic_item_id) (card_state/due/stability/difficulty).
 - [x] Gamification (M4) và Admin CMS không chặn MVP M1–M3.
 - [x] Object storage: private bucket, presigned URL, backend sinh object key, orphan cleanup.

@@ -317,46 +317,54 @@ Quản lý bộ sưu tập (Collections) và chủ đề (Topics) từ vựng th
 
 ### Mô tả
 
-Phân hệ backend phía Spring Boot chịu trách nhiệm orchestrate luồng nhận diện ảnh: nhận ảnh từ mobile, chuyển tới AI service, lọc kết quả, ánh xạ sang từ vựng và trả kết quả cho mobile. **Không** chạy model AI trực tiếp.
+Phân hệ backend phía Spring Boot chịu trách nhiệm orchestrate luồng nhận diện ảnh: cấp URL upload, kiểm tra quota, xếp hàng job, gọi AI service, lọc kết quả, ánh xạ sang từ vựng và trả kết quả khi mobile poll. **Không** chạy model AI trực tiếp.
 
 ### Entities
 
-| `ScanRequest`             | Lưu request xử lý ảnh (userId, objectKey, status, timestamps, processingTime, error) thay thế ImageRecognitionRequest + RecognitionResult |
-| `DetectedObject`          | Từng đối tượng: label, detectionSource, clipScore, boundingBox, cropUrl                      |
+| Entity | Mô tả |
+| ------ | ----- |
+| `ScanRequest` (`scan_requests`) | Một lượt scan: user, objectKey, status, errorCode, result_json (box từ AI), modelVersion, detectionCount, processingTimeMs, startedAt/finishedAt, version. Cũng là nguồn đếm quota. Xem [database.md §5](../db/database.md). |
+| `ScanDetectionsDTO` | Nội dung `result_json`: `imageWidth`, `imageHeight`, `detections[]` (label, headword, source, reliability, box). Không phải bảng riêng. |
 
 ### Chức năng chính
 
-- Nhận thông tin ảnh từ mobile (chỉ dùng presigned URL flow, gửi objectKey lên)
-- Gọi FastAPI AI service qua HTTP nội bộ (timeout cấu hình, mặc định 60s)
-- Nhận danh sách detected objects từ AI
-- Lọc theo ngưỡng confidence (cấu hình được — lớp bảo vệ cuối)
-- Gom trùng label (nhiều box cùng label → 1 từ)
-- Ánh xạ label → Word trong dictionary (qua SS-04 ObjectWordMappingService)
-- Trả cho mobile danh sách từ vựng + metadata nhận diện
-- Lưu metadata request, kết quả, log requestId/processingTime/objectCount
-- Xử lý lỗi: timeout, AI unavailable, invalid image, no-object, low-confidence
+- Cấp presigned URL upload dưới `scans/{userId}/` (chỉ jpeg/png/webp)
+- Kiểm tra `objectKey` thuộc Learner, ảnh đã upload, ≤ 10MB — **trước** khi tính quota
+- Kiểm tra quota/ngày bằng cách đếm `scan_requests` (status ≠ FAILED) dưới khóa Redisson theo user
+- Xếp hàng job (1 worker, tối đa 3 job chờ); đầy → `AI_QUEUE_FULL`
+- Gọi FastAPI AI service qua HTTP nội bộ (`X-Request-Id`, `X-Service-Token`, timeout 60s)
+- Ánh xạ lỗi AI thành mã lỗi scan (`INVALID_IMAGE`, `AI_UNAVAILABLE`, `AI_TIMEOUT`, `AI_ERROR`)
+- Lọc lần cuối theo `scan.min-reliability`; lưu box vào `result_json`
+- Khi poll: ánh xạ label → Word (tra nhãn, rồi `headword`) và trả kết quả
+- Bộ quét: đánh dấu `INTERRUPTED` job mất khi restart hoặc quá thời gian tối đa
+- Log `requestId` (MDC), `modelVersion`, số object, thời gian xử lý
 
 ### API Endpoints
 
-| Method | Endpoint                           | Mô tả                                      | Auth    |
-| ------ | ---------------------------------- | ------------------------------------------- | ------- |
-| POST   | `/recognition/scan`                | Gửi ảnh nhận diện (truyền objectKey)       | Learner |
-| GET    | `/recognition/results/{requestId}` | Lấy kết quả nhận diện                       | Learner |
-| GET    | `/recognition/history`             | Lịch sử scan của Learner (Should)           | Learner |
+| Method | Endpoint | Mô tả | Auth |
+| ------ | -------- | ----- | ---- |
+| POST | `/api/scan/upload-url` | Body `{contentType}` → `{uploadUrl, objectName, contentType, expiredAt}` | Learner |
+| POST | `/api/scan` (`application/json`) | Body `{objectKey}` → `202 {requestId, status: PENDING}` | Learner |
+| GET | `/api/scan/{requestId}` | `{requestId, status, errorCode, createdAt, finishedAt, result}`; `result = {imageWidth, imageHeight, items[]}` khi `DONE`. Scan của người khác trả 404 | Learner |
+| GET | `/api/scan/quota` | `{limit, used, remaining, resetAt}` | Learner |
+| POST | `/api/scan` (`multipart/form-data`) | **Deprecated** — endpoint đồng bộ cũ, field `file`, trả kết quả ngay (kèm ảnh vẽ sẵn box nếu AI bật). Vẫn tính quota | Learner |
+| GET | `/api/scan/history` | Lịch sử scan của Learner (Should — chưa triển khai) | Learner |
+
+Mỗi phần tử `items[]`: `label`, `score`, `source`, `reliability`, `box {x1, y1, x2, y2}`, `word` (LookupResult, `null` nếu không có trong từ điển). Mã lỗi trả trong `RestResponse.error`; riêng `QUOTA_EXCEEDED` kèm `data = {limit, used, remaining, resetAt}`.
 
 ### Sub-components
 
 ```text
 Recognition (Backend)
-  ├── RecognitionOrchestrator   — Điều phối: quota → enqueue → trả 202 Accepted + requestId
-  ├── ScanQuotaService          — Kiểm tra/trừ quota scan/ngày theo Learner
-  ├── RecognitionQueueService   — In-process queue (Spring @Async + Bounded Executor), trạng thái PENDING/PROCESSING
-  ├── RecognitionWorker         — Background worker lấy job và gọi AI service
-  ├── AiServiceClient           — HTTP client gọi FastAPI AI service (timeout, retry, error handling)
-  ├── RecognitionFilterService  — Lọc kết quả theo cặp (source, clipScore)
-  ├── LabelDeduplicationService — Gom trùng label (nhiều box → 1 từ)
-  ├── WordMappingService        — Ánh xạ label → Word (delegate SS-04)
-  └── ScanRequestService        — Lưu/truy vấn lịch sử scan (query từ bảng ScanRequest)
+  ├── ScanController        — /api/scan: upload-url, submit, poll, quota, endpoint đồng bộ cũ
+  ├── ScanServiceImpl       — Điều phối: kiểm tra key/size → quota → enqueue → 202 + requestId
+  ├── ScanQuotaService      — Đếm scan_requests trong ngày dưới khóa Redisson; tạo ScanRequest
+  ├── ScanJobQueue          — ThreadPoolTaskExecutor riêng (không phải Spring bean, để @Async mail không bị ảnh hưởng)
+  ├── ScanWorker            — PENDING → PROCESSING → DONE/FAILED, mỗi bước một transaction ngắn
+  ├── AiDetectionService    — HTTP client gọi AI, ánh xạ lỗi AI → ScanErrorCode
+  ├── ScanResultAssembler   — Lọc theo reliability; ánh xạ label/headword → Word (delegate SS-04)
+  ├── ScanRequestSweeper    — @Scheduled + lúc khởi động: đánh dấu INTERRUPTED job kẹt
+  └── ScanObjectKeys        — Quy ước key scans/{userId}/{uuid}.{ext}, kiểm tra quyền sở hữu
 ```
 
 ### Trace
@@ -372,69 +380,74 @@ Recognition (Backend)
 
 ### Mô tả
 
-Service **độc lập** (Python FastAPI) chạy pipeline nhận diện từ vựng mở (open-vocabulary) dựa trên mô hình Florence-2 kết hợp SAM + CLIP ở chế độ zero-shot. Nhận ảnh, trả danh sách đối tượng đã lọc và đảm bảo label thuộc từ điển.
+Service **độc lập** (Python FastAPI) chạy pipeline nhận diện từ vựng mở (open-vocabulary) dựa trên Florence-2 ở chế độ zero-shot. Nhận ảnh từ backend, trả danh sách đối tượng đã lọc theo từ điển. CLIP chỉ dùng khi bật bước từ vựng nền; SAM đã gỡ bỏ.
 
 ### Công nghệ
 
-| Thành phần   | Công nghệ                                                       |
-| ------------ | ---------------------------------------------------------------- |
-| Framework    | Python FastAPI                                                   |
-| Models       | Florence-2-large (zero-shot) + SAM (ViT-H) + CLIP (ViT-B/32)   |
-| Pipeline     | F2-v13: Tiled OD, Self-grounding, chuỗi lọc ngôn ngữ, cửa CLIP |
-| Phần cứng    | GPU T4 trở lên                                                   |
-| Latency      | ~15–30s/ảnh xử lý thực tế/ảnh (full mode); thời gian chờ phụ thuộc queue depth |
+| Thành phần | Công nghệ |
+| ---------- | --------- |
+| Framework | Python FastAPI, Uvicorn 1 process |
+| Models | Florence-2-base (CPU/dev) hoặc Florence-2-large (GPU); CLIP ViT-B/32 tùy chọn |
+| Pipeline mặc định | `<OD>` + self-grounding; tiled OD / dense caption / từ vựng nền bật qua env |
+| Phần cứng | CPU chạy được (~35–45s/ảnh với base); GPU ≥ 4GB VRAM cho large |
+| Đồng thời | 1 ảnh tại một thời điểm (semaphore) |
 
 ### Chức năng chính
 
-- Nhận ảnh (file hoặc object URL) từ worker nội bộ, không nhận trực tiếp từ mobile
-- Florence-2: OD (`<OD>`) + Dense Region Caption + Self-grounding + Tiled OD
-- Lọc ngôn ngữ: WordNet (từ điển + danh từ chỉ vật cụ thể)
-- Xác thực CLIP: sàn 0,23 + biên độ 0,02
-- Xác thực hình học SAM: mask quá nhỏ → loại
-- Cắt nền (RGBA) bằng SAM cho ảnh flashcard
-- Trả: `label` (bảo đảm thuộc từ điển), `detectionSource`, `clipScore`, `boundingBox`, `cropUrl`
-- 1 thẻ / từ (max 1 entry per unique label)
-- Giới hạn đồng thời bằng số worker/GPU do backend vận hành cấu hình; mặc định 1 worker/GPU
-- Error handling: invalid image, model error, no-object → response có cấu trúc
-- Logging: requestId, processing time, object count, errors
+- Nhận ảnh multipart từ backend (không nhận trực tiếp từ mobile); kiểm tra `X-Service-Token` nếu đặt `SERVICE_TOKEN`
+- Xoay ảnh theo EXIF, resize
+- Florence-2: `<OD>` + self-grounding
+- Loại box quá nhỏ/quá lớn; lọc nhãn theo từ điển (WordNet); NMS 2 tầng; 1 box / nhãn
+- Gắn `headword` (từ cuối, dạng số ít) và `reliability` (theo `source`)
+- Không có vật thể → danh sách rỗng, **không** phải lỗi
+- Lỗi có cấu trúc: `INVALID_REQUEST`, `INVALID_IMAGE`, `UNAUTHORIZED`, `MODEL_NOT_READY`, `MODEL_ERROR`
+- Logging: `request_id`, `model_version`, số object, thời gian xử lý
 
 ### API Endpoints (Internal)
 
-| Method | Endpoint          | Mô tả                                              |
-| ------ | ----------------- | --------------------------------------------------- |
-| POST   | `/api/recognize`  | Nhận ảnh, trả danh sách detected objects            |
-| GET    | `/api/health`     | Health check                                        |
+| Method | Endpoint | Mô tả |
+| ------ | -------- | ----- |
+| POST | `/api/v1/detect` | Nhận ảnh (field `file`), trả danh sách detected objects |
+| GET | `/health` | Trạng thái nạp model, `model_version`, `gpu_available` |
 
 ### Output Schema
 
 ```json
 {
-  "requestId": "string",
-  "processingTimeMs": 18500,
-  "objects": [
+  "request_id": "3f2a9c1e-...",
+  "model_version": "Florence-2-base/od+self",
+  "processing_time_ms": 21450,
+  "detections": [
     {
-      "label": "cup",
-      "detectionSource": "OD",
-      "clipScore": 0.28,
-      "boundingBox": [120, 80, 350, 420],
-      "cropUrl": "https://..."
+      "label": "coffee mug",
+      "headword": "mug",
+      "score": 0.9,
+      "source": "od",
+      "reliability": "HIGH",
+      "box": { "x1": 120, "y1": 80, "x2": 350, "y2": 420 }
     }
   ],
-  "error": null
+  "labels": ["coffee mug"],
+  "annotated_image_base64": null,
+  "annotated_image_mime": null,
+  "image_width": 900,
+  "image_height": 1200
 }
 ```
+
+Lỗi: `{"error": {"code": "INVALID_IMAGE", "message": "..."}}`. Chi tiết contract ở [server.md §5.3](../sa/server.md).
 
 ### Trace
 
 - FR: FR-02.05, FR-02.06
-- BF: BF-06 (bước 6–7)
+- BF: BF-06 (bước 8–10)
 - Phụ lục A (specs.md §12)
 
 ### Milestone: M2
 
 ### Ghi chú
 
-- AI service nằm trong mạng nội bộ hoặc có xác thực riêng nếu public.
+- AI service nằm trong mạng nội bộ; dùng `SERVICE_TOKEN` nếu cổng ra được mạng ngoài.
 - Endpoint nội bộ tách rõ với endpoint public/mobile.
 - MVP dùng zero-shot; fine-tune LoRA là hướng mở rộng (ngoài phạm vi MVP).
 
@@ -1129,7 +1142,7 @@ vn.ptit.snapvocab
 - [x] Mỗi SS có: mô tả, entities, chức năng chính, API endpoints, trace, milestone.
 - [x] Actor đúng canonical: Guest, Learner, Admin.
 - [x] Canonical model: Collection → Topic → TopicItem + Template + FsrsRecord. Không `SavedWord`/`UserWord`/`Deck`/`Note`/`Card`.
-- [x] AI pipeline: Florence-2 + SAM + CLIP (không YOLO).
+- [x] AI pipeline: Florence-2 zero-shot (CLIP tùy chọn). Không YOLO, không SAM.
 - [x] SRS: FSRS trên FsrsRecord gắn cặp (user_id, topic_item_id).
 - [x] SS-07 (AI Service) tách deploy, giao tiếp HTTP nội bộ.
 - [x] Dependency graph + coupling notes.

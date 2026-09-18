@@ -22,7 +22,7 @@ Các tài liệu trong thư mục này cần bám theo các quyết định cano
 | Chủ đề | Quyết định |
 | --- | --- |
 | Source of truth | [spec/specs.md](./spec/specs.md) |
-| AI pipeline | Florence-2 + SAM + CLIP, cấu hình F2-v13 zero-shot |
+| AI pipeline | Florence-2 zero-shot (OD + self-grounding; CLIP tùy chọn; không SAM) |
 | Actor | Guest, Learner, Admin |
 | Learning domain | Collection (system/user) → Topic → TopicItem (mô hình EAV); đã lược bỏ hoàn toàn Deck, Note, Card, ReviewLog cũ |
 | Flashcard Template | Template gắn với Topic, gồm TemplateElement và TemplateField mang SemanticRole |

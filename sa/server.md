@@ -3,7 +3,7 @@
 > Tài liệu server, môi trường triển khai và vận hành cho SnapVocab, được xây dựng dựa trên [specs.md](../spec/specs.md), [sa.md](./sa.md), [techstack.md](./techstack.md), [buss_mainflow.md](../spec/buss_mainflow.md), [phan_ra_phan_he_he_thong.md](../spec/phan_ra_phan_he_he_thong.md), [phan_ra_tinh_nang.md](../spec/phan_ra_tinh_nang.md) và [phan_ra_man_hinh.md](../spec/phan_ra_man_hinh.md).
 
 >
-> **Canonical sync (2026-08-23):** Source = [`../spec/specs.md`](../spec/specs.md). AI = Florence-2+SAM+CLIP (F2-v13) zero-shot · Learning = Collection/Topic/TopicItem + Template + FsrsRecord · SRS = FSRS · Actors = Guest/Learner/Admin · FR: Game=09, Noti=10, Storage=11, OpenAPI=12, Admin=13 · 4 milestones.
+> **Canonical sync (2026-08-23):** Source = [`../spec/specs.md`](../spec/specs.md). AI = Florence-2 zero-shot (+ CLIP tùy chọn; SAM đã gỡ) · Learning = Collection/Topic/TopicItem + Template + FsrsRecord · SRS = FSRS · Actors = Guest/Learner/Admin · FR: Game=09, Noti=10, Storage=11, OpenAPI=12, Admin=13 · 4 milestones.
 
 ---
 
@@ -12,10 +12,10 @@
 Mô tả cách tổ chức, triển khai và vận hành các thành phần server-side của SnapVocab:
 
 - **Backend API** (Spring Boot) — nghiệp vụ chính, auth, learning, gamification.
-- **AI Service** (FastAPI) — pipeline Florence-2 + SAM + CLIP cho nhận diện vật thể.
+- **AI Service** (FastAPI) — pipeline Florence-2 (CLIP tùy chọn) cho nhận diện vật thể.
 - **Database** (MySQL/MariaDB) — source of truth cho toàn bộ dữ liệu nghiệp vụ.
 - **Cache** (Redis/Redisson) — cache dictionary, leaderboard sorted set (chỉ dùng từ M3/M4).
-- **Object Storage** (Cloudflare R2 / MinIO) — lưu avatar, ảnh scan, ảnh crop, tài nguyên vật phẩm.
+- **Object Storage** (Cloudflare R2 / MinIO) — lưu avatar, ảnh scan, tài nguyên vật phẩm.
 - **Mail Provider** — OTP/email verification, reset password.
 - **API Documentation** (Swagger/OpenAPI) — kiểm thử và tích hợp mobile ↔ backend ↔ AI.
 - **Observability** — logging, monitoring, health checks, backup, cleanup.
@@ -57,7 +57,7 @@ Mô tả cách tổ chức, triển khai và vận hành các thành phần serv
           │          │          │          │          │
    ┌──────▼──────┐ ┌─▼────────┐│ ┌────────▼────────┐│ ┌─────────────────────────┐
    │ MySQL/      │ │ Redis    ││ │ Object Storage  ││ │ FastAPI AI Service      │
-   │ MariaDB     │ │ (Redisson│││ │ (R2 / MinIO)   ││ │ (Florence-2+SAM+CLIP)  │
+   │ MariaDB     │ │ (Redisson│││ │ (R2 / MinIO)   ││ │ (Florence-2,CLIP opt.) │
    │             │ │         )│││ │ S3-compatible   ││ │ Python · GPU T4+       │
    │ Source of   │ │ Cache,   │││ │ Private bucket  ││ │ Internal/private       │
    │  Truth      │ │ Ldrboard ││ │                 ││ │                         │
@@ -75,10 +75,10 @@ Mô tả cách tổ chức, triển khai và vận hành các thành phần serv
 | # | Thành phần | Runtime / Công nghệ | Vai trò | Public? |
 | --- | --- | --- | --- | :---: |
 | 1 | Backend API | Java 17, Spring Boot | REST API nghiệp vụ cho mobile & admin CMS | Có qua HTTPS |
-| 2 | AI Service | Python, FastAPI, Florence-2-large + SAM (ViT-H) + CLIP (ViT-B/32) | Nhận diện vật thể từ ảnh (zero-shot) | Không (Internal) |
+| 2 | AI Service | Python, FastAPI, Florence-2 (base/large) + CLIP ViT-B/32 (tùy chọn) | Nhận diện vật thể từ ảnh (zero-shot) | Không (Internal) |
 | 3 | Database | MySQL/MariaDB | Lưu dữ liệu nghiệp vụ — source of truth | Không (Private) |
 | 4 | Cache | Redis/Redisson | Cache dictionary, leaderboard, home summary, rate limit | Không (Private) |
-| 5 | Object Storage | Cloudflare R2 (prod) / MinIO (dev), S3-compatible | Avatar, ảnh scan, ảnh crop SAM, tài nguyên vật phẩm | Không (Private bucket) |
+| 5 | Object Storage | Cloudflare R2 (prod) / MinIO (dev), S3-compatible | Avatar, ảnh scan, tài nguyên vật phẩm | Không (Private bucket) |
 | 6 | Mail Provider | SMTP hoặc transactional email API | OTP, xác thực email, reset password, security notice | Backend → outbound |
 | 7 | API Docs | Swagger/OpenAPI (Springdoc) | Tài liệu API backend cho mobile & AI tích hợp | Dev/staging; restricted prod |
 | 8 | Observability | Logs/metrics/alerts | Theo dõi lỗi, hiệu năng, bảo mật | Không (Internal) |
@@ -97,7 +97,7 @@ Expo Dev Client (mobile)
   → MySQL/MariaDB local
   → Redis local
   → MinIO local (S3-compatible storage)
-  → FastAPI AI Service local (mock inference hoặc Fast mode để tránh nghẽn VRAM)
+  → FastAPI AI Service local (Florence-2-base, OD + self-grounding — chạy được trên CPU)
   → SMTP sandbox (Mailtrap / MailHog / Ethereal)
   → Swagger UI: enabled
 ```
@@ -109,7 +109,7 @@ Expo Dev Client (mobile)
 | Swagger UI | Bật — test API tự do |
 | CORS | Cho phép origin dev (Expo tunnel / LAN IP) |
 | Object Storage | MinIO hoặc S3-compatible local |
-| AI Service | Mock mode hoặc lightweight inference; prod bám F2-v13 trên GPU |
+| AI Service | Florence-2-base trên CPU (`.env.example`); prod dùng `.env.gpu` trên GPU |
 | Dictionary | Import subset để test nhanh; full import khi cần test dictionary flow |
 | Mail | Sandbox — không gửi email thật |
 | Secrets | File `.env` local, **không** commit vào VCS |
@@ -136,7 +136,7 @@ Mobile build staging (Expo preview / APK)
 | HTTPS | Bắt buộc (cert staging) |
 | Dữ liệu | Test data gần thật, **không** chứa thông tin nhạy cảm thật |
 | Dictionary | Full import (357K+ từ) |
-| AI Service | Full pipeline F2-v13 trên GPU |
+| AI Service | Cấu hình `.env.gpu` (Florence-2-large) trên GPU |
 | Log level | Chi tiết hơn production nhưng **không** log secret/password/token/OTP |
 | Swagger UI | Bật — kiểm thử tích hợp end-to-end |
 | E2E test flows | Auth → scan → save word → flashcard → quiz → SRS → gamification → storage |
@@ -201,7 +201,7 @@ Tên endpoint cụ thể (bao gồm HTTP method, path, request/response payload)
 | **Dictionary (SS-04)** | Search word, word detail, pronunciation, translation | Learner | M1 |
 | **Topic (SS-05)** | Collections, Topics, TopicItems browse | Learner | M1 |
 | **Storage (SS-16)** | Presigned upload, upload complete, access URL | Learner | M1 |
-| **Recognition (SS-06)** | Submit scan image, get detection result | Learner | M2 |
+| **Recognition (SS-06)** | `/api/scan`: upload-url, submit (quota + hàng đợi), poll kết quả, quota | Learner | M2 |
 | **Vocabulary (SS-08)** | CRUD Topic cá nhân, TopicItem, gán EAV attributes | Learner | M1–M2 |
 | **Flashcard (SS-09)** | Flashcard study session theo Template, recall rating | Learner | M1, M3 |
 | **Quiz (SS-10)** | Quiz setup, play, result, history | Learner | M3 |
@@ -211,7 +211,7 @@ Tên endpoint cụ thể (bao gồm HTTP method, path, request/response payload)
 | **Shop (SS-14)** | Shop browse/buy, inventory, coin balance | Learner | M4 |
 | **Notification (SS-15)** | List/read notifications, device token register | Learner | M3 |
 | **Admin (SS-17)** | User mgmt, dict CRUD, topic, template, game config, dashboard | Admin | M4 |
-| **AI Service (SS-07)** | Backend → AI (Internal: `POST /api/recognize`, `GET /api/health`) | Internal | M2 |
+| **AI Service (SS-07)** | Backend → AI (Internal: `POST /api/v1/detect`, `GET /health`) | Internal | M2 |
 
 ### 4.3 API response envelope
 
@@ -251,7 +251,8 @@ Error response:
 | **JWT** | `JWT_SECRET`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL` | Secret đủ mạnh, rotate được |
 | **Mail** | `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM` | SMTP hoặc API provider |
 | **Storage** | `STORAGE_ENDPOINT`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `STORAGE_REGION`, `PRESIGNED_URL_TTL` | R2/MinIO/S3-compatible |
-| **AI Service** | `AI_SERVICE_BASE_URL`, `AI_SERVICE_TIMEOUT_MS`, `AI_SERVICE_TOKEN` | Timeout mặc định 60s |
+| **AI Service** | `AI_SERVICE_URL`, `AI_SERVICE_READ_TIMEOUT_MS`, `AI_SERVICE_TOKEN` | Timeout 60s (prod) / 120s (dev) |
+| **Scan** | `scan.quota-per-day`, `scan.zone`, `scan.workers`, `scan.queue-capacity`, `scan.stale-margin-seconds`, `scan.min-reliability` | Trong `application.yaml`; mặc định 20 / Asia/Ho_Chi_Minh / 1 / 3 / 30 / LOW |
 | **Upload** | `MAX_AVATAR_SIZE`, `MAX_SCAN_SIZE`, `ALLOWED_IMAGE_TYPES` | Avatar ≤ 5MB, scan ≤ 10MB |
 | **OpenAPI** | `OPENAPI_ENABLED`, `SWAGGER_UI_ENABLED` | Tắt/hạn chế production |
 | **CORS** | `CORS_ALLOWED_ORIGINS` | Không wildcard với credential |
@@ -273,100 +274,115 @@ Error response:
 | --- | --- |
 | Runtime | Python 3.10+ |
 | Framework | FastAPI |
-| Server | Uvicorn (dev) / Gunicorn + Uvicorn worker (prod) |
-| Model | Florence-2-large (F2-v13) + SAM (ViT-H) + CLIP (ViT-B/32) |
+| Server | Uvicorn, **1 process** (model nạp một lần, dùng chung) |
+| Model | Florence-2-base (CPU/dev) hoặc Florence-2-large (GPU, `.env.gpu`); CLIP ViT-B/32 chỉ nạp khi bật từ vựng nền |
 | Mode | Zero-shot (không fine-tune trong MVP) |
-| GPU | T4 trở lên — ~15–30s/ảnh ở chế độ đầy đủ |
+| Thời gian | Florence-2-base, OD + self-grounding: ~35–45s/ảnh trên CPU; GPU nhanh hơn nhiều |
+| Đồng thời | 1 ảnh tại một thời điểm (semaphore); request thêm xếp hàng trong AI service |
 | API visibility | Internal/private — **không** public trực tiếp |
 
 ### 5.2 Pipeline xử lý
 
 ```text
-Input Image (từ backend hoặc URL tạm thời)
-  → Florence-2: OD (<OD>) + Dense Region Caption + Self-grounding + Tiled OD
-  → NMS/WBF khử box trùng
-  → Lọc ngôn ngữ: WordNet (danh từ chỉ vật cụ thể + kiểm tra thuộc từ điển)
-  → Xác thực CLIP: sàn 0.23 + biên độ 0.02
-  → Xác thực hình học SAM: mask quá nhỏ (< 400px) → loại
-  → Cắt nền RGBA (SAM) cho ảnh flashcard
-  → Output: label ∈ dict, detectionSource, clipScore, boundingBox, cropBase64
-  → 1 thẻ / từ (max 1 entry per unique label)
+Input Image (multipart từ backend)
+  → Xoay theo EXIF, resize cạnh dài ≤ MAX_INPUT_SIZE
+  → Florence-2: <OD> + self-grounding            (mặc định)
+      [+ tiled OD, dense caption, từ vựng nền + CLIP — bật qua biến môi trường]
+  → Loại box < MIN_BOX_AREA_RATIO (0,4%) hoặc > MAX_BOX_AREA_RATIO (85%)
+  → Lọc nhãn theo từ điển (WordNet)
+  → NMS 2 tầng + mỗi nhãn giữ 1 box
+  → Gắn headword + reliability
+  → [Vẽ box lên 1 ảnh nếu RETURN_ANNOTATED_IMAGE=true — chỉ phục vụ endpoint đồng bộ cũ]
 ```
 
 ### 5.3 Internal API contract
 
-**POST `/api/recognize`** — Nhận diện vật thể
+**POST `/api/v1/detect`** — Nhận diện vật thể
 
-Input:
+Input: `multipart/form-data`, field `file` (`image/jpeg`, `image/png`, `image/webp`, ≤ `MAX_UPLOAD_MB`).
 
-| Field | Type | Mô tả |
+| Header | Bắt buộc | Mô tả |
 | --- | --- | --- |
-| `requestId` | string | UUID truy vết do backend sinh |
-| `image` | file/multipart hoặc URL | Ảnh gốc hoặc presigned URL tạm thời |
-| `options.sourceAllowlist` | string[] (optional) | Danh sách nguồn cho phép |
-| `options.clipScoreFloor` | float (optional) | Ngưỡng điểm xác thực tối thiểu |
-| `options.maxObjects` | int (optional) | Giới hạn số object trả về |
+| `X-Request-Id` | Không | `requestId` của backend (UUID của `ScanRequest`); thiếu thì AI tự sinh |
+| `X-Service-Token` | Khi AI đặt `SERVICE_TOKEN` | Phải trùng `SERVICE_TOKEN` |
 
 Output:
 
 | Field | Type | Mô tả |
 | --- | --- | --- |
-| `requestId` | string | UUID truy vết |
-| `objects[]` | array | Danh sách detected objects |
-| `objects[].label` | string | Nhãn đã qua chuỗi lọc ngôn ngữ (thuộc từ điển) |
-| `objects[].detectionSource` | string | Nguồn phát hiện: `OD`, `GROUNDING`, `SELF`, `DENSE`, `BASE` |
-| `objects[].clipScore` | float | Điểm xác thực CLIP |
-| `objects[].boundingBox` | array[4] | [x1, y1, x2, y2] |
-| `objects[].cropBase64` | string (optional) | Chuỗi base64 ảnh cắt nền trong suốt RGBA |
-| `modelVersion` | string | Phiên bản model (VD: "F2-v13") |
-| `processingTimeMs` | long | Thời gian xử lý (ms) |
+| `request_id` | string | Trả lại `X-Request-Id` |
+| `model_version` | string | Model + các bước bật, vd `Florence-2-base/od+self` |
+| `processing_time_ms` | int | Thời gian chạy model, không tính thời gian xếp hàng |
+| `detections[]` | array | Danh sách object (rỗng nếu không nhận diện được — **không** phải lỗi) |
+| `detections[].label` | string | Nhãn tiếng Anh, đã qua lọc từ điển |
+| `detections[].headword` | string | Từ cuối của nhãn ở dạng số ít, để tra dự phòng |
+| `detections[].score` | float | Hằng số theo nguồn, chỉ để xếp hạng nội bộ |
+| `detections[].source` | string | `od`, `od_tile`, `self`, `dense`, `base` |
+| `detections[].reliability` | string | `HIGH` (od, od_tile) / `MEDIUM` (self, dense) / `LOW` (base); đổi được qua `RELIABILITY_BY_SOURCE` |
+| `detections[].box` | object | `{x1, y1, x2, y2}` theo pixel |
+| `labels` | string[] | Danh sách nhãn (tiện cho debug) |
+| `image_width`, `image_height` | int | Hệ toạ độ của mọi box: ảnh **đã xoay EXIF** rồi resize |
+| `annotated_image_base64`, `annotated_image_mime` | string \| null | Ảnh vẽ sẵn box, chỉ có khi bật `RETURN_ANNOTATED_IMAGE` |
 
-Error response:
+Error response — luôn có dạng `{"error": {"code": "...", "message": "..."}}`:
 
-| Error code | Mô tả |
-| --- | --- |
-| `INVALID_IMAGE` | Ảnh không hợp lệ (format/size/corrupt) |
-| `NO_OBJECT` | Không phát hiện vật thể nào |
-| `MODEL_ERROR` | Model internal error |
-| `TIMEOUT` | Xử lý quá thời gian |
+| HTTP | `code` | Mô tả | Backend ánh xạ thành |
+| --- | --- | --- | --- |
+| 400 | `INVALID_REQUEST` | Request sai dạng (thiếu `file`) | `AI_ERROR` (lỗi phía backend) |
+| 400 / 413 / 415 | `INVALID_IMAGE` | Không giải mã được / quá dung lượng / sai định dạng | `INVALID_IMAGE` |
+| 401 | `UNAUTHORIZED` | Thiếu hoặc sai `X-Service-Token` | `AI_ERROR` (sai cấu hình) |
+| 503 | `MODEL_NOT_READY` | Model đang nạp | `AI_UNAVAILABLE` |
+| 500 | `MODEL_ERROR` | Lỗi khi chạy model (vd. CUDA out of memory) | `AI_ERROR` |
 
-**GET `/api/health`** — Health check
+Không kết nối được hoặc hết thời gian kết nối → `AI_UNAVAILABLE`; hết thời gian đọc (`ai-service.read-timeout-ms`) → `AI_TIMEOUT`.
+
+**GET `/health`** — Health check (không cần token)
 
 ```json
 {
-  "status": "healthy",
-  "modelLoaded": true,
-  "modelVersion": "F2-v13",
-  "gpuAvailable": true
+  "status": "ok",
+  "device": "cuda",
+  "gpu_available": true,
+  "model_version": "Florence-2-base/od+self",
+  "florence_loaded": true,
+  "clip_loaded": false
 }
 ```
+
+`status = "loading"` khi model chưa nạp xong.
 
 ### 5.4 AI service hardening
 
 | Hạng mục | Yêu cầu |
 | --- | --- |
-| Network | Không public trực tiếp cho mobile; chỉ backend gọi |
-| Auth | Service token nếu chạy trên public network |
-| Input | Giới hạn kích thước ảnh đầu vào (max 10MB) |
-| Timeout | Backend chờ AI tối đa 60s — đánh dấu FAILED khi quá hạn; Mobile poll timeout sau 90s |
-| Logging | Log requestId, modelVersion, processingTimeMs, object count, errors |
-| Storage | **Không** lưu ảnh lâu dài trong AI service |
-| Scaling | 1 worker/GPU T4; khuyến nghị dùng Spot Instance hoặc Serverless GPU (scale-to-0) |
-| Failover | Backend handle AI unavailable → trả error code thân thiện cho mobile |
+| Network | Không public trực tiếp cho mobile; chỉ backend gọi. CORS mặc định tắt |
+| Auth | `SERVICE_TOKEN` (AI) = `ai-service.service-token` (backend, env `AI_SERVICE_TOKEN`); bắt buộc nếu cổng AI ra được mạng ngoài |
+| Input | Giới hạn 10MB ở cả backend (`ai-service.max-upload-mb`) và AI (`MAX_UPLOAD_MB`) |
+| Timeout | Backend chờ AI tối đa 60s ở prod (120s ở dev), đổi qua `AI_SERVICE_READ_TIMEOUT_MS`; mobile poll tối đa 90s |
+| Logging | Log `request_id`, `model_version`, số object, `time_ms`, lỗi; backend log cùng `requestId` (MDC) |
+| Storage | **Không** lưu ảnh trong AI service |
+| Scaling | 1 process/GPU; khuyến nghị Spot Instance hoặc Serverless GPU (scale-to-0) |
+| Failover | Mọi lỗi AI thành mã lỗi scan có nghĩa; job `FAILED` không tính quota |
 
 ### 5.5 AI configuration
 
-| Biến | Mô tả |
-| --- | --- |
-| `MODEL_PATH` | Đường dẫn model Florence-2 weights |
-| `SAM_MODEL_PATH` | Đường dẫn SAM ViT-H weights |
-| `CLIP_MODEL_NAME` | CLIP model name (VD: `ViT-B/32`) |
-| `DEVICE` | `cuda` / `cpu` |
-| `MAX_IMAGE_SIZE_MB` | Giới hạn ảnh đầu vào |
-| `INFERENCE_TIMEOUT_S` | Timeout tổng thể cho 1 request |
-| `HOST`, `PORT` | Listen address |
-| `LOG_LEVEL` | `INFO` / `DEBUG` |
-| `SERVICE_TOKEN` | Token xác thực nếu expose qua public network |
+Chi tiết và số đo ở `ai-service/README.md`. Các biến chính:
+
+| Biến | Mặc định | Mô tả |
+| --- | --- | --- |
+| `DEVICE` | `cuda` | `cuda` / `cpu` / `auto` |
+| `FLORENCE_MODEL_ID` | `microsoft/Florence-2-base` | `Florence-2-large` trong `.env.gpu` |
+| `CLIP_MODEL_ID` | `openai/clip-vit-base-patch32` | Chỉ nạp khi `ENABLE_BASE_VOCAB=true` |
+| `ENABLE_SELF_GROUNDING` | `true` | Giá trị tốt nhất trên thời gian |
+| `ENABLE_TILED_OD` / `ENABLE_DENSE_CAPTION` / `ENABLE_BASE_VOCAB` | `false` | Tăng độ phủ, tốn thêm thời gian |
+| `FLORENCE_NUM_BEAMS` | `3` | Hạ xuống 1 nhanh hơn 24% nhưng mất 46% nhãn đúng |
+| `FLORENCE_BATCH_SIZE` | `4` | Hạ trước tiên khi gặp CUDA OOM |
+| `MAX_INPUT_SIZE` | `1400` | Chỉ có tác dụng khi bật tiled OD |
+| `MAX_UPLOAD_MB` | `10` | Giới hạn ảnh đầu vào |
+| `RELIABILITY_BY_SOURCE` | xem §5.3 | JSON map `source → reliability` |
+| `RETURN_ANNOTATED_IMAGE` | `true` | Tắt khi mobile đã chuyển hẳn sang luồng mới |
+| `SERVICE_TOKEN` | rỗng | Token xác thực backend |
+| `CORS_ORIGINS` | `[]` | Chỉ cần cho UI debug cục bộ |
 
 ---
 
@@ -493,8 +509,7 @@ Error response:
 | Media type | Owner | Giới hạn | Source flow | Milestone |
 | --- | --- | --- | --- | --- |
 | Avatar | User | ≤ 5MB, image/* | Edit profile | M1 |
-| Scan image | User | ≤ 10MB, image/* | Camera/detection (optional — privacy) | M2 |
-| Crop image (SAM) | System/TopicItem | — | AI pipeline → flashcard | M2 |
+| Scan image | User | ≤ 10MB, jpeg/png/webp | `scans/{userId}/{uuid}.{ext}` qua `POST /api/scan/upload-url`; chưa có job dọn | M2 |
 | Item asset | System/ShopItem | — | Admin upload | M4 |
 
 ### 8.4 Upload flow chi tiết
@@ -822,7 +837,7 @@ commit / PR
   → Pytest: model load smoke → inference sample image → error handling
   → Package container (Docker)
   → Deploy staging
-  → Backend integration test (POST /api/recognize với ảnh test)
+  → Backend integration test (POST /api/v1/detect với ảnh test)
   → Deploy production (khi được duyệt)
 ```
 
@@ -869,7 +884,7 @@ Schema change
 
 ### 16.2 AI Service
 
-- [ ] Model weights (Florence-2, SAM, CLIP) loaded thành công
+- [ ] Model weights (Florence-2; CLIP nếu bật từ vựng nền) loaded thành công — `GET /health` trả `status = ok`
 - [ ] Health endpoint (`GET /api/health`) trả modelLoaded=true
 - [ ] Inference endpoint hoạt động với ảnh test (trả objects)
 - [ ] Timeout và max image size được cấu hình
@@ -926,7 +941,7 @@ Schema change
 | 7 | Profile | `GET /users/me` | Trả user info | M1 |
 | 8 | Word search | `GET /words?q=apple` | Trả word detail + translation | M1 |
 | 9 | Avatar upload | Storage upload flow | Presigned upload + complete thành công | M1 |
-| 10 | AI recognition | `POST /recognition/scan` | Ảnh test trả objects (label/detectionSource) | M2 |
+| 10 | AI recognition | `POST /api/scan` → poll `GET /api/scan/{requestId}` | Ảnh test về `DONE`, items có label/reliability/box | M2 |
 | 11 | Save word | `POST /topics/{topicId}/items` | Lưu TopicItem thành công | M1-M2 |
 | 12 | Flashcard | Flashcard API | Render và học flashcard theo Topic và Template | M1 |
 | 13 | Quiz | Quiz API | Tạo và submit quiz test | M3 |
@@ -978,7 +993,7 @@ Schema change
 | Milestone | Thành phần server cần sẵn sàng |
 | --- | --- |
 | **M1 — Core Auth & Vocabulary** | Backend API (auth, user, word, topic, storage, vocabulary, flashcard basic) · MySQL + dictionary import · Redis (cache) · MinIO/S3 (avatar) · Mail provider · Swagger |
-| **M2 — Camera/Recognition** | AI Service (Florence-2+SAM+CLIP trên GPU) · Recognition API · Storage (scan image) · ObjectWordMapping |
+| **M2 — Camera/Recognition** | AI Service (Florence-2 trên GPU) · Recognition API · Storage (scan image) · ObjectWordMapping |
 | **M3 — Learning Engine** | Quiz API · SRS engine (FSRS) · Progress aggregate · Notification service (Push + In-app) · Template CRUD |
 | **M4 — Gamification & Production** | Gamification/Shop/Leaderboard APIs · Redis sorted set · Admin CMS APIs · Cloudflare R2 production · Hardening (security, observability, CI/CD) |
 
@@ -1003,7 +1018,7 @@ Schema change
 - [x] Backend API public qua HTTPS; DB/Redis/AI service/Object Storage **không** public trực tiếp.
 - [x] Mỗi môi trường (dev/staging/prod) có cấu hình riêng, không hardcode secret.
 - [x] Backend kết nối được database, Redis, object storage, mail provider và AI service.
-- [x] AI service: Florence-2+SAM+CLIP pipeline ready, timeout/max image size cấu hình, health check.
+- [x] AI service: Florence-2 pipeline ready, timeout/max image size cấu hình, health check.
 - [x] Object storage: bucket private, upload qua presigned URL, MIME/size validation, orphan cleanup.
 - [x] Mail provider: OTP gửi được, TTL/attempts/cooldown đúng rule.
 - [x] JWT/refresh token: sign/verify/revoke hoạt động đúng.

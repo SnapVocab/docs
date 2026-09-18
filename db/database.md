@@ -27,6 +27,7 @@ Các bảng trong hệ thống áp dụng cơ chế kế thừa Auditing thông 
 
 - Các bảng dữ liệu chính sử dụng kiểu `BIGINT` (Long trong Java), khóa chính tự tăng (IDENTITY / AUTO_INCREMENT) để tối ưu hiệu năng join và đánh index.
 - Bảng `authorities` sử dụng trực tiếp tên quyền dạng `VARCHAR(50)` làm khóa chính (ROLE_USER, ROLE_ADMIN).
+- Bảng `scan_requests` dùng UUID dạng `VARCHAR(36)` làm khóa chính vì ID này được đưa ra ngoài (mobile poll theo `requestId`) và không nên đoán được.
 
 ### 5. Phạm vi chức năng
 
@@ -501,7 +502,35 @@ Quản lý lưu trữ tệp tin và tiến trình nhận diện hình ảnh.
 
 ### Lưu trữ tệp tin (Object Storage)
 - Tệp tin avatar, ảnh quét gốc và tài nguyên tĩnh được lưu trữ trực tiếp trên Object Storage (MinIO cho dev/staging, Cloudflare R2 cho production).
-- Database lưu trữ trực tiếp URL truy cập hoặc object key (`avatar_url` trên bảng `users`, URL ảnh crop và âm thanh trong bảng giá trị EAV `topic_item_attribute_values`).
+- Database lưu trữ trực tiếp URL truy cập hoặc object key (`avatar_url` trên bảng `users`, URL ảnh và âm thanh trong bảng giá trị EAV `topic_item_attribute_values`).
+- Ảnh scan nằm dưới key `scans/{userId}/{uuid}.{ext}`; key được lưu ở `scan_requests.object_key`. Chưa có job dọn ảnh scan cũ.
+
+### Bảng `scan_requests`
+Kế thừa `BaseTimeEntity`. Mỗi dòng là một lượt nhận diện ảnh (BF-06), đồng thời là **nguồn đếm quota scan/ngày**: mọi dòng có `status` khác `FAILED` tính 1 lượt, nên lượt lỗi tự động không bị trừ.
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | VARCHAR(36) | Khóa chính (PK) | UUID do backend sinh; cũng là `requestId` trả cho mobile và gửi sang AI qua header `X-Request-Id` |
+| `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | Người scan |
+| `object_key` | VARCHAR(512) | NULL | Key ảnh trong storage; NULL với endpoint đồng bộ cũ (ảnh không lưu) |
+| `status` | VARCHAR(20) | NOT NULL | `PENDING`, `PROCESSING`, `DONE`, `FAILED` |
+| `error_code` | VARCHAR(40) | NULL | Khi `FAILED`: `INVALID_IMAGE`, `AI_QUEUE_FULL`, `AI_UNAVAILABLE`, `AI_TIMEOUT`, `AI_ERROR`, `INTERRUPTED` |
+| `error_message` | VARCHAR(1000) | NULL | Chi tiết lỗi, chỉ dùng cho log/debug |
+| `result_json` | LONGTEXT | NULL | Khi `DONE`: JSON `{imageWidth, imageHeight, detections[]}` — chỉ box từ AI, **không** kèm dữ liệu từ điển (tra lúc đọc) |
+| `model_version` | VARCHAR(100) | NULL | Vd `Florence-2-base/od+self` |
+| `detection_count` | INT | NULL | Số box sau khi lọc |
+| `processing_time_ms` | BIGINT | NULL | Thời gian AI chạy model, không tính thời gian xếp hàng |
+| `started_at` | DATETIME(6) | NULL | Lúc chuyển sang `PROCESSING` |
+| `finished_at` | DATETIME(6) | NULL | Lúc về `DONE`/`FAILED` |
+| `version` | BIGINT | NULL | Optimistic lock: chặn worker ghi đè job đã bị bộ quét đánh dấu `INTERRUPTED` |
+| `created_at` | DATETIME(6) | NOT NULL | Lúc tạo; dùng để đếm quota trong ngày |
+| `updated_at` | DATETIME(6) | NOT NULL | Lúc cập nhật cuối |
+
+Index:
+- `idx_scan_requests_user_created (user_id, created_at)` — đếm quota trong ngày.
+- `idx_scan_requests_status (status)` — bộ quét tìm job `PENDING`/`PROCESSING` bị kẹt.
+
+Script tạo bảng thủ công: `migration_scan_requests.sql` ở repo backend (môi trường `ddl-auto: update` tự tạo từ entity `ScanRequest`).
 
 ---
 

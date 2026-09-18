@@ -6,7 +6,7 @@
 
 ## 1. Mục tiêu dự án
 
-SnapVocab hướng đến xây dựng ứng dụng di động giúp người học tiếng Anh ghi nhớ từ vựng từ các vật thể trong đời sống thực tế. Người dùng có thể chụp ảnh hoặc tải ảnh lên, hệ thống sử dụng pipeline nhận diện từ vựng mở (open-vocabulary) dựa trên mô hình Florence-2 kết hợp SAM (cắt nền vật thể) và CLIP (xác thực ngữ nghĩa), chạy ở chế độ zero-shot. Mỗi vật thể phát hiện được trả về kèm một từ tiếng Anh được bảo đảm thuộc từ điển, sau đó ánh xạ sang nghĩa tiếng Việt, phiên âm và phát âm. Khác với các bộ phát hiện tập lớp đóng (như YOLO chỉ nhận diện 80 lớp COCO), pipeline này gọi tên được cả vật thể ngoài mọi danh sách lớp định sẵn — đúng nguồn từ mới mà người học cần.
+SnapVocab hướng đến xây dựng ứng dụng di động giúp người học tiếng Anh ghi nhớ từ vựng từ các vật thể trong đời sống thực tế. Người dùng có thể chụp ảnh hoặc tải ảnh lên, hệ thống sử dụng pipeline nhận diện từ vựng mở (open-vocabulary) dựa trên mô hình Florence-2 (CLIP xác thực ngữ nghĩa khi bật bước từ vựng nền), chạy ở chế độ zero-shot. Mỗi vật thể phát hiện được trả về kèm một từ tiếng Anh đã qua lọc từ điển, sau đó ánh xạ sang nghĩa tiếng Việt, phiên âm và phát âm. Khác với các bộ phát hiện tập lớp đóng (như YOLO chỉ nhận diện 80 lớp COCO), pipeline này gọi tên được cả vật thể ngoài mọi danh sách lớp định sẵn — đúng nguồn từ mới mà người học cần.
 
 Mục tiêu chính:
 
@@ -67,7 +67,7 @@ Mục tiêu chính:
 | Chủ đề          | Quyết định                                      | Ghi chú                                                                                           |
 | --------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | Source of truth | [specs.md](./specs.md)                          | Mọi BF/SS/MH/SA/DB/API phải truy vết về file này                                                  |
-| AI pipeline     | Florence-2 + SAM + CLIP (F2-v13)                | **Không** dùng YOLO làm model chính trong docs                                                    |
+| AI pipeline     | Florence-2 zero-shot (CLIP tùy chọn, không SAM) | **Không** dùng YOLO làm model chính trong docs                                                    |
 | Actor           | Guest, Learner, Admin                           | Admin = CMS                                                                                       |
 | Learning domain | `Collection` (SYSTEM/USER) → `Topic` → `TopicItem` | Từ vựng cá nhân = `TopicItem` trong Collection/Topic kiểu `USER`; **không** entity song song `SavedWord/UserWord` |
 | SRS             | FSRS trên `FsrsRecord` (`fsrs_records`)         | Trạng thái state, due, stability, difficulty gắn với cặp `(user_id, topic_item_id)`               |
@@ -107,7 +107,7 @@ Mục tiêu: chứng minh luồng scan-to-vocabulary hoạt động end-to-end.
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | Image Input        | Chụp ảnh bằng camera hoặc chọn ảnh từ thư viện                                                                                                  |
 | Upload/Storage     | Gửi ảnh tới backend hoặc upload qua presigned URL nếu cần lưu trữ                                                                               |
-| AI Detection       | Recognition worker gọi FastAPI AI service qua hàng đợi, chạy pipeline Florence-2 + SAM + CLIP (chế độ sản phẩm, phiên bản F2-v13)                |
+| AI Detection       | Recognition worker gọi FastAPI AI service qua hàng đợi, chạy pipeline Florence-2 (mặc định OD + self-grounding; CLIP tùy chọn)                |
 | Recognition Result | Nhận danh sách vật thể: nhãn từ vựng mở đã qua chuỗi lọc từ điển, điểm tin cậy, bounding box và (tùy chọn) ảnh cắt nền trong suốt cho flashcard |
 | Word Mapping       | Ánh xạ label sang từ vựng trong database                                                                                                        |
 | Result UI          | Hiển thị danh sách đối tượng/từ vựng kèm nghĩa, phiên âm, phát âm                                                                               |
@@ -195,7 +195,7 @@ Business rules:
 | Database          | MySQL/MariaDB + JPA/Hibernate                              | Lưu user, từ vựng, nghĩa, phiên âm, tiến độ, reward và cấu hình nghiệp vụ                                                           |
 | Cache             | Redis/Redisson                                             | Cache dữ liệu truy cập thường xuyên, leaderboard, điểm kinh nghiệm (không dùng cho session)                               |
 | Object Storage    | Cloudflare R2 hoặc S3-compatible storage/MinIO             | Lưu ảnh scan, avatar và tài nguyên vật phẩm                                                                                         |
-| AI Service        | Python FastAPI + Florence-2-large (zero-shot) + SAM + CLIP | Nhận ảnh, chạy pipeline nhận diện từ vựng mở, trả nhãn (bảo đảm thuộc từ điển), điểm tin cậy, bounding box và ảnh cắt nền flashcard |
+| AI Service        | Python FastAPI + Florence-2 (zero-shot; base/large) + CLIP tùy chọn | Nhận ảnh, chạy pipeline nhận diện từ vựng mở, trả nhãn (đã lọc từ điển), `headword`, `reliability` và bounding box |
 | Dictionary Source | SQLite/minhqnd dictionary import                           | Cung cấp dữ liệu từ vựng Anh-Việt, định nghĩa, phiên âm, bản dịch                                                                   |
 | API Docs          | Swagger/OpenAPI                                            | Tài liệu hóa backend API cho mobile và AI service tích hợp                                                                          |
 | UI Design         | Figma                                                      | Thiết kế giao diện, prototype và thống nhất trải nghiệm mobile                                                                      |
@@ -206,8 +206,8 @@ Business rules:
 2. Learner chụp ảnh mới hoặc chọn ảnh từ thư viện.
 3. Mobile gửi ảnh tới backend; backend có thể nhận trực tiếp file hoặc cấp presigned upload URL để client upload lên object storage.
 4. Backend lưu metadata ảnh nếu cần và gọi FastAPI AI service.
-5. AI service chạy pipeline Florence-2 (đề xuất vật thể qua tác vụ `<OD>` + mô tả vùng, mở rộng độ phủ bằng tiled OD và self-grounding), lọc nhãn qua chuỗi kiểm tra ngôn ngữ (từ điển + danh từ chỉ vật cụ thể), xác thực bằng CLIP, cắt nền bằng SAM, và trả về danh sách đối tượng gồm `label`, `detectionSource`, `clipScore`, `boundingBox`, `cropUrl` (mỗi từ tối đa một thẻ).
-6. Backend lọc kết quả theo cặp nguồn phát hiện (detectionSource) và điểm xác thực (clipScore), chuẩn hóa label và ánh xạ sang từ vựng trong database.
+5. AI service xoay ảnh theo EXIF, chạy Florence-2 (`<OD>` + self-grounding; tiled OD, dense caption, từ vựng nền + CLIP bật được qua cấu hình), loại box quá nhỏ/quá lớn, lọc nhãn theo từ điển (WordNet), và trả về danh sách đối tượng gồm `label`, `headword`, `source`, `reliability`, `box` (mỗi nhãn tối đa một box). App tự vẽ box lên ảnh gốc; không còn ảnh cắt nền (SAM đã gỡ).
+6. Backend lọc kết quả theo `reliability` tối thiểu (cấu hình), lưu kết quả vào `scan_requests`; khi mobile poll, ánh xạ label (rồi `headword`) sang từ vựng trong database.
 7. Backend trả cho mobile danh sách từ vựng gồm từ tiếng Anh, nghĩa tiếng Việt, phiên âm, phát âm và metadata nhận diện.
 8. Learner chọn từ muốn lưu vào danh sách học cá nhân.
 9. Flashcard, quiz và SRS sử dụng danh sách từ đã lưu để tạo hoạt động học và ôn tập.
@@ -219,7 +219,7 @@ Business rules:
 | Mobile app             | Đã có cấu trúc Expo/React Native, auth, home, learn, camera/profile tabs và API client                                                                                     | Hoàn thiện màn hình nghiệp vụ, kết nối scan-to-learn, learning engine và gamification            |
 | Backend API            | Đã có auth, user, storage, word controller/service/domain                                                                                                                  | Mở rộng recognition, saved vocabulary, flashcard, quiz, SRS, progress, gamification              |
 | Word / Learning domain | Đã có Word/Definition/Translation/Pronunciation và Collection/Topic/TopicItem/Template/FsrsRecord | Mở rộng quiz attempt, progress aggregate, object→TopicItem mapping từ scan              |
-| AI service             | Pipeline Florence-2 ĐÃ được chứng minh trên Colab (notebook F2-v13): COCO128 box-F1 0,646 / word-F1 0,825; Internet-50 word-precision 0,885; ~40 thẻ đúng trên ảnh thực tế | Đóng gói pipeline thành FastAPI service độc lập (giữ nguyên cấu hình chế độ sản phẩm của F2-v13) |
+| AI service             | Pipeline Florence-2 ĐÃ được chứng minh trên Colab (notebook F2-v13): COCO128 box-F1 0,646 / word-F1 0,825; Internet-50 word-precision 0,885; ~40 thẻ đúng trên ảnh thực tế | Đóng gói pipeline thành FastAPI service độc lập; cấu hình mặc định rút gọn (OD + self-grounding, bỏ SAM) để chạy được trên CPU, bật thêm bước khi có GPU |
 | Storage                | Đã có hướng S3-compatible/MinIO và flow upload                                                                                                                             | Chuẩn hóa R2 production, presigned upload, metadata object và cleanup                            |
 
 ---
@@ -255,8 +255,8 @@ Business rules:
 | FR-02.02 | Tải ảnh lên              | Learner chọn ảnh từ thư viện thiết bị                                                                                                                        | Must    |
 | FR-02.03 | Nút nổi quét màn hình    | (Chỉ Android) Lớp phủ nút nổi để chụp và quét màn hình tự động khi đang dùng app khác                                                                        | Could   |
 | FR-02.04 | Gửi ảnh xử lý            | Mobile gửi ảnh tới backend/AI pipeline theo flow đã cấu hình                                                                                                 | Must    |
-| FR-02.05 | Nhận diện đối tượng      | AI service trả danh sách object label, detectionSource, clipScore, bounding box                                                                                              | Must    |
-| FR-02.06 | Lọc độ tin cậy           | Lọc trong AI service (ngưỡng CLIP + biên độ); backend lọc thêm dựa trên cặp (source allowlist, clipScore floor) làm lớp bảo vệ cuối | Must    |
+| FR-02.05 | Nhận diện đối tượng      | AI service trả danh sách object: label, headword, source, reliability, bounding box                                                                                          | Must    |
+| FR-02.06 | Lọc độ tin cậy           | Lọc trong AI service (diện tích box, từ điển; CLIP khi bật từ vựng nền); backend lọc thêm theo `reliability` tối thiểu làm lớp bảo vệ cuối | Must    |
 | FR-02.07 | Xử lý nhiều đối tượng    | Mobile hiển thị nhiều object để Learner chọn/lưu từng từ                                                                                                     | Should  |
 | FR-02.08 | No-object/low-reliability| Hệ thống trả thông báo dễ hiểu và gợi ý thử ảnh khác                                                                                                         | Must    |
 | FR-02.09 | Lưu kết quả scan         | Learner lưu từ được phát hiện vào danh sách học cá nhân                                                                                                      | Must    |
@@ -267,8 +267,8 @@ Business rules:
 
 - Nhãn từ AI service đã được chuẩn hóa và bảo đảm thuộc từ điển ngay trong pipeline (chuỗi lọc ngôn ngữ + cổng từ điển cuối); backend chỉ cần tra cứu trực tiếp, dùng bảng mapping/synonym cho trường hợp từ điển Anh-Việt thiếu mục tương ứng.
 - Nếu nhiều bounding box cùng label, backend có thể gom trùng label để tránh trả từ vựng lặp.
-- Mỗi Learner có quota scan/ngày mặc định 20 lượt, cấu hình được theo môi trường/gói; lượt chỉ bị trừ khi request ảnh hợp lệ được nhận vào hàng đợi.
-- Khi hết lượt, backend trả `QUOTA_EXCEEDED` kèm `remainingScansToday = 0` và thời điểm reset; mobile không gọi AI service.
+- Mỗi Learner có quota scan/ngày mặc định 20 lượt, cấu hình được theo môi trường/gói; lượt được đếm từ các scan không `FAILED`, nên ảnh không hợp lệ, hàng đợi đầy hay lỗi AI đều không trừ lượt.
+- Khi hết lượt, backend trả `QUOTA_EXCEEDED` kèm `remaining = 0` và `resetAt`; mobile không gọi AI service.
 - Recognition request phải đi qua hàng đợi xử lý tuần tự/giới hạn worker (mặc định 1 worker/GPU, tối đa 2 nếu đo tải cho phép); trạng thái gồm `QUEUED`, `PROCESSING`, `SUCCESS`, `FAILED`, `CANCELED`.
 - Hệ thống không tự động lưu toàn bộ kết quả scan nếu Learner chưa xác nhận.
 - Ảnh scan chỉ được lưu nếu cần cho lịch sử hoặc debug; nếu lưu phải tuân thủ quyền riêng tư.
@@ -544,7 +544,7 @@ Business rules:
 ### 6.3 Nhóm dữ liệu cần cho nhận diện ảnh
 
 | `ScanRequest`           | Lưu request xử lý ảnh, user, object key, trạng thái, và thời gian xử lý (gộp ImageRecognitionRequest, RecognitionResult, ScanHistory) |
-| `DetectedObject`        | Label, detectionSource, clipScore, bounding box, cropUrl cho từng đối tượng                                                           |
+| `DetectedObject`        | Label, headword, source, reliability, bounding box cho từng đối tượng (lưu trong `scan_requests.result_json`)                        |
 | `ObjectWordMapping`     | Mapping từ nhãn AI pipeline sang Word trong dictionary (nhãn đã thuộc từ điển tiếng Anh; bảng này xử lý ánh xạ sang mục từ Anh-Việt)  |
 
 ### 6.4 Nhóm dữ liệu cần cho gamification
@@ -603,9 +603,9 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | Giao thức      | Worker recognition gọi FastAPI AI service qua HTTP nội bộ; mobile/backend public giao tiếp qua `requestId` và trạng thái job                                                             |
 | Input          | Ảnh hoặc object key/URL tạm thời truy cập ảnh                                                                                                                                            |
 | Output         | Danh sách object: label (bảo đảm thuộc từ điển), confidence, bounding box, crop cắt nền (tùy chọn)                                                                                       |
-| Model          | Florence-2-large zero-shot + SAM (ViT-H) + CLIP (ViT-B/32), cấu hình chế độ sản phẩm F2-v13 (tiled OD, self-grounding, từ vựng nền + cửa CLIP, 1 thẻ/từ)                                 |
-| Confidence     | Florence-2 không trả xác suất từng box; điểm tin cậy là pseudo-score theo nguồn phát hiện, có thể thay bằng điểm CLIP khi bật xác thực toàn phần — tài liệu API cần ghi rõ ngữ nghĩa này |
-| Phần cứng      | Cần GPU (T4 trở lên); độ trễ ~15–30 giây/ảnh ở chế độ đầy đủ — xem NFR Recognition Performance                                                                                           |
+| Model          | Florence-2 zero-shot (base trên CPU, large trên GPU); mặc định OD + self-grounding, 1 box/nhãn; tiled OD, từ vựng nền + CLIP (ViT-B/32) bật qua cấu hình. SAM đã gỡ |
+| Confidence     | Florence-2 không trả xác suất từng box; `score` chỉ là hằng số theo nguồn để xếp hạng; độ tin cậy hiển thị cho người dùng là `reliability` (HIGH/MEDIUM/LOW) suy ra từ nguồn |
+| Phần cứng      | CPU chạy được với Florence-2-base (~35–45 giây/ảnh); GPU (≥ 4GB VRAM) cho Florence-2-large và các bước mở rộng — xem NFR Recognition Performance |
 | Error handling | Timeout, model error, invalid image, no-object, quota exceeded và queue full phải được trả về có cấu trúc                                                                                |
 | Logging        | Ghi nhận requestId, trạng thái, queue wait, thời gian xử lý, số object nhận diện, lỗi nếu có                                                                                             |
 
@@ -726,7 +726,7 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 - Tiêu đề và nội dung mô tả SnapVocab.
 - Actor chính đúng theo đề tài: Guest, Learner, Admin.
 - Luồng scan-to-learn được mô tả rõ từ mobile → backend → AI service → dictionary → saved vocabulary.
-- Stack khớp với dự án: React Native/Expo, Spring Boot, Spring Security/JWT, MySQL/MariaDB, Redis, Cloudflare R2/S3-compatible storage, FastAPI, Florence-2 + SAM + CLIP (pipeline open-vocabulary), Swagger/OpenAPI, Figma.
+- Stack khớp với dự án: React Native/Expo, Spring Boot, Spring Security/JWT, MySQL/MariaDB, Redis, Cloudflare R2/S3-compatible storage, FastAPI, Florence-2 (+ CLIP tùy chọn; pipeline open-vocabulary), Swagger/OpenAPI, Figma.
 - Tài liệu phân biệt phần đã có bằng chứng trong mã nguồn và phần dự kiến triển khai.
 - Functional requirements bao phủ auth, profile, recognition, dictionary, topic/collection learning, personal vocabulary (TopicItem), flashcard/topic template, quiz, SRS, progress, leaderboard, gamification, storage, notification và Admin.
 - Non-functional requirements bao phủ security, performance, reliability, scalability, usability, maintainability và observability.
@@ -745,9 +745,9 @@ Các định nghĩa dưới đây giải thích thuật ngữ theo đúng cách 
 | **Zero-shot**                       | Dùng mô hình pretrained trực tiếp, không huấn luyện lại trên dữ liệu của bài toán. Toàn bộ MVP chạy zero-shot.                                                                                                                                                                                                                                                                |
 | **Florence-2**                      | Mô hình thị giác–ngôn ngữ của Microsoft, sinh nhãn dưới dạng chuỗi văn bản; một mô hình thực hiện nhiều tác vụ qua prompt: `<OD>` (phát hiện vật thể), `<DENSE_REGION_CAPTION>` (mô tả từng vùng), `<CAPTION_TO_PHRASE_GROUNDING>` (định vị cụm từ trong ảnh).                                                                                                                |
 | **Bounding box**                    | Khung chữ nhật [x1, y1, x2, y2] bao quanh vật thể trong ảnh — đầu ra định vị của bộ phát hiện.                                                                                                                                                                                                                                                                                |
-| **Detection Source / Clip Score**   | Điểm tin cậy được bóc tách thành `detectionSource` (nguồn phát hiện từ AI pipeline như `<OD>`, `GROUNDING`) và `clipScore` (điểm xác thực CLIP nếu bật). UI phân loại High/Medium/Low theo nguồn.                                                               |
-| **Ngưỡng (threshold)**              | Mức cắt trên một điểm số: kết quả trên ngưỡng được giữ, dưới thì loại. Hệ dùng nhiều ngưỡng ở các tầng khác nhau: ngưỡng IoU 0,5 khi chấm điểm đánh giá; sàn CLIP 0,23 cho box từ vựng nền; ngưỡng diện tích mask tối thiểu của SAM (400 px). Bài học của dự án: mỗi ngưỡng là một cán cân precision ↔ recall, phải chỉnh bằng đo đạc chứ không đoán.                         |
-| **SAM (Segment Anything Model)**    | Mô hình phân đoạn của Meta: nhận bounding box làm gợi ý, trả về mặt nạ (mask) tách vật khỏi nền. Trong hệ, SAM đảm nhiệm hai việc: xác thực hình học (mask quá nhỏ so với box → phát hiện sai → loại) và cắt nền trong suốt (RGBA) cho ảnh flashcard.                                                                                                                         |
+| **Source / Reliability**            | Florence-2 không có xác suất thật cho từng box. AI trả `source` (bước sinh ra nhãn: `od`, `od_tile`, `self`, `dense`, `base`) và `reliability` (HIGH/MEDIUM/LOW suy ra từ `source`). `score` chỉ là hằng số theo nguồn để xếp hạng nội bộ.                       |
+| **Ngưỡng (threshold)**              | Mức cắt trên một điểm số: kết quả trên ngưỡng được giữ, dưới thì loại. Hệ dùng nhiều ngưỡng ở các tầng khác nhau: ngưỡng IoU 0,5 khi chấm điểm đánh giá; sàn CLIP 0,23 cho box từ vựng nền; box phải chiếm 0,4%–85% diện tích ảnh. Bài học của dự án: mỗi ngưỡng là một cán cân precision ↔ recall, phải chỉnh bằng đo đạc chứ không đoán.                         |
+| **SAM (Segment Anything Model)**    | Mô hình phân đoạn của Meta: nhận bounding box làm gợi ý, trả về mặt nạ (mask) tách vật khỏi nền. Trong notebook F2-v13, SAM đảm nhiệm xác thực hình học và cắt nền RGBA cho flashcard; **đã gỡ khỏi service** vì app tự vẽ box trên ảnh gốc.                                                                                                                         |
 | **CLIP**                            | Mô hình của OpenAI nhúng ảnh và văn bản vào cùng không gian vector, cho phép đo độ khớp giữa một ảnh cắt và câu "a photo of a {từ}". Trong hệ, CLIP là cửa xác thực: box từ vựng nền phải khớp với chính từ của nó (điểm ≥ sàn 0,23 VÀ không thua từ khớp nhất quá biên độ 0,02) mới được giữ.                                                                                |
 | **Biên độ CLIP (margin)**           | Tiêu chí xác thực tương đối: thay vì chỉ dùng ngưỡng tuyệt đối, từ của một box phải khớp gần bằng từ khớp nhất trong bộ từ vựng ứng viên. Ví dụ thực tế của dự án: crop cái bát mang nhãn "frisbee" thua "bowl" 0,07 → loại; crop cái nĩa mang nhãn "fork" thua "spoon" 0,01 → giữ. Điều kiện tiên quyết: bộ ứng viên phải chứa đáp án đúng (bài học từ lỗi turkey→sandwich). |
 | **IoU / IoA**                       | IoU (Intersection over Union): diện tích giao / diện tích hợp của hai box — thước đo độ trùng khớp, dùng để chấm điểm (khớp khi ≥ 0,5) và khử trùng lặp. IoA (Intersection over Area): diện tích giao / diện tích box phát hiện — dùng riêng cho group-box của Open Images.                                                                                                   |
