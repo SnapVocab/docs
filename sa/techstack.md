@@ -3,7 +3,7 @@
 > Tài liệu tổng hợp công nghệ sử dụng trong SnapVocab, được xây dựng dựa trên [specs.md](../spec/specs.md), [sa.md](./sa.md), [server.md](./server.md), [phan_ra_phan_he_he_thong.md](../spec/phan_ra_phan_he_he_thong.md), [phan_ra_tinh_nang.md](../spec/phan_ra_tinh_nang.md) và [phan_ra_man_hinh.md](../spec/phan_ra_man_hinh.md).
 
 >
-> **Canonical sync (2026-08-23):** Source = [`../spec/specs.md`](../spec/specs.md). AI = Florence-2+SAM+CLIP (F2-v13) zero-shot · Learning = Collection/Topic/TopicItem + Template + FsrsRecord · SRS = FSRS · Actors = Guest/Learner/Admin · FR: Game=09, Noti=10, Storage=11, OpenAPI=12, Admin=13 · 4 milestones.
+> **Canonical sync (2026-08-23):** Source = [`../spec/specs.md`](../spec/specs.md). AI = Florence-2 zero-shot (+ CLIP tùy chọn; SAM đã gỡ) · Learning = Collection/Topic/TopicItem + Template + FsrsRecord · SRS = FSRS · Actors = Guest/Learner/Admin · FR: Game=09, Noti=10, Storage=11, OpenAPI=12, Admin=13 · 4 milestones.
 
 ---
 
@@ -31,7 +31,7 @@ SnapVocab sử dụng kiến trúc mobile-first cho Learner, web admin riêng ch
 │  ┌──────────────┐  ┌──────────────┐ ┌──────────────┐ ┌─────────────────┐ │
 │  │ MySQL/MariaDB│  │ Redis        │ │ Cloudflare R2│ │ Python FastAPI  │ │
 │  │ JPA/Hibernate│  │ Redisson     │ │ MinIO (dev)  │ │ Florence-2      │ │
-│  │              │  │              │ │ S3-compatible│ │ SAM + CLIP      │ │
+│  │              │  │              │ │ S3-compatible│ │ CLIP tùy chọn   │ │
 │  │ Source of    │  │ Cache,       │ │ Private      │ │ GPU T4+         │ │
 │  │  Truth       │  │ Leaderboard  │ │  Bucket      │ │ Zero-shot       │ │
 │  └──────────────┘  └──────────────┘ └──────────────┘ └─────────────────┘ │
@@ -46,8 +46,8 @@ SnapVocab sử dụng kiến trúc mobile-first cho Learner, web admin riêng ch
 | Security | Spring Security, JWT (access + refresh), OTP/email, SecureStore/biometric, WebAuthn optional | Xác thực, phân quyền, bảo vệ API, mở khóa cục bộ an toàn |
 | Database | MySQL/MariaDB, JPA/Hibernate | Source of truth cho toàn bộ dữ liệu nghiệp vụ |
 | Cache | Redis, Redisson | Cache dictionary, leaderboard sorted set, rate limiting |
-| AI Service | Python, FastAPI, Florence-2 + SAM + CLIP | Pipeline nhận diện vật thể zero-shot từ ảnh |
-| Object Storage | Cloudflare R2 (prod), MinIO (dev), S3-compatible API | Avatar, ảnh scan, ảnh crop SAM, tài nguyên vật phẩm |
+| AI Service | Python, FastAPI, Florence-2 (+ CLIP tùy chọn) | Pipeline nhận diện vật thể zero-shot từ ảnh |
+| Object Storage | Cloudflare R2 (prod), MinIO (dev), S3-compatible API | Avatar, ảnh scan, tài nguyên vật phẩm |
 | Dictionary Data | SQLite (minhqnd/dictionary) → import vào MySQL | Nguồn dữ liệu từ vựng Anh-Việt (357K+ từ, 443K+ định nghĩa) |
 | API Docs | Swagger/OpenAPI (Springdoc) | Tài liệu hóa và kiểm thử backend API |
 | Design | Figma, Design System | Thiết kế UI/UX, chuẩn hóa component |
@@ -502,88 +502,79 @@ Security Layer
 | --- | --- | --- |
 | **Python 3.10+** | Runtime | Ecosystem ML/AI phong phú |
 | **FastAPI** | HTTP API framework | Async, OpenAPI tự động, lightweight |
-| **Uvicorn** | ASGI server (dev) | Hot-reload cho development |
-| **Gunicorn + Uvicorn** | Production server | 1 worker/GPU (giới hạn VRAM, concurrency=1) |
-| **Florence-2-large** | Object detection model | Open-vocabulary, multi-task VLM (F2-v13) |
-| **SAM (ViT-H)** | Segment Anything Model | Cắt nền RGBA cho flashcard + xác thực hình học |
-| **CLIP (ViT-B/32)** | Vision-language matching | Xác thực ngữ nghĩa label ↔ crop image |
-| **PyTorch** | Model runtime | GPU inference (CUDA) |
-| **OpenCV / Pillow** | Image preprocessing | Resize, crop, format conversion |
-| **NLTK / WordNet** | Linguistic filter | Lọc danh từ cụ thể, kiểm tra thuộc từ điển |
-| **NumPy** | Array operations | Bounding box math, score computation |
+| **Uvicorn** | ASGI server | 1 process; inference chạy trong thread riêng sau semaphore 1 slot để `/health` vẫn trả lời |
+| **Florence-2** | Open-vocabulary detection (VLM) | `base` cho CPU/dev, `large` cho GPU (`.env.gpu`) |
+| **CLIP (ViT-B/32)** | Vision-language matching | **Tùy chọn**: chỉ nạp khi bật từ vựng nền, để xác thực các box dễ ảo giác |
+| **PyTorch** | Model runtime | CPU hoặc CUDA (fp16 trên GPU) |
+| **Pillow** | Image preprocessing | Xoay EXIF, resize, vẽ box (tùy chọn) |
+| **NLTK / WordNet** | Linguistic filter | Kiểm tra nhãn thuộc từ điển, đưa về dạng số ít (`headword`) |
+| **NumPy** | Array operations | Bounding box math |
+
+SAM đã **gỡ bỏ**: app hiển thị ảnh gốc và tự vẽ box theo toạ độ, không cần ảnh cắt nền.
 
 ### 8.2 Pipeline chi tiết
 
 ```text
 Input Image
   │
-  ├── Florence-2 Multi-task Inference
-  │   ├── <OD> — Object Detection (standard)
-  │   ├── <DENSE_REGION_CAPTION> — Mô tả từng vùng
-  │   ├── <CAPTION_TO_PHRASE_GROUNDING> — Self-grounding
-  │   └── Tiled OD — 4 ô chồng lấn 60% (bắt vật nhỏ)
+  ├── Xoay theo EXIF + resize (cạnh dài ≤ MAX_INPUT_SIZE)
   │
-  ├── NMS / WBF — Khử box trùng lặp
+  ├── Florence-2
+  │   ├── <OD> — Object Detection                         (luôn bật)
+  │   ├── <MORE_DETAILED_CAPTION> → <CAPTION_TO_PHRASE_GROUNDING>
+  │   │   — Self-grounding                                (mặc định bật)
+  │   ├── Tiled OD — 4 ô chồng lấn (bắt vật nhỏ)          (mặc định tắt)
+  │   ├── <DENSE_REGION_CAPTION>                          (mặc định tắt)
+  │   └── Grounding bộ từ vựng nền + CLIP xác thực        (mặc định tắt)
   │
-  ├── Lọc ngôn ngữ (WordNet)
-  │   ├── Kiểm tra label thuộc từ điển tiếng Anh
-  │   ├── Lọc từ trừu tượng/động từ (chỉ giữ danh từ chỉ vật cụ thể)
-  │   └── Chuẩn hóa label (lowercase, singular form)
-  │
-  ├── Xác thực CLIP
-  │   ├── Sàn tuyệt đối: similarity score ≥ 0.23
-  │   └── Biên độ tương đối: không thua từ khớp nhất > 0.02
-  │
-  ├── Xác thực hình học SAM
-  │   ├── Generate mask từ bounding box
-  │   └── Loại mask quá nhỏ (< 400px area)
-  │
-  ├── Cắt nền RGBA (SAM)
-  │   └── Ảnh trong suốt cho flashcard
+  ├── Loại box < 0,4% hoặc > 85% diện tích ảnh
+  ├── Lọc nhãn theo từ điển (WordNet, kiểm tra từ cuối)
+  ├── NMS 2 tầng (cùng nhãn / nhãn liên quan) + 1 box / nhãn
   │
   └── Output
-      ├── label ∈ dict (đã qua chuỗi lọc)
-      ├── detectionSource (nguồn phát hiện vật thể: OD, GROUNDING, SELF...)
-      ├── clipScore (điểm xác thực ngữ nghĩa, float)
-      ├── boundingBox [x1, y1, x2, y2]
-      ├── cropBase64 (chuỗi base64 ảnh RGBA cắt nền)
-      └── 1 entry / unique label (gom trùng)
+      ├── label, headword (từ cuối, số ít)
+      ├── source (od | od_tile | self | dense | base)
+      ├── reliability (HIGH | MEDIUM | LOW, suy ra từ source)
+      ├── box {x1, y1, x2, y2} trong hệ image_width × image_height
+      └── [ảnh vẽ sẵn box — chỉ khi RETURN_ANNOTATED_IMAGE=true]
 ```
 
-### 8.3 Độ tin cậy (Reliability Scoring)
+### 8.3 Độ tin cậy (Reliability)
 
-Florence-2 sinh chuỗi văn bản nên **không** có xác suất thật cho từng box. Để phản ánh đúng bản chất, hệ thống bóc tách độ tin cậy thành 2 trường:
+Florence-2 sinh chuỗi văn bản nên **không** có xác suất thật cho từng box. Trường `score` trong response chỉ là hằng số theo nguồn (dùng để xếp hạng khi khử trùng), **không** được hiển thị như độ tin cậy. Thay vào đó AI trả `reliability`:
 
-1. **`detectionSource`**: Nguồn sinh ra nhãn phát hiện:
-   - `OD` (standard OD): Độ tin cậy cao nhất (High)
-   - `GROUNDING` (prompt-based grounding): Độ tin cậy cao (High)
-   - `SELF` (self-description): Độ tin cậy trung bình (Medium)
-   - `DENSE` (region description): Độ tin cậy thấp (Low)
-   - `BASE` (fallback): Độ tin cậy cực thấp (Low)
-2. **`clipScore`**: Điểm số Cosine Similarity thực sự khi bật xác thực CLIP toàn phần (ví dụ: `0.28`).
+| `source` | Nguồn | `reliability` mặc định |
+| --- | --- | --- |
+| `od`, `od_tile` | `<OD>` trên toàn ảnh / trên ô | `HIGH` |
+| `self`, `dense` | Tự mô tả rồi ground / mô tả vùng | `MEDIUM` |
+| `base` | Grounding bộ từ vựng nền (đã qua CLIP) | `LOW` |
 
-Backend sử dụng kết hợp `(sourceAllowlist, clipScoreFloor)` để làm lớp lọc cuối cùng. Mobile UI sử dụng `detectionSource` để map ra các thẻ màu High/Medium/Low.
+Bảng map đổi được qua `RELIABILITY_BY_SOURCE`. Backend lọc lần cuối theo `scan.min-reliability`; mobile tô màu box theo `reliability`.
 
 ### 8.4 Hiệu năng
 
 | Metric | Giá trị | Ghi chú |
 | --- | --- | --- |
-| COCO128 box-F1 | 0.646 | Đánh giá theo IoU ≥ 0.5 |
-| COCO128 word-F1 | 0.825 | Đánh giá theo word match (sát mục tiêu sản phẩm) |
-| Internet-50 word-precision | 0.885 | Ảnh thực tế từ internet |
-| Inference time | ~15–30s (full mode), <10s (fast mode) | GPU T4; fast mode bỏ Tiled OD và SAM |
-| Hardware | GPU T4 trở lên | CUDA required |
+| COCO128 box-F1 | 0.646 | Notebook F2-v13 (Florence-2-large, cấu hình đầy đủ) — tham khảo nghiên cứu |
+| COCO128 word-F1 | 0.825 | Như trên |
+| Internet-50 word-precision | 0.885 | Như trên |
+| `<OD>` alone | 12s, 4 nhãn, 4/33 đúng | Florence-2-base, CPU, 1 ảnh bếp — số đo trong `ai-service/app/config.py` |
+| + self-grounding (mặc định) | 34s, 16 nhãn, 13/33 đúng | Như trên |
+| + tiled OD | 64s, 17 nhãn, 14/33 đúng | Như trên |
+| + từ vựng nền | 83s, 30 nhãn, 18/33 đúng (~40% sai) | Như trên |
+| `num_beams` 3 → 1 | nhanh hơn 24%, mất 46% nhãn đúng | Giữ 3 |
+| Hardware | CPU chạy được với base; GPU ≥ 4GB cho large | |
 
 ### 8.5 Contract với backend
 
 | Thuộc tính | Mô tả |
 | --- | --- |
-| Giao thức | HTTP nội bộ (backend → AI service) |
-| Input | `requestId`, ảnh (file/URL), options (`sourceAllowlist`, `clipScoreFloor`, maxObjects) |
-| Output | `requestId`, `objects[]` (label, detectionSource, clipScore, bbox, cropBase64), `modelVersion`, `processingTimeMs` |
-| Error | Structured error: `INVALID_IMAGE`, `NO_OBJECT`, `MODEL_ERROR`, `TIMEOUT` |
-| Timeout | Backend cấu hình (mặc định 60s) |
-| Logging | requestId, processingTimeMs, object count, errors |
+| Giao thức | HTTP nội bộ, `POST /api/v1/detect` (multipart, field `file`) |
+| Header | `X-Request-Id` (= `ScanRequest.id`), `X-Service-Token` (khi đặt `SERVICE_TOKEN`) |
+| Output | `request_id`, `model_version`, `processing_time_ms`, `detections[]` (label, headword, score, source, reliability, box), `image_width`, `image_height` |
+| Error | `{"error": {"code", "message"}}`: `INVALID_REQUEST`, `INVALID_IMAGE`, `UNAUTHORIZED`, `MODEL_NOT_READY`, `MODEL_ERROR`. Không có vật thể → danh sách rỗng, không phải lỗi |
+| Timeout | Backend `ai-service.read-timeout-ms` (60s prod / 120s dev) |
+| Logging | `request_id`, `model_version`, số object, `time_ms`, lỗi |
 
 ### 8.6 Lý do chọn
 
@@ -591,8 +582,9 @@ Backend sử dụng kết hợp `(sourceAllowlist, clipScoreFloor)` để làm l
 | --- | --- |
 | FastAPI | Nhẹ, async, OpenAPI tự động; phù hợp service AI độc lập |
 | Florence-2 (zero-shot) | Open-vocabulary — gọi tên vật ngoài tập lớp đóng; đúng mục tiêu học từ mới |
-| SAM | Cắt nền chất lượng cho ảnh flashcard + xác thực hình học (mask nhỏ = sai) |
-| CLIP | Cửa xác thực ngữ nghĩa chống hallucination; biên độ tương đối hiệu quả |
+| Self-grounding mặc định | Nhiều nhãn đúng nhất trên mỗi giây trong các bước đã đo |
+| Bỏ SAM | App tự vẽ box trên ảnh gốc (tương tác được, nhẹ hơn); SAM ViT-H tốn VRAM và thời gian |
+| CLIP tùy chọn | Chỉ cần cho bước từ vựng nền — nguồn duy nhất hay ảo giác |
 | Tách service | Backend Java không phải quản lý Python/GPU runtime; scale AI độc lập |
 | Zero-shot MVP | Tránh vocabulary collapse khi fine-tune; fine-tune LoRA là hướng mở rộng |
 
@@ -615,8 +607,7 @@ Backend sử dụng kết hợp `(sourceAllowlist, clipScoreFloor)` để làm l
 | Media | Source | Giới hạn | Milestone |
 | --- | --- | --- | --- |
 | Avatar | Edit profile | ≤ 5MB, image/* | M1 |
-| Scan image | Camera/detection (optional) | ≤ 10MB, image/* | M2 |
-| Crop image (SAM) | AI pipeline → flashcard | — | M2 |
+| Scan image | `POST /api/scan/upload-url` → `scans/{userId}/{uuid}.{ext}` | ≤ 10MB, jpeg/png/webp | M2 |
 | Item asset | Admin upload (shop/gamification) | — | M4 |
 
 ### 9.3 Quy tắc
@@ -737,8 +728,8 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 | Backend mapping/docs | MapStruct, Lombok, Springdoc OpenAPI | Backend | DTO mapping, giảm boilerplate, API docs |
 | Backend DB/migration | Hibernate, Flyway hoặc Liquibase, Testcontainers | Backend | ORM, schema migration, integration test với DB thật |
 | Backend storage | AWS SDK S3-compatible / MinIO client | Backend | Presigned URL, R2/MinIO abstraction |
-| AI service | FastAPI, PyTorch, Transformers, OpenCV, Pillow, NumPy | AI | API inference, model runtime, xử lý ảnh |
-| AI models | Florence-2, SAM, CLIP | AI | Object detection zero-shot, segmentation, semantic verification |
+| AI service | FastAPI, PyTorch, Transformers, Pillow, NumPy | AI | API inference, model runtime, xử lý ảnh |
+| AI models | Florence-2, CLIP (tùy chọn) | AI | Object detection zero-shot, semantic verification |
 | Quality/test | Jest, React Native Testing Library, Playwright, JUnit 5, Mockito, Pytest | Multi-layer | Unit/component/E2E/integration test |
 
 ### 12.1 Nguyên tắc chọn thư viện
@@ -924,7 +915,7 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 | Milestone | Stack trọng tâm |
 | --- | --- |
 | **M1 — Core Auth & Vocabulary** | React Native/Expo, Expo SecureStore, Spring Boot, Spring Security/JWT, MySQL/MariaDB (dictionary import 357K+), MinIO/S3 (avatar), Spring Mail (OTP), Swagger |
-| **M2 — Camera/Recognition** | Expo Camera/Image Picker/Image Manipulator, Storage scan image, FastAPI + Florence-2 + SAM + CLIP (GPU T4), Recognition API, ObjectWordMapping |
+| **M2 — Camera/Recognition** | Expo Camera/Image Picker/Image Manipulator, Storage scan image, FastAPI + Florence-2 (GPU), Recognition API (`/api/scan`, hàng đợi + poll), ObjectWordMapping |
 | **M3 — Learning Engine** | Flashcard/Quiz/SRS backend services, Template management, Progress aggregate, Notification (Expo Push/FCM), TanStack Query learning screens, biometric unlock optional, tests SRS/quiz |
 | **M4 — Gamification & Admin Production** | Redis leaderboard sorted set, Mission/Badge/Coin/Shop services, Next.js Admin CMS, shadcn/ui, TanStack Table, Playwright smoke, Cloudflare R2 production, Observability hardening, CI/CD |
 
@@ -935,7 +926,7 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 | # | Rủi ro | Ảnh hưởng | Kiểm soát |
 | --- | --- | --- | --- |
 | 1 | Florence pipeline nặng (GPU T4, ~15–30s/ảnh) | AI service chậm, UX kém | Hàng đợi AI giới hạn worker/GPU, quota scan/ngày/Learner, timeout 60s, GPU T4+, scale AI riêng; dev có thể mock inference |
-| 2 | Florence hallucination (label sai) | Từ sai trên flashcard | CLIP verification (sàn 0.23 + biên độ 0.02), SAM geometry check |
+| 2 | Florence hallucination (label sai) | Từ sai trên flashcard | Lọc từ điển + loại box quá nhỏ/lớn; CLIP (sàn 0.23) khi bật từ vựng nền; hiển thị `reliability` |
 | 3 | Vocabulary collapse nếu fine-tune | Mất khả năng gọi từ mới | MVP giữ zero-shot; fine-tune kèm phép đo word-F1 hai chiều |
 | 4 | Dictionary lớn (357K+ từ) | Import/search chậm | Batch import, index, cache từ phổ biến (Redis) |
 | 5 | Mobile camera permission phức tạp | Scan flow lỗi trên thiết bị | Test thiết bị thật, fallback chọn ảnh từ thư viện |
@@ -969,7 +960,7 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 - [x] Mobile stack: React Native/Expo/TypeScript hỗ trợ auth, biometric unlock, camera, detection, dictionary, topic, vocabulary, flashcard, quiz, SRS, progress, gamification, profile, notification.
 - [x] Web admin stack: Next.js/React/TypeScript + Tailwind/shadcn/ui + TanStack Query/Table cho CMS quản trị Admin.
 - [x] Backend stack: Spring Boot REST API + Spring Security/JWT + JPA/Hibernate + Spring Mail + Springdoc OpenAPI.
-- [x] AI service stack: FastAPI + Florence-2 + SAM + CLIP (F2-v13 zero-shot) tách riêng, GPU T4+.
+- [x] AI service stack: FastAPI + Florence-2 zero-shot (CLIP tùy chọn) tách riêng; CPU cho dev, GPU cho prod.
 - [x] Database: MySQL/MariaDB source of truth; dictionary import (357K+ từ) chuẩn hóa; index chiến lược cho lookup/SRS/leaderboard.
 - [x] Redis: cache dictionary/ranking, leaderboard sorted set, rate limiting — **không** source of truth.
 - [x] Object storage: R2/S3-compatible, private bucket, presigned URL, MIME/size validation, orphan cleanup.
@@ -983,6 +974,6 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 - [x] Thư viện mã nguồn mở đề xuất đã chia theo mobile/web admin/backend/AI/testing và có nguyên tắc chọn.
 - [x] Rủi ro tech stack đã nhận diện và có phương án kiểm soát.
 - [x] Canonical model: Collection → Topic → TopicItem + Template + FsrsRecord. Không dùng model cũ (Deck/Note/Card, ReviewLog, SavedWord).
-- [x] AI pipeline: Florence-2 + SAM + CLIP zero-shot. Không YOLO.
+- [x] AI pipeline: Florence-2 zero-shot (CLIP tùy chọn). Không YOLO, không SAM.
 - [x] SRS: FSRS trên FsrsRecord (theo topic_item_id).
 - [x] Actors: Guest, Learner, Admin (CMS web riêng).

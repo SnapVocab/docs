@@ -43,27 +43,27 @@
 | F-RECOG-01 | Camera capture                        | M   | Request permission UX; fallback gallery nếu từ chối camera                               |
 | F-RECOG-02 | Gallery pick                          | M   | MIME/size validate client (ảnh, ≤ 10MB) + server                                         |
 | F-RECOG-03 | Android overlay bubble                | C   | Floating widget chụp/quét từ app khác; stretch feature, không chặn MVP                   |
-| F-RECOG-04 | Submit recognition                    | M   | requestId trả ngay; kiểm tra quota trước khi nhận job; UX loading/cancel                 |
-| F-RECOG-05 | AI Florence-2 pipeline                | M   | label ∈ dict path; detectionSource; clipScore; bbox; cropUrl (opt.)  |
-| F-RECOG-06 | Backend recognition filter            | M   | Lọc bằng cặp (source allowlist, clipScore floor) cấu hình được (lớp bảo vệ cuối) |
+| F-RECOG-04 | Submit recognition                    | M   | `POST /api/scan` trả `202` + requestId ngay; kiểm tra key/size rồi quota trước khi nhận job; UX loading/cancel |
+| F-RECOG-05 | AI Florence-2 pipeline                | M   | OD + self-grounding; trả label, headword, source, reliability, box; không SAM/crop |
+| F-RECOG-06 | Backend recognition filter            | M   | Lọc theo `scan.min-reliability` cấu hình được (lớp bảo vệ cuối) |
 | F-RECOG-07 | Multi-object result UI                | S   | Hiển thị nhiều object; Learner chọn từng object để lưu                                   |
-| F-RECOG-08 | Label deduplication                   | M   | Gom nhiều box cùng label → 1 từ duy nhất; tránh trả từ vựng lặp                          |
+| F-RECOG-08 | Label deduplication                   | M   | AI giữ 1 box / label (box điểm cao nhất); tránh trả từ vựng lặp                          |
 | F-RECOG-09 | No-object / low-reliability / AI error | M   | error.code + message thân thiện + CTA retry/thử ảnh khác; app không crash                |
-| F-RECOG-10 | Word mapping                          | M   | Ánh xạ label AI → Word dictionary (tra cứu + mapping/synonym); đánh dấu nếu thiếu mục    |
+| F-RECOG-10 | Word mapping                          | M   | Ánh xạ label → Word: tra nguyên nhãn, rồi `headword`; `word = null` nếu thiếu mục; tra lúc đọc kết quả |
 | F-RECOG-11 | Save from scan                        | M   | Tạo TopicItem + FsrsRecord trong Topic cá nhân (source=SCAN); xem BF-07, F-VOCAB         |
-| F-RECOG-12 | Scan history                          | S   | Lưu metadata request (bảng ScanRequest); lịch sử scan của Learner query từ ScanRequest; retention 30 ngày (ARC-13) |
-| F-RECOG-13 | Daily scan quota                      | M   | Mặc định 20 scan/ngày/Learner, cấu hình được; response có remaining/resetAt; hết lượt trả `QUOTA_EXCEEDED` |
-| F-RECOG-14 | Recognition queue                     | M   | Job vào in-process queue (Spring @Async); trạng thái PENDING→PROCESSING→DONE; timeout giao diện 90s |
+| F-RECOG-12 | Scan history                          | S   | Metadata đã lưu trong `scan_requests`; API lịch sử (`GET /api/scan/history`) và retention 30 ngày (ARC-13) chưa triển khai |
+| F-RECOG-13 | Daily scan quota                      | M   | Mặc định 20 scan/ngày/Learner, đếm từ `scan_requests` (status ≠ FAILED); `GET /api/scan/quota`; hết lượt trả `QUOTA_EXCEEDED` kèm remaining/resetAt |
+| F-RECOG-14 | Recognition queue                     | M   | Hàng đợi trong bộ nhớ (1 worker, tối đa 3 job chờ); PENDING→PROCESSING→DONE/FAILED; poll `GET /api/scan/{requestId}`; timeout giao diện 90s |
 | F-RECOG-15 | Báo cáo thiếu từ                      | S   | Gửi nhãn từ chưa có trong từ điển vào Feedback queue cho Admin xử lý                     |
 
 **Business rules:**
 
-1. Nhãn từ AI service đã được chuẩn hóa và bảo đảm thuộc từ điển ngay trong pipeline; backend chỉ cần tra cứu trực tiếp, dùng bảng mapping/synonym cho trường hợp từ điển Anh-Việt thiếu mục tương ứng.
-2. Mỗi Learner có quota scan/ngày mặc định 20 lượt, cấu hình được; ảnh không hợp lệ không trừ lượt.
-3. Khi hết lượt, Recognition API trả `QUOTA_EXCEEDED`, `remainingScansToday = 0`, `resetAt`; mobile hiển thị trạng thái hết lượt và không retry tự động.
-4. Request hợp lệ được đưa vào in-process queue (Spring `@Async`), xử lý giới hạn theo GPU (mặc định 1 worker/GPU); client poll theo dõi `PENDING`/`PROCESSING` thay vì giữ kết nối treo quá timeout.
+1. Nhãn từ AI service đã qua lọc từ điển (WordNet) trong pipeline; backend tra nguyên nhãn trước, không có thì tra `headword` (từ cuối, số ít). Bảng mapping/synonym chưa triển khai.
+2. Mỗi Learner có quota scan/ngày mặc định 20 lượt, cấu hình được, đếm từ `scan_requests`: mọi scan không `FAILED` tính 1 lượt, nên ảnh không hợp lệ, hàng đợi đầy hay lỗi AI đều không trừ lượt.
+3. Khi hết lượt, API trả `429 QUOTA_EXCEEDED` với `data = {limit, used, remaining = 0, resetAt}`; mobile hiển thị trạng thái hết lượt và không retry tự động.
+4. Request hợp lệ được đưa vào hàng đợi trong bộ nhớ (executor riêng, không phải `@Async`), 1 worker/GPU; client poll theo dõi `PENDING`/`PROCESSING` thay vì giữ kết nối treo. Hàng đợi đầy → `AI_QUEUE_FULL`.
 5. Không tự động lưu kết quả scan nếu Learner chưa xác nhận.
-6. Ảnh scan chỉ lưu khi cần; bucket private, presigned URL TTL ≤ 15 phút.
+6. Ảnh scan lưu dưới `scans/{userId}/` trong bucket private, presigned URL TTL 5 phút; chưa có job dọn ảnh cũ.
 7. Log: requestId, status, queuePosition/estimatedWaitMs, processing time, object count, errors.
 
 ---
@@ -293,8 +293,8 @@
 | F-STOR-03 | Private access URL         | S   | Presigned GET URL; TTL ≤ 15 phút; bucket private mặc định                               |
 | F-STOR-04 | Avatar upload flow         | M   | Upload avatar ≤ 5MB; validate MIME (image/\*); cập nhật user avatarUrl                  |
 | F-STOR-05 | Scan image storage         | S   | Lưu ảnh scan nếu cần (lịch sử/debug); tuân thủ privacy; bucket private                  |
-| F-STOR-06 | Crop image storage         | S   | Lưu ảnh cắt nền (RGBA) từ SAM cho flashcard; gắn cropKey vào DetectedObject             |
-| F-STOR-07 | Orphan cleanup             | S   | Scheduled job xóa object type=CROP, state=TEMP quá 24h                                  |
+| F-STOR-06 | Crop image storage         | S   | **Đã bỏ** — SAM gỡ khỏi pipeline; app tự vẽ box trên ảnh gốc                            |
+| F-STOR-07 | Orphan cleanup             | S   | Scheduled job xóa object không còn tham chiếu (vd. ảnh scan cũ) — chưa triển khai       |
 | F-STOR-08 | Storage metadata           | M   | DB lưu: object key, owner, MIME, size, type, state (TEMP/PERMANENT), timestamp          |
 
 **Công nghệ:**
@@ -448,7 +448,7 @@ gantt
 ## 18. Checklist
 
 - [x] FR IDs khớp specs: Auth=01, Recog=02, Dict=03, Vocab=04, Flash=05, Quiz=06, SRS=07, Progress=08, Game=09, Noti=10, Storage=11, OpenAPI=12, Admin=13
-- [x] Không YOLO — AI pipeline Florence-2 + SAM + CLIP
+- [x] AI pipeline: Florence-2 zero-shot (CLIP tùy chọn). Không YOLO, không SAM.
 - [x] Không `SavedWord`/`UserWord` — Canonical: Collection → Topic → TopicItem + Template + FsrsRecord
 - [x] SRS: FSRS trên FsrsRecord gắn cặp (user_id, topic_item_id)
 - [x] Milestone M1–M4 mapping đầy đủ

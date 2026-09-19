@@ -435,13 +435,12 @@ flowchart TD
 
 **Dữ liệu hiển thị:**
 
-- Ảnh đã scan (có bounding box overlay nếu hỗ trợ)
+- Ảnh gốc Learner đã chụp, **app tự vẽ box** theo `items[].box` (quy đổi bằng `chiều_rộng_hiển_thị / imageWidth`), tô màu theo `reliability`; chạm vào box để chọn object
 - Danh sách detected objects:
     - Object label (từ tiếng Anh)
-    - Source/Reliability badge (High/Medium/Low)
+    - Reliability badge (High/Medium/Low) theo `reliability`
     - Nghĩa tiếng Việt
     - IPA / nút phát âm
-    - Ảnh crop (nếu có cropUrl)
     - **Save** button per object → lưu vào Topic gần nhất/mặc định, có option **Đổi Topic** trước khi xác nhận
     - Trạng thái đã lưu (nếu đã có trong Topic đang chọn)
 - Topic đích hiện tại: tên Topic + action **Đổi Topic**
@@ -455,7 +454,7 @@ flowchart TD
 | No object detected | "Không nhận diện được vật thể" + CTA "Thử ảnh khác"     |
 | All low reliability| "Không tìm thấy vật thể có độ tin cậy cao" + CTA "Thử ảnh rõ hơn"        |
 | Dictionary miss    | Có label nhưng đánh dấu "Chưa có từ vựng tương ứng"     |
-| Queued / processing | "Đang xếp hàng"/"Đang nhận diện" + vị trí/thời gian chờ ước tính + nút hủy |
+| Queued / processing | "Đang xếp hàng" (`PENDING`) / "Đang nhận diện" (`PROCESSING`) + nút hủy (chỉ dừng poll; lượt vẫn tính nếu job hoàn tất) |
 | Quota exceeded     | "Bạn đã dùng hết lượt scan hôm nay" + `resetAt` + CTA quay lại học |
 | AI error / timeout | "Xử lý thất bại" + CTA "Thử lại" hoặc "Quay lại camera" |
 | Queue full         | "Hệ thống đang quá tải, thử lại sau"; không tự retry liên tục |
@@ -1154,7 +1153,7 @@ flowchart TD
 - [x] MH-LEARN-06 (Template Management)
 - [x] Detection Result thể hiện đủ states: success, no-object, low-reliability, dictionary miss, AI error.
 - [x] Vocabulary screens chuẩn hóa theo Collection/Topic/TopicItem/Template, không dùng model cũ (Deck/Note/Card, SavedWord).
-- [x] AI pipeline = Florence-2 + SAM + CLIP, không YOLO.
+- [x] AI pipeline: Florence-2 zero-shot (CLIP tùy chọn). Không YOLO, không SAM.
 - [x] SRS = FSRS trên FsrsRecord (theo topic_item_id).
 - [x] Actor: Guest, Learner, Admin (CMS web riêng).
 - [x] Ma trận MH ↔ BF và MH ↔ Feature Area đầy đủ.

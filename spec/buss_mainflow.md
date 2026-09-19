@@ -269,73 +269,74 @@
 ### Precondition
 
 - Learner đã đăng nhập.
-- AI service (FastAPI + Florence-2 + SAM + CLIP) đang hoạt động.
-- Hàng đợi recognition còn nhận job mới.
+- AI service (FastAPI + Florence-2) đang hoạt động và đã nạp xong model.
+- Hàng đợi scan còn chỗ nhận job mới.
 - Learner còn quota scan trong ngày.
 - Mobile có quyền truy cập camera/thư viện.
 
 ### Happy Path
 
-| Bước | Actor   | Hành động                                                                                                                |
-| ---- | ------- | ------------------------------------------------------------------------------------------------------------------------ |
-| 1    | Learner | Mở tab Camera hoặc chức năng upload ảnh.                                                                                 |
-| 2    | Learner | Chụp ảnh mới bằng camera **hoặc** chọn ảnh từ thư viện thiết bị.                                                        |
-| 3    | Mobile  | Validate MIME (ảnh) và kích thước (≤ 10MB) phía client.                                                                  |
-| 4    | Mobile  | Gọi API cấp presigned URL và upload ảnh trực tiếp lên Object Storage.                                                                    |
-| 5    | System  | Mobile gọi POST /recognition/scan (truyền objectKey). Backend kiểm tra quota scan/ngày và trả `QUOTA_EXCEEDED` nếu đã hết lượt.         |
-| 6    | System  | Backend tạo `ScanRequest` (trạng thái `PENDING`), trừ lượt scan, đẩy job vào in-process queue và trả `202 Accepted` kèm `requestId`, `status = PENDING`. |
-| 7    | Mobile  | Hiển thị trạng thái chờ và poll định kỳ GET /recognition/results/{requestId} (mỗi 2-3s, timeout giao diện 90s).                          |
-| 8    | System  | Background worker (Spring `@Async` + Bounded Executor) lấy job, đổi trạng thái thành `PROCESSING` và gọi FastAPI AI service.             |
-| 9    | AI      | Pipeline xử lý: Florence-2 (OD + Dense Region + Self-grounding + Tiled OD) → lọc ngôn ngữ (WordNet + từ điển) → CLIP xác thực → SAM cắt nền. |
-| 10   | AI      | Trả danh sách object: `label` (thuộc từ điển), `detectionSource`, `clipScore`, `boundingBox`, `cropUrl` (tùy chọn).                      |
-| 11   | System  | Backend lọc theo cặp (source, clipScore) (cấu hình được). Gom trùng label (nhiều box cùng label → 1 từ).                     |
-| 12   | System  | Ánh xạ label sang Word trong database (tra cứu trực tiếp + bảng mapping/synonym).                                      |
-| 13   | System  | Cập nhật `ScanRequest = DONE` kèm danh sách từ vựng. Ở lần poll tiếp theo, mobile nhận kết quả này.                                      |
-| 14   | Learner | Xem danh sách đối tượng trên màn hình kết quả. Chọn từ muốn lưu.                                                       |
+| Bước | Actor   | Hành động |
+| ---- | ------- | --------- |
+| 1    | Learner | Mở tab Camera hoặc chức năng upload ảnh. |
+| 2    | Learner | Chụp ảnh mới bằng camera **hoặc** chọn ảnh từ thư viện thiết bị. |
+| 3    | Mobile  | Validate MIME (`image/jpeg`, `image/png`, `image/webp`) và kích thước (≤ 10MB) phía client. |
+| 4    | Mobile  | Gọi `POST /api/scan/upload-url` với `contentType` → nhận presigned URL và `objectName` dạng `scans/{userId}/{uuid}.{ext}`; upload ảnh thẳng lên Object Storage bằng `PUT` với đúng `Content-Type` đã khai. |
+| 5    | System  | Mobile gọi `POST /api/scan` với `objectKey`. Backend kiểm tra key thuộc đúng Learner, ảnh đã được upload và không quá 10MB — **trước** khi tính quota, nên ảnh lỗi không tốn lượt. |
+| 6    | System  | Dưới khóa theo từng Learner, backend đếm lượt đã dùng trong ngày và tạo `ScanRequest` (`PENDING`); hết lượt thì trả `QUOTA_EXCEEDED`. Job được đẩy vào hàng đợi trong bộ nhớ; backend trả `202 Accepted` kèm `requestId`, `status = PENDING`. |
+| 7    | Mobile  | Hiển thị trạng thái chờ và poll `GET /api/scan/{requestId}` mỗi 2–3s (timeout giao diện 90s). |
+| 8    | System  | Worker (1 luồng/GPU) lấy job, đổi sang `PROCESSING`, tải ảnh từ storage và gọi AI service `POST /api/v1/detect` (kèm `X-Request-Id` = `requestId`). |
+| 9    | AI      | Xoay ảnh theo EXIF → Florence-2 `<OD>` + self-grounding → loại box quá nhỏ/quá lớn → lọc nhãn theo từ điển (WordNet) → khử box trùng, mỗi nhãn giữ 1 box. |
+| 10   | AI      | Trả danh sách object: `label`, `headword`, `source`, `reliability` (HIGH/MEDIUM/LOW), `box`, cùng `image_width`/`image_height` là hệ toạ độ của box. |
+| 11   | System  | Backend lọc lần cuối theo `reliability` tối thiểu (cấu hình được) và lưu các box vào `ScanRequest` (`DONE`). |
+| 12   | System  | Khi mobile poll, backend ánh xạ label sang Word: tra nguyên nhãn trước (`coffee mug`), không có thì tra `headword` (`mug`). |
+| 13   | Mobile  | Hiển thị ảnh gốc và **tự vẽ box** theo toạ độ (nhân với `chiều_rộng_hiển_thị / imageWidth`), tô màu theo `reliability`. |
+| 14   | Learner | Xem danh sách đối tượng, chạm vào box hoặc danh sách để chọn từ muốn lưu. |
 | 15   | Learner | Nhấn **Lưu** → chọn Topic cá nhân hoặc dùng Topic gần nhất/mặc định → tạo TopicItem và khởi tạo FsrsRecord với `source = SCAN` (xem BF-07). |
 
 ### Alternative Flow
 
-| Mã      | Điều kiện                          | Xử lý                                                                      |
-| ------- | ---------------------------------- | --------------------------------------------------------------------------- |
-| AF-06.1 | Ảnh không hợp lệ (MIME/size)       | Client hoặc server trả lỗi validation, gợi ý chọn ảnh khác.               |
-| AF-06.2 | Không nhận diện được đối tượng     | Trả thông báo "Không nhận diện được vật thể, hãy thử ảnh rõ hơn." + CTA.  |
-| AF-06.3 | Tất cả object có độ tin cậy thấp (Medium/Low) | Tương tự AF-06.2, thông báo dễ hiểu.                                     |
-| AF-06.4 | Label không map được sang dictionary | Trả kết quả nhận diện, đánh dấu "Chưa có từ vựng tương ứng". Hiển thị nút "Báo từ thiếu" để đẩy nhãn từ này vào Feedback Queue cho Admin (Trace: FR-02.05, FR-13). Learner không thể lưu từ này cho đến khi Admin cập nhật từ điển. |
-| AF-06.5 | Nhiều box cùng label               | Backend gom trùng label → hiển thị 1 từ duy nhất cho mỗi label.           |
-| AF-06.6 | Nút nổi Android (Bubble)          | Learner dùng overlay widget chụp màn hình từ app khác → pipeline tương tự. |
-| AF-06.7 | Hết quota scan trong ngày         | Backend trả `QUOTA_EXCEEDED`, `remainingScansToday = 0`, `resetAt`; mobile hiển thị lượt reset và CTA quay lại học từ đã lưu. |
-| AF-06.8 | Job đang chờ hoặc đang xử lý      | Backend trả `PENDING`/`PROCESSING`; mobile tiếp tục hiển thị tiến trình (tối đa 90s) và cho phép hủy. |
+| Mã      | Điều kiện | Xử lý |
+| ------- | --------- | ----- |
+| AF-06.1 | Ảnh không hợp lệ (MIME/size), chưa upload, hoặc key không thuộc Learner | Backend trả `INVALID_IMAGE`, **không** trừ lượt; gợi ý chọn ảnh khác. |
+| AF-06.2 | Không nhận diện được đối tượng | Job vẫn `DONE` với danh sách rỗng (không phải lỗi); mobile hiển thị "Không nhận diện được vật thể, hãy thử ảnh rõ hơn." + CTA. Lượt này **có** tính quota. |
+| AF-06.3 | Tất cả object có `reliability` thấp | Hiển thị kết quả kèm cảnh báo độ tin cậy thấp; có thể nâng `scan.min-reliability` để backend tự lọc. |
+| AF-06.4 | Label không map được sang dictionary | Item có `word = null`: hiển thị nhãn, đánh dấu "Chưa có từ vựng tương ứng". Nút "Báo từ thiếu" đẩy nhãn vào Feedback Queue (Trace: FR-02.05, FR-13). Vì từ vựng được tra lúc đọc kết quả, khi Admin bổ sung từ thì kết quả cũ cũng hiện từ mới. |
+| AF-06.5 | Nhiều box cùng label | AI chỉ giữ 1 box cho mỗi label (box có điểm cao nhất). |
+| AF-06.6 | Nút nổi Android (Bubble) | Learner dùng overlay widget chụp màn hình từ app khác → pipeline tương tự. |
+| AF-06.7 | Hết quota scan trong ngày | Backend trả `429 QUOTA_EXCEEDED`, `data = {limit, used, remaining = 0, resetAt}`; mobile hiển thị giờ reset và CTA quay lại học từ đã lưu. |
+| AF-06.8 | Job đang chờ hoặc đang xử lý | Poll trả `PENDING`/`PROCESSING`; mobile tiếp tục hiển thị tiến trình (tối đa 90s) và cho phép hủy. |
 
 ### Exception
 
-| Mã      | Lỗi                                | Xử lý                                                                 |
-| ------- | ----------------------------------- | ---------------------------------------------------------------------- |
-| EX-06.1 | AI worker timeout (> 60s mặc định)  | Backend đặt request `FAILED`, trả error code cụ thể, mobile hiển thị "Xử lý quá lâu, thử lại." |
-| EX-06.2 | AI service unavailable              | Backend giữ/hủy job theo cấu hình retry, trả lỗi nghiệp vụ thân thiện, gợi ý thử lại sau. |
-| EX-06.3 | Upload storage lỗi                  | Mobile hiển thị "Upload thất bại", retry button.                       |
-| EX-06.4 | Model error (invalid image input)   | AI trả error có cấu trúc, backend forward message phù hợp.           |
-| EX-06.5 | Hàng đợi quá tải                    | Backend không nhận thêm job, trả `AI_QUEUE_FULL` kèm message thử lại sau; không trừ quota nếu job chưa được nhận. |
+| Mã      | Lỗi | Xử lý |
+| ------- | --- | ----- |
+| EX-06.1 | AI không trả lời trong `ai-service.read-timeout-ms` (mặc định 60s) | Job `FAILED` với `errorCode = AI_TIMEOUT`, không tính lượt; mobile hiển thị "Xử lý quá lâu, thử lại." |
+| EX-06.2 | AI service không kết nối được hoặc đang nạp model | Job `FAILED` với `AI_UNAVAILABLE`, không tính lượt; gợi ý thử lại sau. |
+| EX-06.3 | Upload storage lỗi | Mobile hiển thị "Upload thất bại", nút thử lại; chưa gọi `POST /api/scan` nên không tốn lượt. |
+| EX-06.4 | Lỗi model hoặc ảnh không giải mã được | AI trả `{"error": {"code", "message"}}`; backend ghi `AI_ERROR` hoặc `INVALID_IMAGE` vào job, không tính lượt. |
+| EX-06.5 | Hàng đợi đầy | Backend trả `503 AI_QUEUE_FULL`; job được đánh dấu `FAILED` ngay nên không tính lượt. |
+| EX-06.6 | Backend khởi động lại hoặc job quá thời gian tối đa | Job bị đánh dấu `FAILED` với `INTERRUPTED`, không tính lượt; mobile poll nhận trạng thái này và cho phép thử lại. |
 
 ### Post-condition
 
 - Learner đã xem danh sách từ vựng nhận diện được từ ảnh hoặc trạng thái lỗi/chờ xử lý rõ ràng.
 - Hệ thống **không** tự động lưu toàn bộ kết quả — chỉ lưu khi Learner xác nhận.
-- Recognition request được log: requestId, status, queue wait time, thời gian xử lý, số object, lỗi nếu có.
+- Mỗi lượt scan có một bản ghi `scan_requests`: `requestId`, trạng thái, `errorCode`, `modelVersion`, số object, thời gian xử lý của AI, thời điểm bắt đầu/kết thúc.
 - App không crash ở mọi trường hợp lỗi.
 
 ### Business Rules
 
-1. Nhãn từ AI service đã thuộc từ điển (chuỗi lọc ngôn ngữ + cổng từ điển cuối trong pipeline).
-2. Backend giữ thêm điều kiện lọc bằng cặp (source allowlist, clipScore floor) cấu hình được làm lớp bảo vệ cuối.
-3. Gom trùng label để tránh trả từ vựng lặp.
-4. Quota mặc định 20 scan/ngày/Learner, cấu hình được; ảnh không hợp lệ hoặc hàng đợi từ chối job không trừ lượt.
-5. Recognition phải xử lý qua hàng đợi FIFO hoặc ưu tiên tương đương, giới hạn worker theo GPU (mặc định 1 worker/GPU) để tránh nhiều request đồng thời vượt timeout.
-6. Mobile không giữ kết nối đồng bộ; dùng `requestId` để poll kết quả với các trạng thái `PENDING`/`PROCESSING`/`DONE`/`FAILED`.
+1. Nhãn từ AI service đã qua lọc từ điển (WordNet) phía AI; backend ánh xạ sang Word theo nhãn rồi theo `headword`.
+2. Backend giữ thêm một lớp lọc theo `reliability` tối thiểu (`scan.min-reliability`, mặc định `LOW` = giữ tất cả).
+3. Mỗi label chỉ trả 1 box để tránh từ vựng lặp.
+4. Quota mặc định 20 scan/ngày/Learner (`scan.quota-per-day`), reset lúc 0h giờ `Asia/Ho_Chi_Minh`. Quota được **đếm từ bảng `scan_requests`**: mọi bản ghi có trạng thái khác `FAILED` tính 1 lượt, nên mọi lượt lỗi tự động không bị tính. Endpoint đồng bộ cũ cũng đi qua quota.
+5. Hàng đợi trong bộ nhớ, 1 worker/GPU, tối đa 3 job chờ (`scan.queue-capacity`) để job cuối vẫn xong trong 90s chờ của giao diện. Hàng đợi mất khi restart; giả định chạy **một** instance backend.
+6. Mobile không giữ kết nối đồng bộ; dùng `requestId` để poll với các trạng thái `PENDING`/`PROCESSING`/`DONE`/`FAILED`.
 7. Không tự động lưu kết quả scan nếu Learner chưa xác nhận.
-8. Ảnh scan chỉ lưu nếu cần cho lịch sử/debug, phải tuân thủ quyền riêng tư (bucket private).
-9. Timeout worker→AI cấu hình được (mặc định 60s).
-10. Mọi lỗi AI trả `error.code` + message, app không crash.
+8. Ảnh scan lưu trong bucket private dưới `scans/{userId}/`; key chứa userId để backend kiểm tra quyền sở hữu. Chưa có job dọn ảnh cũ.
+9. Timeout backend → AI cấu hình được (mặc định 60s); job chạy quá timeout + 30s, hoặc chờ quá (số job phía trước × timeout) + 30s, bị đánh dấu `INTERRUPTED`.
+10. Mọi lỗi scan có mã (`INVALID_IMAGE`, `QUOTA_EXCEEDED`, `AI_QUEUE_FULL`, `AI_UNAVAILABLE`, `AI_TIMEOUT`, `AI_ERROR`, `INTERRUPTED`), trả trong `RestResponse.error` hoặc `errorCode` khi poll; app không crash.
 
 ---
 
@@ -806,7 +807,7 @@ flowchart TD
 - [x] BF truy vết về FR trong [specs.md](./specs.md).
 - [x] Actor đúng theo canonical: Guest, Learner, Admin.
 - [x] Canonical model: Collection → Topic → TopicItem + FsrsRecord (không `SavedWord`/`UserWord`).
-- [x] AI pipeline: Florence-2 + SAM + CLIP (không YOLO).
+- [x] AI pipeline: Florence-2 zero-shot (CLIP tùy chọn). Không YOLO, không SAM.
 - [x] SRS: FSRS trên FsrsRecord (fsrs_records).
 - [x] Milestone mapping M1–M4.
 - [x] FR IDs khớp specs (Game=FR-09, Noti=FR-10, Storage=FR-11, OpenAPI=FR-12, Admin=FR-13).
