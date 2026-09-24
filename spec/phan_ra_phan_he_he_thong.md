@@ -5,7 +5,7 @@
 > Quyết định canonical: xem bảng §66–76 trong specs.md.
 
 **Quy ước ID:** `SS-{nn}` — mỗi SS là một phân hệ/module trong kiến trúc backend hoặc hệ thống.
-**Quy ước Endpoint (REST API Naming Convention):** Tất cả các public API đều ngầm định có **Base Path là `/api/v1`**. Luôn sử dụng danh từ số nhiều (plural nouns) và gom nhóm theo prefix (VD: `/api/v1/quizzes`, `/api/v1/reviews`). Tài liệu này là Single Source of Truth cho toàn bộ URL của hệ thống.
+**Quy ước Endpoint (REST API Naming Convention):** Tất cả các public API của Backend có **Base Path là `/api`** (không dùng `/api/v1`; khớp các controller hiện có như `/api/auth`, `/api/collections`, `/api/topics`). Endpoint trong các bảng dưới ghi tương đối so với base path. Luôn dùng danh từ số nhiều và gom nhóm theo prefix (VD: `/api/me/quizzes`). Tài liệu này mô tả trách nhiệm phân hệ; contract chi tiết xem controller thực tế (VD: `QuizController`). Route `/api/v1/detect` là route nội bộ của Python AI service, không thuộc public API Backend.
 
 ---
 
@@ -280,9 +280,11 @@ Quản lý bộ sưu tập (Collections) và chủ đề (Topics) từ vựng th
 | `Collection`              | Tập hợp chủ đề lớn (VD: TOEIC Words, Animals)                                 |
 | `Topic`                   | Chủ đề cụ thể, hỗ trợ phân cấp (parent_id), thuộc Collection                  |
 | `TopicItem`               | Phần tử nội dung (từ vựng/cụm từ) thuộc Topic                                 |
-| `TopicAttributeGroup`     | Nhóm thuộc tính cho một Topic                                                  |
-| `TopicAttribute`          | Định nghĩa thuộc tính (VD: Nghĩa tiếng Việt, Phiên âm, Ví dụ, Audio)         |
-| `TopicItemAttributeValue` | Giá trị thực tế của thuộc tính cho từng TopicItem                              |
+| `Schema`                  | Data contract thuộc tính mà Topic sử dụng (`topics.schema_id`)                 |
+| `SchemaAttributeGroup`    | Nhóm thuộc tính của Schema                                                     |
+| `SchemaAttribute`         | Định nghĩa thuộc tính (VD: Nghĩa tiếng Việt, Phiên âm, Ví dụ, Audio)         |
+| `TopicItemAttributeGroup` | Instance nhóm thuộc tính của một TopicItem                                     |
+| `TopicItemAttributeValue` | Giá trị thực tế của `SchemaAttribute` cho từng TopicItem                       |
 
 ### Chức năng chính
 
@@ -506,21 +508,21 @@ Phân hệ quản lý từ vựng cá nhân của Learner theo mô hình `Collec
 
 ### Mô tả
 
-Quản lý cấu hình hiển thị thẻ học thông qua `Template` gắn với `Topic` (loại `TOPIC_CUSTOM` hoặc kế thừa từ hệ thống `SYSTEM`), bao gồm các phần tử giao diện `TemplateElement` và trường dữ liệu `TemplateField` với vai trò ngữ nghĩa `SemanticRole` (FRONT, BACK, EXAMPLE, AUDIO, IMAGE, PHONETIC, TRANSLATION, HINT, TAG, EXTRA). Phiên học flashcard nạp các TopicItem và cập nhật FsrsRecord theo đánh giá của Learner.
+Quản lý cấu hình hiển thị thẻ học thông qua `Template` thuộc `Schema`; `Topic` chọn template qua `active_template_id` (chi tiết: [decisions/custom_card.md](../decisions/custom_card.md)). Template gồm các phần tử `TemplateElement` (mặt thẻ `side`: `CardSide` `FRONT`/`BACK`) và trường dữ liệu `TemplateField` với vai trò ngữ nghĩa `SemanticRole` (`TARGET_WORD`, `DEFINITION`, `NATIVE_TRANSLATION`, `EXAMPLE_SENTENCE`, `AUDIO`, `IMAGE`). Phiên học flashcard nạp các TopicItem và cập nhật FsrsRecord theo đánh giá của Learner.
 
 ### Entities
 
 | Entity            | Mô tả                                                                             |
 | ----------------- | ---------------------------------------------------------------------------------- |
-| `Template`        | Mẫu thẻ học gắn theo Topic (`topic_id`), loại SYSTEM hoặc TOPIC_CUSTOM             |
-| `TemplateElement` | Phần tử giao diện (type: FIELD, DIVIDER, BUTTON; order_index, flex, alignment)    |
-| `TemplateField`   | Trường dữ liệu ánh xạ TopicAttribute với SemanticRole và cấu hình hiển thị         |
+| `Template`        | Mẫu thẻ học thuộc Schema (`schema_id`, `code`, `is_default`); Topic chọn qua `active_template_id` |
+| `TemplateElement` | Phần tử bố cục (type: `FIELD`, `SECTION_BREAK`, `COLUMN_BREAK`; `position`; `side`: `CardSide`) |
+| `TemplateField`   | Trường dữ liệu ánh xạ `SchemaAttribute` với `SemanticRole` và cấu hình hiển thị    |
 | `FsrsRecord`      | Trạng thái và tham số SRS của từ học (card_state, due, stability, difficulty...)  |
 
 ### Chức năng chính
 
 - Khởi tạo FsrsRecord (card_state=NEW) khi TopicItem được tạo trong Topic
-- System Templates: Classic, Listening, Spelling, Image Vocab... (seeded, không sửa/xóa)
+- System Templates: đã seed `STANDARD`, `LISTENING`, `REVERSE` (theo `code`); các template khác trong backlog (Spelling, Image Vocab...) là PLANNED
 - Custom Templates: Cấu hình phần tử giao diện (TemplateElement) và trường dữ liệu (TemplateField) với SemanticRole gắn cho Topic
 - Render thẻ học linh hoạt theo cấu hình template của Topic (ẩn field thiếu dữ liệu, không vỡ layout)
 - Study session: hiển thị TopicItem theo template → Learner tương tác → submit FSRS rating
@@ -531,12 +533,17 @@ Quản lý cấu hình hiển thị thẻ học thông qua `Template` gắn vớ
 
 | Method | Endpoint                                  | Mô tả                                        | Auth    |
 | ------ | ----------------------------------------- | -------------------------------------------- | ------- |
-| GET    | `/topics/{id}/templates`                  | Lấy cấu hình template gắn với Topic          | Learner |
-| PUT    | `/topics/{id}/templates`                  | Cập nhật cấu hình template cho Topic         | Learner |
-| GET    | `/topics/{id}/items/study-session`        | Lấy danh sách TopicItem cần học (new + due)  | Learner |
-| POST   | `/topic-items/{id}/review`                | Submit FSRS rating cho TopicItem             | Learner |
-| POST   | `/reviews/batch`                          | Sync batch rating từ local queue             | Learner |
-| GET    | `/admin/templates`                        | Admin quản lý System Templates               | Admin   |
+| Method | Endpoint                                              | Mô tả                                        | Auth    | Trạng thái |
+| ------ | ----------------------------------------------------- | -------------------------------------------- | ------- | ---------- |
+| PUT    | `/topics/{topicId}/active-template/{templateId}`      | Đổi template (chế độ học) cho Topic          | Learner | Đã implement |
+| POST   | `/topics/{topicId}/schema/fork`                       | Fork Schema + Templates cho Topic            | Learner | Đã implement |
+| GET/PUT | `/templates/{id}`, `/schemas/{schemaId}/templates`   | Xem / cập nhật layout template               | Learner | PLANNED |
+| GET    | `/topics/{topicId}/study-session`                     | Lấy TopicItem cần học (new + due)            | Learner | PLANNED |
+| POST   | `/fsrs-records/{id}/review`                           | Submit FSRS rating                           | Learner | PLANNED |
+| POST   | `/reviews/batch`                                      | Sync batch rating từ local queue             | Learner | PLANNED |
+| GET    | `/admin/templates`                                    | Admin quản lý System Templates               | Admin   | PLANNED |
+
+Chi tiết: [decisions/custom_card.md](../decisions/custom_card.md) §7.
 
 ### Sub-components
 
@@ -559,37 +566,29 @@ Flashcard & Template
 
 ## SS-10: Quiz — Kiểm tra từ vựng
 
+> **Canonical:** [decisions/quiz.md](../decisions/quiz.md) · API: `QuizController` · DB: [database.md](../db/database.md) §Quiz.
+
 ### Mô tả
 
-Sinh bài kiểm tra từ vựng từ TopicItem trong Topic của Learner hoặc Topic hệ thống. Hỗ trợ nhiều dạng câu hỏi, chấm điểm và lưu lịch sử attempt.
+Sinh Quiz session từ TopicItem trong Topic, chấm **incremental** từng interaction (MCQ/FILL_BLANK: từng câu; MATCHING: từng cặp), finalize session khi complete và lưu lịch sử.
+
+### Trách nhiệm
+
+- **Generation:** resolve dữ liệu TopicItem qua `Topic.activeTemplate → TemplateField.semanticRole → SchemaAttribute → TopicItemAttributeValue`; không phụ thuộc tên `SchemaAttribute`. Sinh câu hỏi/cặp và đáp án nhiễu (cùng Topic, không trùng nghĩa); số câu ∈ {5, 10, 20}; item hợp lệ < số câu → lỗi `QUIZ_INSUFFICIENT_ELIGIBLE_ITEMS`, không tạo Quiz nhỏ hơn.
+- **Grading:** chấm từng câu (MCQ, FILL_BLANK) và từng cặp (MATCHING) ngay khi nhận; ghi nhận kết quả; không tiết lộ đáp án trước khi chấm.
+- **Finalize:** `complete` tổng hợp summary từ kết quả đã chấm, phát sự kiện cho Progress / Gamification / Mission.
+- **Idempotency:** check / pair attempt / complete dùng `Idempotency-Key`; retry không chấm hoặc cộng trùng.
+- `QuizMode` = `MCQ | MATCHING | FILL_BLANK`; `QuizDirection` = `EN_VI | VI_EN`. `LISTENING` là Template flashcard, không phải Quiz Mode.
+- **Duration (D15):** khi COMPLETED, tính `durationSeconds = completedAt - createdAt` server-side và trả trong `QuizResultDTO`; không nhận duration từ client.
+- **Session TTL (D17):** `IN_PROGRESS` resume được 24h kể từ `createdAt`; quá hạn chuyển `EXPIRED` bằng lazy expiration (kiểm tra trong request, không cron) và trả `QUIZ_SESSION_EXPIRED` (HTTP 410) cho mọi resume/check/attempt/complete/cancel. History expire batch trước khi map DTO.
 
 ### Entities
 
-| Entity         | Mô tả                                                                                   |
-| -------------- | ---------------------------------------------------------------------------------------- |
-| `Quiz`         | Bài kiểm tra (topicId, type, questionCount, createdAt)                                  |
-| `Question`     | Câu hỏi trong quiz (type, topicItemId, correctAnswer, distractors)                      |
-| `QuizAttempt`  | Lượt làm quiz (quizId, userId, score, correctCount, wrongCount, duration, completedAt) |
-| `QuizAnswer`   | Chi tiết câu trả lời của người dùng trong lượt làm                                      |
-
-### Chức năng chính
-
-- Sinh quiz từ TopicItem trong Topic
-- Dạng câu hỏi: Multiple choice (Must), Matching (Should), Fill blank (Could)
-- Sinh đáp án nhiễu (lấy từ TopicItem cùng Topic/POS, không trùng nghĩa)
-- Yêu cầu số từ tối thiểu để sinh quiz
-- Chấm điểm: score, correctCount, wrongCount, accuracy
-- Lưu QuizAttempt (idempotent — event key, retry không cộng trùng)
-- Cập nhật Progress, XP nếu gamification bật (qua event)
+PLANNED — tên entity/bảng chưa chốt; persistence contract ở [database.md](../db/database.md) §Quiz.
 
 ### API Endpoints
 
-| Method | Endpoint                             | Mô tả                                    | Auth    |
-| ------ | ------------------------------------ | ----------------------------------------- | ------- |
-| POST   | `/topics/{id}/quizzes/generate`      | Sinh quiz mới từ Topic                   | Learner |
-| GET    | `/quizzes/{id}`                      | Lấy quiz + câu hỏi                        | Learner |
-| POST   | `/quizzes/{id}/submit`               | Nộp bài, chấm điểm (idempotent)          | Learner |
-| GET    | `/quizzes/history`                   | Lịch sử quiz attempts                     | Learner |
+Xem `QuizController` (base `/api`: `/api/me/quizzes`, `/api/questions/{questionId}/check`, `/api/me/quizzes/{quizId}/rounds/{roundNo}/attempts`).
 
 ### Trace
 
@@ -644,14 +643,14 @@ Quản lý hàng đợi ôn tập theo thuật toán FSRS (Free Spaced Repetitio
 
 ### Mô tả
 
-Tổng hợp và hiển thị tiến độ học tập cá nhân: số từ, streak, accuracy, lịch sử hoạt động. Dữ liệu aggregate từ FsrsRecord, QuizAttempt, TopicItem count.
+Tổng hợp và hiển thị tiến độ học tập cá nhân: số từ, streak, accuracy, lịch sử hoạt động. Dữ liệu aggregate từ FsrsRecord, Quiz session đã complete, TopicItem count.
 
 ### Entities
 
 | Entity             | Mô tả                                                                     |
 | ------------------ | -------------------------------------------------------------------------- |
 | `LearningProgress` | Aggregate: totalWords, learnedCount, dueCount, masteredCount, streak, accuracy theo learning-state map |
-| `LearningEvent`    | Sự kiện học (type, timestamp, metadata) — rebuild từ review event / QuizAttempt |
+| `LearningEvent`    | Sự kiện học (type, timestamp, metadata) — rebuild từ review event / Quiz complete |
 
 ### Chức năng chính
 
@@ -661,7 +660,7 @@ Tổng hợp và hiển thị tiến độ học tập cá nhân: số từ, str
 - Lịch sử hoạt động: ngày/tuần/tháng
 - Home summary widget (progress ngắn gọn)
 - Goal tracking (Could)
-- Cập nhật sau mỗi hoạt động: lưu từ, flashcard review, quiz submit
+- Cập nhật sau mỗi hoạt động: lưu từ, flashcard review, quiz complete
 
 Quy tắc aggregate:
 
@@ -1064,9 +1063,9 @@ graph TD
 | Vocabulary → Flashcard | SS-08 → SS-09         | TopicItem là nguồn nạp thẻ học; Topic gán Template cấu hình render                         |
 | Vocabulary → Quiz      | SS-08 → SS-10         | TopicItem là nguồn câu hỏi quiz                                                           |
 | Flashcard → SRS        | SS-09 → SS-11         | Review session cập nhật trực tiếp FsrsRecord (card_state, due, stability, difficulty)      |
-| Quiz → SRS             | SS-10 → SS-11         | Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP)          |
+| Quiz → SRS             | SS-10 → SS-11         | Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận kết quả Quiz, progress, XP)         |
 | SRS → Progress         | SS-11 → SS-12         | FsrsRecord state/due → aggregate progress                                                  |
-| Quiz → Progress        | SS-10 → SS-12         | QuizAttempt → aggregate accuracy, XP                                                       |
+| Quiz → Progress        | SS-10 → SS-12         | Quiz complete (finalize) → aggregate accuracy, XP                                          |
 | Flashcard → Progress   | SS-09 → SS-12         | Study session → cập nhật streak, learned count                                             |
 | Progress → Gamification | SS-12 → SS-13       | Learning events trigger XP/coin/mission/badge rules                                       |
 | Gamification → Shop    | SS-13 → SS-14         | Coin balance; item purchase                                                                |
@@ -1079,7 +1078,7 @@ graph TD
 
 ### Ghi chú coupling
 
-- **Loose coupling qua events:** Các phân hệ nên dùng domain event nội bộ (VD: `TopicItemCreated`, `ReviewCompleted`, `QuizSubmitted`, `MissionCompleted`) để tránh coupling trực tiếp.
+- **Loose coupling qua events:** Các phân hệ nên dùng domain event nội bộ (VD: `TopicItemCreated`, `ReviewCompleted`, `QuizCompleted`, `MissionCompleted`) để tránh coupling trực tiếp.
 - **Shared entities:** `TopicItem` và `FsrsRecord` được chia sẻ giữa SS-05/SS-08 (Topic & Item), SS-09 (Flashcard & Template) và SS-11 (SRS). Trách nhiệm tách rõ qua service layer.
 - **AI Service tách deploy:** SS-07 là service độc lập (Python FastAPI), giao tiếp HTTP. Không chia sẻ database với backend Spring Boot.
 - **Storage crosscutting:** SS-16 là infrastructure service, được nhiều domain sử dụng qua cùng interface.
@@ -1120,11 +1119,11 @@ vn.ptit.snapvocab
 ├── domain/                         (Entity definitions & mappings)
 │   ├── Authority, User, RefreshToken
 │   ├── Word, Definition, Translation, Pronunciation, WordDefinition, WordRelation
-│   ├── Collection, Topic, TopicItem, TopicAttributeGroup, TopicAttribute, TopicItemAttributeValue
+│   ├── Collection, Topic, TopicItem, Schema, SchemaAttributeGroup, SchemaAttribute, TopicItemAttributeGroup, TopicItemAttributeValue
 │   ├── Template, TemplateElement, TemplateField
 │   ├── FsrsRecord, Level, ShopItem, UserInventory, Notification, UserNotification
 │   ├── common/                    (BaseTimeEntity, BaseCreatedAtEntity)
-│   ├── enumeration/               (CardState, ReviewRating, SemanticRole, TemplateElementType, CollectionType...)
+│   ├── enumeration/               (CardState, ReviewRating, SemanticRole, CardSide, TemplateElementType, CollectionType...)
 │   └── mapper/                    (Entity mappers & DTO converters)
 ├── repository/                    (JPA Repositories cho 25 entity tables)
 ├── security/                      (JwtTokenProvider, CustomUserDetailsService, SecurityUtils)

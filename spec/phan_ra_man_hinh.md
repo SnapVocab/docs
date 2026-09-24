@@ -609,7 +609,7 @@ flowchart TD
 - Danh sách Topics:
     - Tên Topic
     - Word count (số lượng từ)
-    - Template hiện tại (CLASSIC, LISTENING...)
+    - Template hiện tại (`STANDARD`, `LISTENING`, `REVERSE`...)
     - Due count (từ đến hạn ôn)
 - "Tạo Topic mới" button
 - Empty state: "Chưa có Topic nào. Tạo Topic và bắt đầu lưu từ!"
@@ -687,17 +687,26 @@ flowchart TD
 | Feature    | F-QUIZ-01                                    |
 | BF         | BF-09                                        |
 | FR         | FR-06.01                                     |
-| Mục tiêu   | Cấu hình quiz: chọn Topic, loại quiz, số câu |
+| Mục tiêu   | Cấu hình quiz: chọn Topic, Mode, Direction, số câu |
 
 **Dữ liệu hiển thị:**
 
-- Chọn Topic (nguồn từ vựng)
-- Quiz modes: Multiple choice / Matching / Fill blank
-- Số câu hỏi (slider hoặc preset)
-- Số từ khả dụng (disable nếu < min)
-- Start Quiz CTA → MH-LEARN-03
+- **Nguồn từ vựng (Topic Selection - Hybrid Flow)**:
+  - Người học phải chọn một Topic trước khi bắt đầu Quiz.
+  - Nếu Quiz Setup được mở từ Topic Detail / bài học dở:
+    - Topic tương ứng được chọn sẵn (`params.topicId`).
+    - Người học vẫn có thể bấm vào card Topic để đổi sang Topic khác qua Bottom Sheet.
+  - Nếu mở trực tiếp từ Learn Hub / Quick Quiz:
+    - Không tự chọn Topic mặc định.
+    - Người học phải bấm "Chọn chủ đề" để mở Bottom Sheet chọn Topic.
+  - Tuyệt đối không sử dụng hard-coded fallback `topicId = 1` hoặc alias `deckId`. Nút Start Quiz bị disabled khi chưa chọn Topic.
+- Quiz Mode: `MCQ` / `MATCHING` / `FILL_BLANK` (không có LISTENING)
+- Quiz Direction: `EN_VI` / `VI_EN` (lựa chọn riêng, không phải mode). **Ẩn khi mode = `FILL_BLANK`** — direction không ảnh hưởng prompt/chấm điểm (D13), client gửi `direction = undefined`
+- Số câu hỏi: preset 5 / 10 / 20
+- Số từ khả dụng (disable nếu < min; đếm item resolve được theo SemanticRole)
+- Start Quiz CTA → MH-LEARN-03 (disabled khi `selectedTopicId === undefined` hoặc đang xử lý)
 
-**Empty state:** "Cần ít nhất X từ để tạo quiz. Lưu thêm từ!"
+**Empty state:** "Cần ít nhất X từ để tạo quiz. Lưu thêm từ!" hoặc "Chưa có chủ đề nào khả dụng".
 
 ---
 
@@ -713,12 +722,20 @@ flowchart TD
 
 **Dữ liệu hiển thị:**
 
-- Câu hỏi (từ/nghĩa/audio tùy mode)
-- Đáp án: MCQ options / Matching pairs / Fill blank input
-- Progress: câu X / Y
-- Timer (nếu có)
-- Feedback đúng/sai per câu (tùy mode)
-- Next / Submit button
+- Câu hỏi (prompt theo Direction; `AUDIO`/`IMAGE` bổ trợ nếu có)
+- Đáp án: MCQ options / Matching tiles trái-phải / Fill blank input
+- Progress: câu X / Y (Matching: số cặp đã khóa / tổng)
+- Stopwatch đếm lên (mm:ss), **UX-only** (D15): không phải countdown, không timeout, không auto-submit, không ảnh hưởng điểm; không persist, không gửi Backend
+
+**Tương tác (incremental grading — [decisions/quiz.md](../decisions/quiz.md) §2):**
+
+- MCQ: chạm một đáp án → gửi check → hiển thị đúng/sai ngay → Next.
+- FILL_BLANK: nhập đáp án → Submit câu hiện tại → hiển thị đúng/sai ngay → Next.
+- MATCHING: chọn tile trái → chọn tile phải → gửi check cặp → đúng: khóa cặp; sai: báo sai ngay, bỏ chọn, Learner tiếp tục.
+- Đúng/sai luôn lấy từ Backend; UI không tự chấm.
+- Hết câu/cặp → Complete → MH-LEARN-04. Không có nút "Submit toàn bộ bài".
+
+**Implementation status:** IMPLEMENTED — gọi API thật, đúng/sai do Backend trả (xem [decisions/quiz.md](../decisions/quiz.md) §7).
 
 ---
 
@@ -734,13 +751,37 @@ flowchart TD
 
 **Dữ liệu hiển thị:**
 
-- Score (điểm)
+- Score = `correctCount` (không có thang điểm riêng)
 - Correct / Wrong count
 - Accuracy %
-- Duration
-- Danh sách câu sai (từ + đáp án đúng)
-- XP / Coin reward (M4)
-- CTA: "Thử lại" / "Ôn từ sai" / "Về Home"
+- Duration: lấy từ `QuizResultDTO.durationSeconds` (Backend tính `completedAt - createdAt`, D15); format `mm:ss`, từ 1 giờ trở lên dùng `hh:mm:ss`. Không tự tính lại từ stopwatch
+- Danh sách câu sai (prompt + đáp án đúng + đáp án đã chọn) từ `QuizResultDTO.items` — **Review mistakes: đã hỗ trợ** (D16), không gọi API riêng, không tạo session mới
+- XP / Coin: hiển thị `+0` kèm ghi chú "kích hoạt ở bản cập nhật tiếp theo" (M4)
+- CTA hiện tại: "Trang chủ" / "Lịch sử Quiz" → MH-LEARN-04b. **Retry Mistakes** ("Ôn từ sai" / "Thử lại câu sai") defer **M4** (D16) — không hiển thị CTA active khi chưa có quy tắc question-count / reward / session-generation
+
+---
+
+### MH-LEARN-04b — Quiz History
+
+| Thuộc tính | Mô tả                                |
+| ---------- | ------------------------------------ |
+| Actor      | Learner                              |
+| Feature    | F-QUIZ-08                            |
+| BF         | BF-09                                |
+| FR         | FR-06.06                             |
+| Mục tiêu   | Xem lại các lượt quiz đã làm         |
+
+**Dữ liệu hiển thị:**
+
+- Danh sách lượt quiz (`GET /api/me/quizzes`): Topic, Mode badge, accuracy %, ngày (`completedAt` ?? `createdAt`), trạng thái
+- Filter theo trạng thái / mode (F-QUIZ-08 ghi "filter theo Topic" — chưa implement, filter hiện theo mode/status)
+- Item `COMPLETED` → "Xem lại" → MH-LEARN-04
+- Item `IN_PROGRESS` (còn trong 24h) → "Làm tiếp" → MH-LEARN-03 với `quizId` cũ
+- Item `EXPIRED` → badge "Hết hạn", **không có CTA "Làm tiếp"** (D17); `CANCELLED` giữ hành vi xem lại hiện tại
+
+**Empty state:** "Chưa có bài Quiz nào."
+
+> **Resume/expire (D17):** thoát qua modal → `CANCELLED`. Bị ngắt ngoài ý muốn (app đóng, back cứng) → giữ `IN_PROGRESS`, resume được trong 24h kể từ `createdAt`; quá hạn Backend chuyển `EXPIRED` và mọi tương tác trả `QUIZ_SESSION_EXPIRED` (410). Khi đang làm bài mà nhận lỗi này, mobile dừng quiz, báo "Phiên quiz đã hết hạn" và điều hướng về Quiz Setup.
 
 ---
 
@@ -779,11 +820,11 @@ flowchart TD
 
 **Dữ liệu hiển thị:**
 
-- System templates (read-only): CLASSIC, REVERSE, LISTENING, IMAGE_VOCAB, SPELLING, CONTEXT
+- System templates (read-only): đã seed `STANDARD`, `LISTENING`, `REVERSE`; IMAGE_VOCAB, SPELLING, CONTEXT: PLANNED
 - Custom templates (CRUD): tên, interaction type, số phần tử giao diện
 - "Tạo Template mới" → template builder:
-    - Cấu hình TemplateElement (FIELD, DIVIDER, BUTTON, order_index, flex, alignment)
-    - Cấu hình TemplateField với SemanticRole (FRONT, BACK, EXAMPLE, AUDIO, IMAGE, PHONETIC, TRANSLATION, HINT, TAG, EXTRA)
+    - Cấu hình TemplateElement (`FIELD`, `SECTION_BREAK`, `COLUMN_BREAK`; `position`; mặt thẻ `side` = `FRONT`/`BACK`)
+    - Cấu hình TemplateField: chọn `SchemaAttribute`, gán SemanticRole (`TARGET_WORD`, `DEFINITION`, `NATIVE_TRANSLATION`, `EXAMPLE_SENTENCE`, `AUDIO`, `IMAGE`) hoặc để trống, styling
     - Chọn Interaction type: Flip / Type-in / Tap-to-reveal
     - Preview (dùng từ mẫu)
     - Save
@@ -808,7 +849,7 @@ flowchart TD
 - Streak: current + longest
 - Accuracy: quiz + review tổng hợp
 - Activity heatmap / chart: daily / weekly / monthly
-- Review count, quiz attempts
+- Review count, số Quiz đã hoàn thành
 - Daily goal progress (Could)
 
 ---

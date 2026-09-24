@@ -301,7 +301,7 @@ Admin API Client Layer:
 | **Recognition** | `vn.ptit.snapvocab.service` | SS-06 | Spring @Async queue, HTTP client → FastAPI, RecognitionService | M2 |
 | **Vocabulary** | `vn.ptit.snapvocab.service` | SS-08 | JPA transaction, Topic cá nhân & TopicItem CRUD | M1–M2 |
 | **Flashcard** | `vn.ptit.snapvocab.service` | SS-09 | FlashcardStudyService, TemplateService | M1, M3 |
-| **Quiz** | `vn.ptit.snapvocab.service` | SS-10 | Quiz generation, scoring, idempotent submit (QuizService) | M3 |
+| **Quiz** | `vn.ptit.snapvocab.service` | SS-10 | Quiz generation (SemanticRole), incremental check, complete — NOT IMPLEMENTED | M3 |
 | **SRS** | `vn.ptit.snapvocab.service` | SS-11 | FsrsService, ReviewQueueService (dùng FsrsRecord) | M3 |
 | **Progress** | `vn.ptit.snapvocab.service` | SS-12 | Aggregate service, LearningEvent processing (ProgressService) | M3 |
 | **Gamification** | `vn.ptit.snapvocab.service` | SS-13+14 | XP/Coin/Mission/Badge/Leaderboard/ShopService | M4 |
@@ -322,7 +322,7 @@ Controller Layer
 Service Layer
   ├── Business logic                    ← Orchestration, validation, rules
   ├── Transaction boundary (@Transactional)
-  ├── Domain events (publish TopicItemCreated, ReviewCompleted, QuizSubmitted...)
+  ├── Domain events (publish TopicItemCreated, ReviewCompleted, QuizCompleted...)
   └── Integration calls (AI client, S3 client, mail client, Redis client)
 
 Repository Layer
@@ -382,7 +382,7 @@ Security Layer
 | Storage access | Presigned URL ngắn hạn (TTL ≤ 15m) | Upload/read private media | §6 |
 | Service-to-service | Internal network hoặc service token | Backend → AI service | §1 |
 | API docs | Swagger env-gated (off/restricted production) | Tránh lộ surface | §1 |
-| Idempotency | Event key cho reward/XP/coin/quiz submit | Retry không cộng trùng | §4 |
+| Idempotency | Idempotency key cho reward/XP/coin, quiz check/complete | Retry không chấm/cộng trùng | §4 |
 | Error safety | Generic auth error messages | Chống email enumeration | §10 |
 
 ### 5.2 Quy tắc bảo mật
@@ -416,10 +416,10 @@ Security Layer
 | --- | --- | --- | --- |
 | **Identity** | `users`, `authorities`, `refresh_tokens`, `otp_tokens` | SS-03 | M1 |
 | **Dictionary** | `words`, `definitions`, `translations`, `pronunciations`, `word_relations`, `object_word_mappings` | SS-04 | M1 |
-| **Topic & Vocabulary** | `collections`, `topics`, `topic_items`, `topic_attribute_groups`, `topic_attributes`, `topic_item_attribute_groups`, `topic_item_attribute_values` | SS-05, SS-08 | M1 |
+| **Topic & Vocabulary** | `collections`, `topics`, `topic_items`, `schemas`, `schema_attribute_groups`, `schema_attributes`, `topic_item_attribute_groups`, `topic_item_attribute_values` | SS-05, SS-08 | M1 |
 | **Recognition** | `image_recognition_requests`, `recognition_results`, `detected_objects`, `scan_histories` | SS-06 | M2 |
 | **Template & SRS** | `templates`, `template_elements`, `template_fields`, `fsrs_records` | SS-09, SS-11 | M1, M3 |
-| **Quiz** | `quizzes`, `quiz_questions`, `quiz_attempts` | SS-10 | M3 |
+| **Quiz** | PLANNED — chưa chốt tên bảng ([database.md](../db/database.md) §3A) | SS-10 | M3 |
 | **Progress** | `learning_events`, `learning_progress` | SS-12 | M3 |
 | **Gamification** | `missions`, `mission_progress`, `badges`, `user_badges`, `experience_logs`, `coin_transactions`, `leaderboard_entries` | SS-13 | M4 |
 | **Economy** | `shop_items`, `user_inventories`, `levels` | SS-14 | M4 |
@@ -434,7 +434,7 @@ Security Layer
 | Dictionary search | INDEX `words.word` normalized; FULLTEXT nếu phù hợp | Lookup p95 < 500ms |
 | Personal vocabulary | UNIQUE `(topic_id, word_id)` trên `topic_items` | Chống trùng từ vựng trong cùng một Topic |
 | SRS review queue | INDEX `(user_id, due_at, card_state)` trên `fsrs_records` | Daily review query |
-| Quiz history | INDEX `(user_id, created_at)` trên `quiz_attempts` | Pagination |
+| Quiz history | INDEX `(user_id, created_at)` trên bảng Quiz session (PLANNED) | Pagination |
 | Learning events | INDEX `(user_id, event_type, created_at)` | Progress aggregate |
 | Object-word mapping | INDEX `(label)` trên `object_word_mappings` | AI label → Word lookup |
 | Media owner | INDEX `(owner_id, media_type)` trên `storage_metadata` | User media lookup |
@@ -768,7 +768,7 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 | 2 | Search word → Word detail → Save to personal Topic | Dictionary, Vocabulary | Critical |
 | 3 | Camera/detection → AI detect → Map word → Save TopicItem | Recognition, AI, Vocabulary | Critical |
 | 4 | Flashcard session → FSRS rating → FsrsRecord update | Flashcard, SRS | Critical |
-| 5 | Quiz setup → Play → Submit → Result | Quiz | High |
+| 5 | Quiz setup → Play (check từng câu / từng cặp) → Complete → Result | Quiz | High |
 | 6 | SRS due queue → Review → Rating → FsrsRecord update | SRS, Flashcard | High |
 | 7 | Avatar upload (presigned) → Upload complete → Profile update | Storage, Identity | High |
 | 8 | Topic browse → Save from topic → TopicItem created | Topic, Vocabulary | Medium |
@@ -880,7 +880,7 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 | Recognition | `requestId`, image metadata, modelVersion, processingTimeMs, object count, errors |
 | Storage | upload-init, upload-complete, validation fail, orphan cleanup |
 | Dictionary | Lookup latency, not-found rate, import job result |
-| Learning | Save word, flashcard recall, quiz attempt, SRS review |
+| Learning | Save word, flashcard recall, quiz check / complete, SRS review |
 | Gamification | XP/coin transaction, mission complete, badge award, idempotent duplicate ignored |
 | Notification | Push sent/fail, device token register/expire |
 | System | DB/Redis/Storage/AI availability, exception rate, unhandled errors |

@@ -246,7 +246,7 @@ Hệ thống backend được chia thành **18 phân hệ** thuộc 5 lớp ch�
 | Module | SS | Trách nhiệm | Milestone |
 | --- | --- | --- | --- |
 | Flashcard & Template | SS-09 | Template (gắn theo Topic, system/custom), TemplateElement, TemplateField (SemanticRole), study session, FSRS rating | M1, M3 |
-| Quiz | SS-10 | Quiz generation từ TopicItem, MCQ/Matching/Fill, scoring, QuizAttempt (idempotent) | M3 |
+| Quiz | SS-10 | Quiz generation từ TopicItem (resolve theo SemanticRole), MCQ/Matching/Fill Blank, incremental check (từng câu / từng cặp), complete (idempotent) — NOT IMPLEMENTED | M3 |
 | SRS (FSRS) | SS-11 | Review queue (due TopicItems / FsrsRecord), FSRS calculation, overdue priority | M3 |
 | Progress | SS-12 | Streak, accuracy, mastered count theo learning-state map, LearningEvent, home widget summary | M3 |
 
@@ -271,11 +271,11 @@ Hệ thống backend được chia thành **18 phân hệ** thuộc 5 lớp ch�
 | --- | --- | --- | --- |
 | **Identity** | User, Authority, RefreshToken, OtpToken | Auth, profile, quyền truy cập | Đã có |
 | **Dictionary** | Word, Definition, Translation, Pronunciation, WordDefinition, WordRelation | Từ vựng Anh-Việt (357,729+ từ) | Đã có |
-| **Topic** | Collection, Topic, TopicItem, TopicAttributeGroup, TopicAttribute, TopicItemAttributeGroup, TopicItemAttributeValue | Chủ đề học tập EAV linh hoạt, phân cấp | Đã có |
+| **Topic** | Collection, Topic, TopicItem, Schema, SchemaAttributeGroup, SchemaAttribute, TopicItemAttributeGroup, TopicItemAttributeValue | Chủ đề học tập EAV linh hoạt, phân cấp | Đã có |
 | **Recognition** | ScanRequest, DetectedObject | Nhận diện ảnh, metadata request | Dự kiến M2 |
 | **Personal Learning & SRS** | FsrsRecord, TopicItem | Từ cá nhân thuộc Topic, trạng thái FSRS | Đã có |
 | **Topic Template** | Template, TemplateElement, TemplateField | Cấu hình giao diện thẻ học theo Topic, semantic role | Đã có |
-| **Quiz** | Quiz, Question, QuizAttempt, QuizAnswer | Kiểm tra từ vựng | Dự kiến M3 |
+| **Quiz** | PLANNED — tên entity chưa chốt ([database.md](../db/database.md) §3A) | Kiểm tra từ vựng | NOT IMPLEMENTED (M3) |
 | **Progress** | LearningProgress, LearningEvent | Streak, accuracy, summary aggregate | Dự kiến M3 |
 | **Gamification** | Level, Mission, UserMission, Badge, UserBadge, ExperienceLog, CoinTransaction, Leaderboard | Cấp độ, nhiệm vụ, huy hiệu, XP, coin, ranking | Level đã có, còn lại M4 |
 | **Economy** | ShopItem, UserInventory | Cửa hàng, túi đồ người dùng | Đã có |
@@ -454,15 +454,17 @@ flowchart LR
 ### 6.5 Quiz flow (BF-09)
 
 ```text
-Mobile quiz setup (chọn Topic/Collection, mode, số câu)
-  → Backend sinh quiz từ TopicItems (đáp án nhiễu unique, không quá dễ)
-  → Mobile quiz play (MCQ / Matching / Fill blank)
-  → Submit answers (idempotent — event key)
-  → Backend scoring (score, correctCount, wrongCount, accuracy, duration)
-  → QuizAttempt ghi nhận
+Mobile quiz setup (chọn Topic, Mode MCQ/MATCHING/FILL_BLANK, Direction EN_VI/VI_EN, số câu)
+  → POST /api/me/quizzes: Backend sinh session, resolve dữ liệu theo SemanticRole của active Template
+  → Mobile quiz play — mỗi interaction được Backend chấm ngay:
+       MCQ / FILL_BLANK: POST /api/questions/{id}/check (từng câu)
+       MATCHING:         POST /api/me/quizzes/{id}/rounds/{roundNo}/attempts (từng cặp)
+  → POST /api/me/quizzes/{id}/complete: finalize session (không chấm lại, không nhận đáp án)
   → Progress + Gamification events trigger
   → Quiz result UI (điểm, câu sai, XP/coin reward M4)
 ```
+
+Canonical: [decisions/quiz.md](../decisions/quiz.md) (contract thực tế: `QuizController`). Trạng thái: Backend IMPLEMENTED; mobile IMPLEMENTED (gọi API thật, không còn mock).
 
 ### 6.6 SRS Review flow (BF-10)
 
@@ -500,9 +502,9 @@ Mobile request upload URL
 
 ### 7.1 Chiến lược Versioning & Cập nhật App
 
-- **Base Path:** Toàn bộ public API của hệ thống bắt buộc sử dụng prefix `/api/v1` (ví dụ: `POST /api/v1/auth/login`).
-- **Quy tắc Versioning:** Các thay đổi trong version `v1` phải là **Additive-only** (chỉ thêm field mới, không xóa hay đổi kiểu dữ liệu của field đang tồn tại). Bất kỳ Breaking Change nào cũng yêu cầu tạo ra `/api/v2`.
-- **Force Update:** Mobile app khi khởi động (bootstrap) phải gọi `GET /api/v1/app-config` để đối chiếu phiên bản hiện tại với `minSupportedAppVersion`. Nếu phiên bản app thấp hơn, chặn hiển thị giao diện và điều hướng người dùng tới Store để cập nhật.
+- **Base Path:** Toàn bộ public API của Backend dùng prefix `/api` (ví dụ: `POST /api/auth/login`), khớp các controller hiện có. Không dùng `/api/v1`; không version hóa API theo path khi chưa có quyết định riêng.
+- **Quy tắc thay đổi:** Thay đổi contract phải **Additive-only** (chỉ thêm field mới, không xóa hay đổi kiểu dữ liệu của field đang tồn tại). Chiến lược cho breaking change: **TBD**.
+- **Force Update (PLANNED):** Mobile app khi khởi động (bootstrap) gọi `GET /api/app-config` để đối chiếu phiên bản hiện tại với `minSupportedAppVersion`. Nếu phiên bản app thấp hơn, chặn hiển thị giao diện và điều hướng người dùng tới Store để cập nhật.
 
 ### 7.2 Nhóm API
 
@@ -577,7 +579,7 @@ Tất cả API public/mobile dùng JSON envelope thống nhất:
 | Media | Private bucket, presigned URL TTL ≤ 15 phút, backend sinh object key |
 | Upload | Validate MIME allowlist (ảnh), size (avatar ≤ 5MB, scan ≤ 10MB), extension |
 | AI Service | Ưu tiên mạng nội bộ; nếu public cần service token |
-| Idempotency | Reward/XP/Coin/claim mission và submit quiz dùng event key — retry không cộng trùng |
+| Idempotency | Reward/XP/Coin/claim mission, quiz check / pair attempt / complete dùng idempotency key — retry không chấm/cộng trùng |
 | Secrets | Không đưa secrets vào docs, client, repository; dùng env/secret manager |
 | Swagger | Bật dev/staging; production tắt hoặc restrict |
 | CORS | Chỉ allow origin cần thiết; không wildcard với credential |
@@ -729,7 +731,7 @@ Mobile App Store / APK
 | Recognition | requestId, image metadata, model version, processingTimeMs, object count, errors |
 | Storage | upload-init, upload-complete, validation fail, orphan cleanup |
 | Dictionary | lookup latency, not-found rate, import job result |
-| Learning | save word, flashcard recall (rating), quiz attempt, SRS review |
+| Learning | save word, flashcard recall (rating), quiz check / complete, SRS review |
 | Gamification | XP/coin transaction, mission complete, duplicate event ignored (idempotent) |
 | Leaderboard | cache refresh job, cache miss, ranking update latency |
 | System | API error rate, DB/Redis/AI/storage availability, exception stack |
@@ -817,7 +819,7 @@ graph TD
 
 ### Coupling notes
 
-- **Loose coupling qua events:** Phân hệ dùng domain event nội bộ (`TopicItemCreated`, `ReviewCompleted`, `QuizSubmitted`, `MissionCompleted`) để giảm coupling trực tiếp.
+- **Loose coupling qua events:** Phân hệ dùng domain event nội bộ (`TopicItemCreated`, `ReviewCompleted`, `QuizCompleted`, `MissionCompleted`) để giảm coupling trực tiếp.
 - **Shared entity:** `TopicItem` và `FsrsRecord` được chia sẻ giữa SS-05/SS-08 (Topic & Item), SS-09 (Flashcard & Template) và SS-11 (SRS). Trách nhiệm tách qua service layer.
 - **AI Service tách deploy:** SS-07 là service Python FastAPI độc lập, giao tiếp HTTP nội bộ. **Không** chia sẻ database với backend Spring Boot.
 - **Storage crosscutting:** SS-16 là infrastructure service, nhiều domain sử dụng qua cùng interface (S3Client).
@@ -833,7 +835,7 @@ vn.ptit.snapvocab
 ├── domain/                         (Entity definitions & mappings)
 │   ├── Authority, User, RefreshToken
 │   ├── Word, Definition, Translation, Pronunciation, WordDefinition, WordRelation
-│   ├── Collection, Topic, TopicItem, TopicAttributeGroup, TopicAttribute, TopicItemAttributeValue
+│   ├── Collection, Topic, TopicItem, Schema, SchemaAttributeGroup, SchemaAttribute, TopicItemAttributeGroup, TopicItemAttributeValue
 │   ├── Template, TemplateElement, TemplateField
 │   ├── FsrsRecord, Level, ShopItem, UserInventory, Notification, UserNotification
 │   ├── common/                    (BaseTimeEntity, BaseCreatedAtEntity)
@@ -896,7 +898,7 @@ vn.ptit.snapvocab
 - [x] Redis: cache dictionary/ranking, leaderboard sorted set, summary cache — không là source of truth.
 - [x] OpenAPI/Swagger là thành phần bắt buộc; env-gated.
 - [x] Error envelope thống nhất: `{ success, data, error, requestId }`.
-- [x] Idempotency: reward/XP/coin/quiz submit dùng event key.
+- [x] Idempotency: reward/XP/coin và quiz check/complete dùng idempotency key.
 - [x] Security matrix bao phủ Guest/Learner/Admin.
 - [x] Rủi ro kiến trúc đã nhận diện và có phương án kiểm soát.
 - [x] Package structure mapping đầy đủ cho backend Spring Boot.

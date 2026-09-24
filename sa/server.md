@@ -245,7 +245,7 @@ Error response:
 
 | Nhóm | Biến cấu hình (ví dụ) | Ghi chú |
 | --- | --- | --- |
-| **App** | `APP_ENV`, `APP_BASE_URL`, `API_BASE_PATH` | Theo môi trường (mặc định `API_BASE_PATH=/api/v1`) |
+| **App** | `APP_ENV`, `APP_BASE_URL`, `API_BASE_PATH` | Theo môi trường (mặc định `API_BASE_PATH=/api`) |
 | **Database** | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD` | Không commit secret |
 | **Redis** | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` | Password nếu môi trường yêu cầu |
 | **JWT** | `JWT_SECRET`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL` | Secret đủ mạnh, rotate được |
@@ -403,10 +403,10 @@ Chi tiết và số đo ở `ai-service/README.md`. Các biến chính:
 | --- | --- | --- |
 | **Identity** | `users`, `authorities`, `refresh_tokens`, `otp_tokens` | SS-03 |
 | **Dictionary** | `words`, `definitions`, `translations`, `pronunciations`, `word_relations`, `object_word_mappings` | SS-04 |
-| **Topic & Vocabulary** | `collections`, `topics`, `topic_items`, `topic_attribute_groups`, `topic_attributes`, `topic_item_attribute_groups`, `topic_item_attribute_values` | SS-05, SS-08 |
+| **Topic & Vocabulary** | `collections`, `topics`, `topic_items`, `schemas`, `schema_attribute_groups`, `schema_attributes`, `topic_item_attribute_groups`, `topic_item_attribute_values` | SS-05, SS-08 |
 | **Recognition** | `image_recognition_requests`, `recognition_results`, `detected_objects`, `scan_histories` | SS-06 |
 | **Template & SRS** | `templates`, `template_elements`, `template_fields`, `fsrs_records` | SS-09, SS-11 |
-| **Quiz** | `quizzes`, `quiz_questions`, `quiz_attempts` | SS-10 |
+| **Quiz** | PLANNED — chưa chốt tên bảng; persistence contract: [database.md](../db/database.md) §3A | SS-10 |
 | **Progress** | `learning_events`, `learning_progress` | SS-12 |
 | **Gamification** | `missions`, `mission_progress`, `badges`, `user_badges`, `experience_logs`, `coin_transactions`, `leaderboard_entries` | SS-13 |
 | **Economy** | `shop_items`, `user_inventories`, `levels` | SS-14 |
@@ -421,7 +421,7 @@ Chi tiết và số đo ở `ai-service/README.md`. Các biến chính:
 | Dictionary search | INDEX trên `words.word` (normalized); FULLTEXT nếu DB hỗ trợ | Lookup p95 < 500ms |
 | Personal vocabulary | UNIQUE `(topic_id, word_id)` trên `topic_items` | Chống trùng từ vựng trong cùng một Topic |
 | SRS review queue | INDEX `(user_id, due_at, card_state)` trên `fsrs_records` | Daily review query |
-| Quiz history | INDEX `(user_id, created_at)` trên `quiz_attempts` | Pagination |
+| Quiz history | INDEX `(user_id, created_at)` trên bảng Quiz session (PLANNED) | Pagination |
 | Learning events | INDEX `(user_id, event_type, created_at)` | Progress aggregate |
 | Leaderboard | INDEX `(scope, score)` hoặc Redis sorted set | Ranking query |
 | Media owner | INDEX `(owner_id, media_type)` trên `storage_metadata` | User media lookup |
@@ -667,7 +667,7 @@ Mobile ──→ Object Storage: GET presignedUrl (download binary)
 | 7 | File upload | Validate MIME allowlist ảnh; avatar ≤ 5MB, scan ≤ 10MB; object key backend sinh (NFR §5) |
 | 8 | Privacy | Bucket private; presigned URL TTL ≤ 15 phút; ảnh scan/avatar không public mặc định (NFR §6) |
 | 9 | AI service | Internal/private; service token nếu public network (NFR §1) |
-| 10 | Idempotency | Reward/XP/coin/mission claim + quiz submit dùng event key; retry không cộng trùng (NFR §4) |
+| 10 | Idempotency | Reward/XP/coin/mission claim + quiz check/pair attempt/complete dùng idempotency key; retry không chấm/cộng trùng (NFR §4) |
 | 11 | Swagger | Bật dev/staging; production tắt hoặc bảo vệ IP/auth (NFR §1) |
 | 12 | CORS | Chỉ allow origin cần thiết; không wildcard với credential |
 | 13 | Logs | **Không** log password, token, OTP, secrets, presigned URL dài hạn (NFR §17) |
@@ -734,7 +734,7 @@ Mobile ──→ Object Storage: GET presignedUrl (download binary)
 | **Recognition** | `requestId`, image metadata (size/type), AI modelVersion, processingTimeMs, object count, errors |
 | **Storage** | upload-init, upload-complete, validation fail (MIME/size), orphan cleanup, presigned URL generation |
 | **Dictionary** | Lookup latency, not-found rate, import job result (count, errors, duration) |
-| **Learning** | Save word (source), flashcard recall (rating), quiz attempt (score), SRS review (state change) |
+| **Learning** | Save word (source), flashcard recall (rating), quiz check (correct/incorrect) + complete (summary), SRS review (state change) |
 | **Gamification** | XP/coin transaction, mission complete, badge award, duplicate event ignored (idempotent) |
 | **Leaderboard** | Cache refresh job, ranking update, Redis error/failover |
 | **Notification** | Push sent/fail, device token register/expire, in-app notification created |
@@ -944,7 +944,7 @@ Schema change
 | 10 | AI recognition | `POST /api/scan` → poll `GET /api/scan/{requestId}` | Ảnh test về `DONE`, items có label/reliability/box | M2 |
 | 11 | Save word | `POST /topics/{topicId}/items` | Lưu TopicItem thành công | M1-M2 |
 | 12 | Flashcard | Flashcard API | Render và học flashcard theo Topic và Template | M1 |
-| 13 | Quiz | Quiz API | Tạo và submit quiz test | M3 |
+| 13 | Quiz | Quiz API | Tạo quiz, check từng câu / từng cặp, complete | M3 |
 | 14 | SRS review | Review API | Lấy review queue hoặc empty state | M3 |
 | 15 | Progress | `GET /progress/summary` | Trả summary hợp lệ | M3 |
 | 16 | Notification | Notification API | List/read notification hoạt động | M3 |
@@ -962,7 +962,7 @@ Schema change
 | Dictionary lookup | Search → Word detail → Save to personal Topic | M1 |
 | Topic browse | Collection → Topic → TopicItem → Save to personal Topic | M1 |
 | Flashcard study | Open Topic → Study session → Template render → FSRS rating | M1, M3 |
-| Quiz | Setup → Play → Submit → Result → Progress update | M3 |
+| Quiz | Setup → Play (check từng câu / từng cặp) → Complete → Result → Progress update | M3 |
 | SRS review | Due queue → Review → Rating → FsrsRecord update | M3 |
 | Gamification | Learning activity → XP/Coin → Mission → Badge → Leaderboard | M4 |
 | Storage | Avatar upload → Edit profile → Presigned access | M1 |

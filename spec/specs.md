@@ -128,7 +128,7 @@ Mục tiêu: hoàn thiện cơ chế học, kiểm tra và ôn tập dài hạn.
 | Nhóm         | Bao gồm                                                              |
 | ------------ | -------------------------------------------------------------------- |
 | Quiz         | Trắc nghiệm nghĩa, chọn từ đúng, ghép từ-nghĩa, điền từ nếu phù hợp  |
-| Quiz Attempt | Lưu điểm, số câu đúng/sai, thời gian làm và lịch sử attempt          |
+| Quiz Session | Chấm từng câu/từng cặp ngay (incremental), finalize khi complete, lưu lịch sử |
 | SRS          | Tính state, due, stability, difficulty theo FSRS cho từng FsrsRecord |
 | Review Queue | Danh sách từ đến hạn ôn tập theo ngày                                |
 | Progress     | Streak, số từ đã học, accuracy, số lượt ôn, thống kê tuần/tháng      |
@@ -136,7 +136,7 @@ Mục tiêu: hoàn thiện cơ chế học, kiểm tra và ôn tập dài hạn.
 
 Done criteria:
 
-1. Learner làm quiz từ danh sách từ cá nhân và nhận điểm sau khi hoàn thành.
+1. Learner làm quiz từ danh sách từ cá nhân, nhận đúng/sai ngay sau mỗi câu/cặp và nhận tổng kết sau khi hoàn thành.
 2. Kết quả quiz/review được ghi nhận vào tiến độ học tập.
 3. Hệ thống tạo được daily review queue dựa trên lịch SRS.
 4. Lịch ôn của một FsrsRecord thay đổi sau khi Learner đánh giá mức độ nhớ.
@@ -218,7 +218,7 @@ Business rules:
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | Mobile app             | Đã có cấu trúc Expo/React Native, auth, home, learn, camera/profile tabs và API client                                                                                     | Hoàn thiện màn hình nghiệp vụ, kết nối scan-to-learn, learning engine và gamification            |
 | Backend API            | Đã có auth, user, storage, word controller/service/domain                                                                                                                  | Mở rộng recognition, saved vocabulary, flashcard, quiz, SRS, progress, gamification              |
-| Word / Learning domain | Đã có Word/Definition/Translation/Pronunciation và Collection/Topic/TopicItem/Template/FsrsRecord | Mở rộng quiz attempt, progress aggregate, object→TopicItem mapping từ scan              |
+| Word / Learning domain | Đã có Word/Definition/Translation/Pronunciation và Collection/Topic/TopicItem/Template/FsrsRecord | Bổ sung Quiz (NOT IMPLEMENTED), progress aggregate, object→TopicItem mapping từ scan              |
 | AI service             | Pipeline Florence-2 ĐÃ được chứng minh trên Colab (notebook F2-v13): COCO128 box-F1 0,646 / word-F1 0,825; Internet-50 word-precision 0,885; ~40 thẻ đúng trên ảnh thực tế | Đóng gói pipeline thành FastAPI service độc lập; cấu hình mặc định rút gọn (OD + self-grounding, bỏ SAM) để chạy được trên CPU, bật thêm bước khi có GPU |
 | Storage                | Đã có hướng S3-compatible/MinIO và flow upload                                                                                                                             | Chuẩn hóa R2 production, presigned upload, metadata object và cleanup                            |
 
@@ -332,8 +332,8 @@ Business rules cho learning state:
 | Mã       | Yêu cầu               | Mô tả                                                                                    | Ưu tiên |
 | -------- | --------------------- | ---------------------------------------------------------------------------------------- | ------- |
 | FR-05.01 | Tạo flashcard         | Hệ thống hiển thị flashcard cho mỗi `TopicItem` theo cấu hình `Template` của Topic        | Must    |
-| FR-05.02 | Cấu hình Bố cục       | Bố cục thẻ gồm các phần tử `TemplateElement` (`FIELD`, `DIVIDER`, `BUTTON`) xếp theo thứ tự `position` | Must    |
-| FR-05.03 | Ánh xạ SemanticRole   | Gán vai trò ngữ nghĩa (`FRONT`, `BACK`, `EXAMPLE`, `AUDIO`, `IMAGE`, `PHONETIC`...) cho từng trường | Must    |
+| FR-05.02 | Cấu hình Bố cục       | Bố cục thẻ gồm các phần tử `TemplateElement` (`FIELD`, `SECTION_BREAK`, `COLUMN_BREAK`) xếp theo `position`; mặt thẻ xác định bởi `side` (`CardSide`: `FRONT`/`BACK`) | Must    |
+| FR-05.03 | Ánh xạ SemanticRole   | Gán vai trò ngữ nghĩa (`TARGET_WORD`, `DEFINITION`, `NATIVE_TRANSLATION`, `EXAMPLE_SENTENCE`, `AUDIO`, `IMAGE`) cho `TemplateField` | Must    |
 | FR-05.04 | Định dạng Trường      | Hỗ trợ cấu hình `font_size`, `alignment`, `color`, `audio_action`, `hide_if_empty`        | Should  |
 | FR-05.05 | Render theo Config    | Mobile app linh hoạt render giao diện thẻ dựa trên cấu hình template trả về từ API       | Must    |
 | FR-05.06 | Đánh giá recall       | Learner chọn mức độ nhớ (FSRS) sau mỗi thẻ để tính lịch ôn tiếp theo                     | Must    |
@@ -349,20 +349,22 @@ Business rules:
 | Mã       | Yêu cầu          | Mô tả                                                          | Ưu tiên |
 | -------- | ---------------- | -------------------------------------------------------------- | ------- |
 | FR-06.01 | Tạo quiz         | Hệ thống sinh quiz từ các `TopicItem` trong Topic của Learner   | Must    |
-| FR-06.02 | Multiple choice  | Learner chọn nghĩa/từ đúng từ nhiều đáp án                     | Must    |
-| FR-06.03 | Matching         | Learner ghép từ tiếng Anh với nghĩa tiếng Việt                 | Should  |
-| FR-06.04 | Fill blank       | Learner điền từ còn thiếu trong câu/gợi ý                      | Could   |
-| FR-06.05 | Chấm điểm        | Hệ thống tính điểm, số câu đúng/sai và tỷ lệ chính xác         | Must    |
+| FR-06.02 | Multiple choice  | Learner chọn nghĩa/từ đúng từ nhiều đáp án; mỗi câu được chấm và phản hồi ngay | Must    |
+| FR-06.03 | Matching         | Learner ghép từ tiếng Anh với nghĩa tiếng Việt; mỗi cặp được chấm và phản hồi ngay (per-pair) | Should  |
+| FR-06.04 | Fill blank       | Learner điền từ còn thiếu trong câu/gợi ý; mỗi câu được chấm và phản hồi ngay | Could   |
+| FR-06.05 | Chấm điểm        | Backend chấm từng câu/cặp khi Learner trả lời; khi complete tổng hợp số câu đúng/sai và tỷ lệ chính xác | Must    |
 | FR-06.06 | Lịch sử attempt  | Hệ thống lưu kết quả mỗi lượt làm quiz                         | Should  |
 | FR-06.07 | Cập nhật tiến độ | Quiz ảnh hưởng đến progress, XP và nhiệm vụ nếu có             | Should  |
 
 Business rules:
 
 - Đáp án nhiễu lấy từ các `TopicItem` khác cùng Topic hoặc POS, không trùng nghĩa.
-- Nếu số lượng `TopicItem` chưa đủ (tối thiểu 4 mục), hệ thống thông báo Learner thêm từ trước khi tạo quiz.
+- Số câu mỗi quiz: 5, 10 hoặc 20. Nếu số `TopicItem` hợp lệ ít hơn số câu đã chọn, hệ thống báo lỗi và gợi ý Learner thêm từ; không tự tạo quiz ngắn hơn.
 - Thoát quiz giữa chừng hệ thống sẽ hủy bỏ, không lưu draft.
-- Kết quả quiz không trực tiếp cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP).
-
+- Kết quả quiz không trực tiếp cập nhật thông số FSRS (chỉ ghi nhận kết quả Quiz session, progress, XP).
+- Quiz Mode: `MCQ`, `MATCHING`, `FILL_BLANK`; Quiz Direction: `EN_VI`, `VI_EN` (hai khái niệm tách biệt). `LISTENING` là Template flashcard, không phải Quiz Mode.
+- Dữ liệu Quiz được resolve theo `SemanticRole` của active Template, không theo tên `SchemaAttribute`.
+- Lifecycle, API và các điểm chưa quyết định: xem [decisions/quiz.md](../decisions/quiz.md) 
 ### FR-07 — Spaced Repetition System (SRS)
 
 | Mã       | Yêu cầu          | Mô tả                                                    | Ưu tiên |
@@ -492,11 +494,11 @@ Business rules:
 | FR-14.03 | Xem TopicItems + thuộc tính  | Learner xem danh sách từ vựng trong Topic kèm thuộc tính EAV (nghĩa, IPA, ví dụ, audio)  | Must    |
 | FR-14.04 | Lưu TopicItem vào Topic cá nhân | Learner lưu từ vựng từ Topic hệ thống vào Topic thuộc Collection cá nhân                  | Must    |
 | FR-14.05 | Admin CRUD Collection/Topic   | Admin quản lý cấu trúc Collection và Topic (thêm, sửa, xóa mềm), hỗ trợ phân cấp         | Must    |
-| FR-14.06 | Admin CRUD TopicItem + EAV    | Admin quản lý nội dung từ vựng theo mô hình EAV (TopicAttributeGroup/Attribute/Value)    | Must    |
+| FR-14.06 | Admin CRUD TopicItem + EAV    | Admin quản lý nội dung từ vựng theo mô hình EAV (SchemaAttributeGroup/SchemaAttribute → TopicItemAttributeValue) | Must    |
 
 Business rules:
 
-- Mô hình dữ liệu EAV: TopicAttributeGroup → TopicAttribute → TopicItemAttributeValue.
+- Mô hình dữ liệu EAV: Schema → SchemaAttributeGroup → SchemaAttribute; giá trị lưu ở TopicItemAttributeGroup → TopicItemAttributeValue.
 - Soft-delete Collection/Topic không làm mất TopicItem đã được sao chép sang Collection cá nhân của Learner.
 - Learner không có quyền sửa/xóa Collection hoặc Topic hệ thống (`type = SYSTEM`).
 - Unique per Topic: Learner không lưu trùng cùng một từ vựng vào cùng một Topic cá nhân.
@@ -528,18 +530,19 @@ Business rules:
 | --------------------------------- | ------------------------------------------------------------ | -------------------------------------------- |
 | Collection                        | Bộ sưu tập từ vựng, phân loại `SYSTEM` hoặc `USER`           | Đã có trong code (`collections`)             |
 | Topic                             | Chủ đề từ vựng (hỗ trợ phân cấp cha - con)                   | Đã có trong code (`topics`)                  |
-| TopicAttributeGroup               | Nhóm thuộc tính cấu hình cho Topic                           | Đã có trong code (`topic_attribute_groups`)  |
-| TopicAttribute                    | Thuộc tính dữ liệu (tên, kiểu dữ liệu, thứ tự, bắt buộc)      | Đã có trong code (`topic_attributes`)        |
+| Schema                            | Data contract thuộc tính, Topic trỏ tới qua `schema_id`      | Đã có trong code (`schemas`)                 |
+| SchemaAttributeGroup              | Nhóm thuộc tính của Schema                                   | Đã có trong code (`schema_attribute_groups`) |
+| SchemaAttribute                   | Thuộc tính dữ liệu (tên, kiểu dữ liệu, thứ tự, bắt buộc)      | Đã có trong code (`schema_attributes`)       |
 | TopicItem                         | Mục từ vựng thuộc Topic                                      | Đã có trong code (`topic_items`)             |
 | TopicItemAttributeGroup           | Nhóm thuộc tính của mục từ                                   | Đã có trong code (`topic_item_attribute_groups`) |
 | TopicItemAttributeValue           | Giá trị cụ thể của từng thuộc tính cho mục từ                | Đã có trong code (`topic_item_attribute_values`) |
-| Template                          | Cấu hình mẫu thẻ học cho Topic                               | Đã có trong code (`templates`)               |
-| TemplateElement                   | Phần tử bố cục trên thẻ (`FIELD`, `DIVIDER`, `BUTTON`)       | Đã có trong code (`template_elements`)       |
-| TemplateField                     | Ánh xạ trường với `TopicAttribute`, gán `SemanticRole` và styling | Đã có trong code (`template_fields`)         |
+| Template                          | Mẫu hiển thị thẻ thuộc Schema; Topic chọn qua `active_template_id` | Đã có trong code (`templates`)               |
+| TemplateElement                   | Phần tử bố cục (`FIELD`, `SECTION_BREAK`, `COLUMN_BREAK`) + mặt thẻ `side` (`CardSide`) | Đã có trong code (`template_elements`)       |
+| TemplateField                     | Ánh xạ trường với `SchemaAttribute`, gán `SemanticRole` và styling | Đã có trong code (`template_fields`)         |
 | FsrsRecord                        | Trạng thái ôn tập FSRS của Learner cho từng `TopicItem`      | Đã có trong code (`fsrs_records`)            |
-| Quiz / QuizQuestion / QuizAttempt | Kiểm tra từ trong Topic                                      | Dự kiến M3                                   |
+| Quiz session / câu hỏi / kết quả check | Kiểm tra từ trong Topic (incremental grading)           | PLANNED — NOT IMPLEMENTED; xem [database.md](../db/database.md) §Quiz |
 | Notification / DeviceToken        | In-app + push notification                                   | Đã có trong code (`notifications`, `user_notifications`) |
-| LearningProgress / LearningEvent  | Aggregate streak, accuracy, summary                          | Dự kiến M3; aggregate từ FsrsRecord/QuizAttempt |
+| LearningProgress / LearningEvent  | Aggregate streak, accuracy, summary                          | Dự kiến M3; aggregate từ FsrsRecord/Quiz đã complete |
 
 ### 6.3 Nhóm dữ liệu cần cho nhận diện ảnh
 
@@ -570,8 +573,8 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | Collection              | Tập hợp các chủ đề lớn (VD: TOEIC Words, Animals)                               |
 | Topic                   | Các chủ đề cụ thể, có hỗ trợ phân cấp (parent_id) thuộc một Collection          |
 | TopicItem               | Phần tử nội dung chi tiết (một từ vựng, cụm từ) thuộc Topic                     |
-| TopicAttributeGroup     | Khai báo nhóm thuộc tính cho một Topic                                          |
-| TopicAttribute          | Định nghĩa các thuộc tính cần có (VD: Nghĩa tiếng Việt, Phiên âm, Ví dụ, Audio) |
+| SchemaAttributeGroup    | Khai báo nhóm thuộc tính trong Schema mà Topic sử dụng                          |
+| SchemaAttribute         | Định nghĩa các thuộc tính cần có (VD: Nghĩa tiếng Việt, Phiên âm, Ví dụ, Audio) |
 | TopicItemAttributeValue | Lưu trữ giá trị thực tế của các thuộc tính tương ứng cho từng TopicItem         |
 
 ---
@@ -590,7 +593,6 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | Collection / Topic / Item API | Đã có trong mã nguồn            | CRUD Collection, Topic, TopicItem (saved vocabulary)                     |
 | Topic Template API   | Đã có domain templates          | Lấy và cập nhật cấu hình template theo Topic                             |
 | Flashcard / SRS API  | Đã có domain fsrs_records       | Queue ôn, submit rating FSRS, render theo template                       |
-| Quiz API            | Dự kiến learning module         | Tạo quiz, submit answer, lưu attempt                                     |
 | Progress API        | Dự kiến learning module         | Tổng hợp tiến độ, streak, accuracy, activity                             |
 | Gamification API    | Dự kiến reward module           | Mission, badge, coin, shop, leaderboard                                  |
 | Notification API    | Dự kiến notification module     | Đăng ký device token, lấy danh sách in-app notification, đánh dấu đã đọc |
@@ -639,7 +641,7 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | 1   | Security                | API cá nhân yêu cầu JWT; password hash an toàn; refresh token revoke được; không log secret/OTP                  |
 | 2   | Authorization           | Learner chỉ truy cập dữ liệu cá nhân; Admin API yêu cầu `ROLE_ADMIN`                                             |
 | 3   | OTP Safety              | OTP TTL ≤ 10 phút; tối đa 5 lần thử; resend cooldown ≥ 60s; không tái sử dụng sau success                        |
-| 4   | Idempotency             | Reward/XP/coin/claim mission và submit quiz dùng event key — retry không cộng trùng                              |
+| 4   | Idempotency             | Reward/XP/coin/claim mission, quiz check và quiz complete dùng idempotency key — retry không chấm/cộng trùng       |
 | 5   | File Safety             | Validate MIME allowlist ảnh; avatar ≤ 5MB, scan ≤ 10MB (trừ khi cấu hình khác); object key do backend sinh       |
 | 6   | Privacy                 | Bucket private; presigned URL TTL ngắn (≤ 15 phút); ảnh scan/avatar không public mặc định                        |
 | 7   | Recognition Performance | Recognition xử lý qua hàng đợi; mặc định 1 worker/GPU; timeout worker→AI 60s cấu hình được; GPU T4 ~15–30s/ảnh full mode |
@@ -692,7 +694,7 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | 11  | Learner lưu được từ từ ảnh thành TopicItem trong Topic cá nhân.                                            |
 | 12  | Learner làm quiz từ Topic/TopicItem và xem điểm/đúng-sai.                                                  |
 | 13  | Daily review queue lấy FsrsRecord có `due` đến hạn; rating cập nhật lịch ôn.                               |
-| 14  | Home/progress hiển thị summary học tập khớp dữ liệu FSRS và QuizAttempt.                                  |
+| 14  | Home/progress hiển thị summary học tập khớp dữ liệu FSRS và Quiz đã complete.                                |
 | 15  | Leaderboard cá nhân phản ánh XP/activity theo rule (M4).                                                  |
 | 16  | Admin (nếu milestone bật) ban/unban hoặc CRUD dictionary qua role `ROLE_ADMIN`, không qua mobile Learner. |
 | 17  | Mission/badge/XP/coin idempotent — retry không cộng trùng.                                                |

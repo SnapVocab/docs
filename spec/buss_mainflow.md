@@ -285,7 +285,7 @@
 | 5    | System  | Mobile gọi `POST /api/scan` với `objectKey`. Backend kiểm tra key thuộc đúng Learner, ảnh đã được upload và không quá 10MB — **trước** khi tính quota, nên ảnh lỗi không tốn lượt. |
 | 6    | System  | Dưới khóa theo từng Learner, backend đếm lượt đã dùng trong ngày và tạo `ScanRequest` (`PENDING`); hết lượt thì trả `QUOTA_EXCEEDED`. Job được đẩy vào hàng đợi trong bộ nhớ; backend trả `202 Accepted` kèm `requestId`, `status = PENDING`. |
 | 7    | Mobile  | Hiển thị trạng thái chờ và poll `GET /api/scan/{requestId}` mỗi 2–3s (timeout giao diện 90s). |
-| 8    | System  | Worker (1 luồng/GPU) lấy job, đổi sang `PROCESSING`, tải ảnh từ storage và gọi AI service `POST /api/v1/detect` (kèm `X-Request-Id` = `requestId`). |
+| 8    | System  | Worker (1 luồng/GPU) lấy job, đổi sang `PROCESSING`, tải ảnh từ storage và gọi AI service `POST /api/v1/detect` (route nội bộ của Python AI service, không thuộc public API `/api` của Backend; kèm `X-Request-Id` = `requestId`). |
 | 9    | AI      | Xoay ảnh theo EXIF → Florence-2 `<OD>` + self-grounding → loại box quá nhỏ/quá lớn → lọc nhãn theo từ điển (WordNet) → khử box trùng, mỗi nhãn giữ 1 box. |
 | 10   | AI      | Trả danh sách object: `label`, `headword`, `source`, `reliability` (HIGH/MEDIUM/LOW), `box`, cùng `image_width`/`image_height` là hệ toạ độ của box. |
 | 11   | System  | Backend lọc lần cuối theo `reliability` tối thiểu (cấu hình được) và lưu các box vào `ScanRequest` (`DONE`). |
@@ -413,9 +413,9 @@
 | ---- | ------- | --------------------------------------------------------------------------------------------------- |
 | 1    | Learner | Mở Topic → chọn **Học Flashcard** hoặc vào study session từ Home.                                   |
 | 2    | System  | Lấy danh sách mục từ cần học (`card_state = NEW` hoặc `due <= now`). Tải cấu hình `Template` của Topic (danh sách `TemplateElement` và `TemplateField` theo `position ASC`). |
-| 3    | Learner | Xem mặt trước (Front) của thẻ: các trường có `semantic_role` là `FRONT`, kèm `PHONETIC`, `AUDIO` (nếu có). |
+| 3    | Learner | Xem mặt trước (Front) của thẻ: các `TemplateElement` có `side = FRONT` (`CardSide`), theo `position`. |
 | 4    | Learner | Tương tác: lật thẻ, nghe phát âm.                                                                   |
-| 5    | System  | Hiển thị mặt sau (Back): các trường có `semantic_role` là `BACK`, `TRANSLATION`, `EXAMPLE`...       |
+| 5    | System  | Hiển thị mặt sau (Back): các `TemplateElement` có `side = BACK`. `SemanticRole` quyết định hành vi (VD: `AUDIO` → phát âm), không quyết định mặt thẻ. |
 | 6    | Learner | Đánh giá mức độ nhớ theo FSRS (Again, Hard, Good, Easy).                                           |
 | 7    | System  | Cập nhật tham số FSRS trên `FsrsRecord` (`stability`, `difficulty`, `due`, `reps`, `lapses`, `card_state`). |
 | 8    | System  | Chuyển sang mục từ tiếp theo. Lặp lại bước 3–7.                                                     |
@@ -446,50 +446,62 @@
 ## BF-09 — Quiz & Kiểm tra
 
 **Actor:** Learner  
-**Trace:** FR-06 · SS-10 · MH: Quiz / Quiz Result  
-**Milestone:** M3
+**Trace:** FR-06 · SS-10 · MH: Quiz Setup / Quiz Play / Quiz Result  
+**Milestone:** M3  
+**Canonical:** [decisions/quiz.md](../decisions/quiz.md) (lifecycle, SemanticRole resolution; contract thực tế: `QuizController`)  
+**Implementation:** Backend Quiz IMPLEMENTED (`QuizController` base `/api`); mobile Quiz IMPLEMENTED — gọi API thật, đúng/sai do Backend trả (xem [decisions/quiz.md](../decisions/quiz.md) §7).
 
 ### Precondition
 
-- Learner có đủ TopicItem trong Topic để sinh quiz (hệ thống cần số lượng tối thiểu cho đáp án nhiễu).
+- Learner có đủ TopicItem hợp lệ trong Topic để sinh quiz: ≥ số câu đã chọn (5, 10 hoặc 20). Item hợp lệ được xác định bằng dữ liệu resolve theo `SemanticRole` của active Template.
 
 ### Happy Path
 
 | Bước | Actor   | Hành động                                                                                           |
 | ---- | ------- | --------------------------------------------------------------------------------------------------- |
-| 1    | Learner | Mở Quiz từ Topic hoặc từ Home. Chọn loại quiz (multiple choice, matching, fill blank).             |
-| 2    | System  | Sinh bộ câu hỏi từ TopicItem. Tạo đáp án đúng + đáp án nhiễu (lấy cùng Topic/POS, không trùng).     |
-| 3    | Learner | Trả lời từng câu hỏi.                                                                               |
-| 4    | System  | Sau mỗi câu: phản hồi đúng/sai (tuỳ mode). Sau quiz: tính điểm, tỷ lệ chính xác.                 |
-| 5    | System  | Lưu QuizAttempt: điểm, số câu đúng/sai, thời gian làm, timestamp.                                 |
-| 6    | System  | Cập nhật Progress (XP, accuracy). Kiểm tra Mission nếu M4 bật.                                      |
+| 1    | Learner | Mở Quiz từ Topic hoặc Home. Chọn Topic, Quiz Mode (`MCQ` / `MATCHING` / `FILL_BLANK`), Quiz Direction (`EN_VI` / `VI_EN` — **không áp dụng cho `FILL_BLANK`**, xem D13), số câu. |
+| 2    | System  | Create Quiz: sinh session từ TopicItem, resolve dữ liệu theo `SemanticRole` (`TARGET_WORD`, `NATIVE_TRANSLATION`, `EXAMPLE_SENTENCE`...). Trả câu hỏi/cặp ghép, không kèm đáp án. |
+| 3a   | Learner | **MCQ:** chọn một đáp án → check câu đó.                                                           |
+| 3b   | Learner | **FILL_BLANK:** nhập đáp án → submit câu hiện tại.                                                  |
+| 3c   | Learner | **MATCHING:** chọn item trái → chọn item phải → check cặp đó (per-pair attempt).                   |
+| 4    | System  | Chấm ngay interaction vừa gửi, trả Correct / Incorrect; ghi nhận kết quả. UI phản hồi trước khi sang câu/cặp tiếp theo. Matching: cặp đúng được khóa; cặp sai không khóa, Learner tiếp tục. |
+| 5    | Learner | Lặp bước 3–4 đến hết các câu/cặp.                                                                   |
+| 6    | System  | Complete Quiz: finalize session — tổng hợp số câu đúng/sai, accuracy từ các kết quả đã chấm (không chấm lại). |
+| 7    | System  | Hiển thị Result (số câu đúng/sai, accuracy, danh sách câu sai). Progress được ghi nhận; XP/Coin/Mission **chưa kích hoạt** — UI hiển thị `+0` cho tới M4 (FR-06.07). |
 
 ### Alternative Flow
 
 | Mã      | Điều kiện                        | Xử lý                                                                   |
 | ------- | -------------------------------- | ------------------------------------------------------------------------ |
-| AF-09.1 | Số TopicItem chưa đủ sinh quiz   | Hiển thị CTA "Lưu thêm từ trước khi tạo quiz."                         |
-| AF-09.2 | Learner thoát giữa chừng        | Hủy bỏ, không ghi QuizAttempt chưa hoàn thành.                                         |
-| AF-09.3 | Retry quiz (cùng attempt)        | Idempotent submit — retry không cộng trùng điểm/XP (dùng event key).    |
+| AF-09.1 | Số TopicItem hợp lệ chưa đủ      | Hiển thị CTA "Lưu thêm từ trước khi tạo quiz."                         |
+| AF-09.2 | Learner thoát giữa chừng qua modal thoát | Cancel session; không lưu draft, không thưởng, không tính mission.      |
+| AF-09.4 | Session dở dang không qua modal (app đóng, back cứng, crash) | Session giữ `IN_PROGRESS` và resume được trong **24h** kể từ `createdAt` (Quiz History → "Làm tiếp"). Quá 24h: Backend chuyển `EXPIRED` (lazy, không cron), không resume/answer/complete được, History không hiển thị "Làm tiếp" (D17). |
+| AF-09.3 | Retry request (lỗi mạng)         | Gửi lại cùng `Idempotency-Key` — không chấm lại, không cộng trùng điểm/XP. |
 
 ### Exception
 
-| Mã      | Lỗi              | Xử lý                                        |
-| ------- | ----------------- | --------------------------------------------- |
-| EX-09.1 | API lỗi khi submit | Trả error code, mobile giữ answer local để retry. |
+| Mã      | Lỗi                        | Xử lý                                                                 |
+| ------- | -------------------------- | --------------------------------------------------------------------- |
+| EX-09.1 | API lỗi khi check/complete | Trả error code; mobile giữ interaction đang chờ và retry với cùng key. |
+| EX-09.2 | Tương tác với session đã hết hạn | Trả `QUIZ_SESSION_EXPIRED` (HTTP 410 Gone); mobile dừng quiz, báo "Phiên quiz đã hết hạn. Vui lòng tạo bài mới." và điều hướng về Quiz Setup (D17). |
 
 ### Post-condition
 
-- QuizAttempt đã được ghi nhận.
-- Progress, XP, accuracy được cập nhật.
-- Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP).
+- Kết quả từng câu/cặp đã được Backend ghi nhận; session ở trạng thái `COMPLETED`.
+- Progress và accuracy được cập nhật. XP/Coin: M4 (xem [decisions/quiz.md](../decisions/quiz.md) §5).
+- `durationSeconds` = `completedAt - createdAt` do Backend tính, trả trong Result (D15); stopwatch trên Quiz Play chỉ là UX.
+- Kết quả quiz không cập nhật thông số FSRS.
 
 ### Business Rules
 
-1. Đáp án nhiễu lấy từ TopicItem cùng Topic/POS, không trùng nghĩa.
-2. Submit quiz idempotent (event key, retry không cộng trùng).
-3. Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP).
-4. Yêu cầu số TopicItem tối thiểu để sinh quiz.
+1. Grading incremental: MCQ và FILL_BLANK check từng câu; MATCHING check từng cặp. Không có submit toàn bộ bài; không check theo cả round.
+2. `complete` chỉ finalize session sau khi các interaction đã được check.
+3. Đáp án nhiễu lấy từ TopicItem cùng Topic, không trùng nghĩa.
+4. Dữ liệu câu hỏi resolve theo `SemanticRole`, không theo tên `SchemaAttribute`.
+5. Kết quả quiz không cập nhật thông số FSRS.
+6. Số câu ∈ {5, 10, 20}; số TopicItem hợp lệ < số câu đã chọn → Create Quiz lỗi `QUIZ_INSUFFICIENT_ELIGIBLE_ITEMS`, không tạo Quiz nhỏ hơn.
+7. Eligibility (D12): item thiếu role mà mode/direction yêu cầu bị loại; không fallback `NATIVE_TRANSLATION` → `DEFINITION`; pool không đủ → Create Quiz lỗi. FILL_BLANK: che `TARGET_WORD` trong `EXAMPLE_SENTENCE`, đáp án `TARGET_WORD` (D13).
+8. Chưa quyết định (xem [decisions/quiz.md](../decisions/quiz.md) §2.3): giới hạn thử lại và cách tính điểm Matching.
 
 ---
 
@@ -558,7 +570,7 @@
 | 1    | Learner | Mở Home screen → xem progress summary widget: số từ đã lưu, đã học, đang ôn, mastered theo learning-state map. |
 | 2    | Learner | Mở màn hình Progress chi tiết.                                                                         |
 | 3    | System  | Hiển thị: streak (chuỗi ngày liên tiếp), accuracy (quiz/review), lịch sử hoạt động ngày/tuần/tháng.  |
-| 4    | System  | Tổng hợp dữ liệu từ FsrsRecord, LearningEvent, QuizAttempt, số lượng TopicItem.                        |
+| 4    | System  | Tổng hợp dữ liệu từ FsrsRecord, LearningEvent, Quiz session đã complete, số lượng TopicItem.                        |
 
 ### Happy Path — Leaderboard
 
