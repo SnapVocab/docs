@@ -50,7 +50,7 @@ Kế thừa `BaseTimeEntity`.
 | `first_name` | VARCHAR(50) | NOT NULL | Tên |
 | `last_name` | VARCHAR(50) | NULL | Họ và tên đệm |
 | `email` | VARCHAR(254) | UNIQUE, NOT NULL | Địa chỉ email đăng nhập |
-| `avatar_url` | VARCHAR(2048) | NULL | Đường dẫn ảnh đại diện |
+| `avatar_url` | VARCHAR(2048) | NULL | **Object key** của ảnh đại diện trong Object Storage (không lưu presigned URL vì URL hết hạn); API trả URL tạm khi đọc |
 | `native_language` | VARCHAR(10) | NULL | Ngôn ngữ mẹ đẻ (mặc định vi) |
 | `learning_language` | VARCHAR(10) | NULL | Ngôn ngữ đang học (mặc định en) |
 | `exp` | BIGINT | DEFAULT 0 | Điểm kinh nghiệm tích lũy |
@@ -61,6 +61,24 @@ Kế thừa `BaseTimeEntity`.
 | `bio` | TEXT | NULL | Giới thiệu ngắn |
 | `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
 | `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
+
+### Bảng `user_settings`
+Kế thừa `BaseTimeEntity`. Tùy chọn cá nhân hiển thị ở màn Cài đặt (MH-PROFILE-03). Mỗi Learner có tối đa 1 dòng, được tạo khi đọc lần đầu nên không cần backfill.
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `user_id` | BIGINT | Khóa chính (PK), FK -> `users(id)` | Chủ sở hữu cài đặt |
+| `ui_language` | VARCHAR(10) | NOT NULL, DEFAULT 'vi' | Ngôn ngữ giao diện app (khác `learning_language`) |
+| `theme` | VARCHAR(10) | NOT NULL, DEFAULT 'SYSTEM' | `LIGHT`, `DARK`, `SYSTEM` |
+| `daily_goal` | INT | NOT NULL, DEFAULT 20 | Số từ mục tiêu mỗi ngày |
+| `srs_reminder_at` | TIME(6) | NULL | Giờ nhắc ôn tập; NULL là tắt nhắc |
+| `push_enabled` | BOOLEAN | NOT NULL, DEFAULT TRUE | Bật/tắt thông báo đẩy |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
+| `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
+
+`PUT /users/me/settings` cập nhật từng phần: field không gửi thì giữ nguyên, nên tắt nhắc ôn tập dùng cờ `srsReminderCleared` thay vì gửi giá trị null.
+
+Script tạo bảng thủ công: `migration_user_settings_and_avatar_key.sql` ở repo backend.
 
 ### Bảng `authorities`
 
@@ -502,7 +520,8 @@ Quản lý lưu trữ tệp tin và tiến trình nhận diện hình ảnh.
 
 ### Lưu trữ tệp tin (Object Storage)
 - Tệp tin avatar, ảnh quét gốc và tài nguyên tĩnh được lưu trữ trực tiếp trên Object Storage (MinIO cho dev/staging, Cloudflare R2 cho production).
-- Database lưu trữ trực tiếp URL truy cập hoặc object key (`avatar_url` trên bảng `users`, URL ảnh và âm thanh trong bảng giá trị EAV `topic_item_attribute_values`).
+- Database lưu **object key** cho ảnh đại diện (`users.avatar_url`); backend ký URL tạm (TTL ≤ 15 phút) mỗi lần trả hồ sơ, vì presigned URL lưu sẵn sẽ hết hạn. URL ảnh và âm thanh trong bảng giá trị EAV `topic_item_attribute_values` vẫn lưu trực tiếp.
+- Avatar giới hạn 5MB và phải là ảnh; backend kiểm tra ở bước `upload-complete` (BF-04).
 - Ảnh scan nằm dưới key `scans/{userId}/{uuid}.{ext}`; key được lưu ở `scan_requests.object_key`. Chưa có job dọn ảnh scan cũ.
 
 ### Bảng `scan_requests`
