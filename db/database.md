@@ -303,7 +303,10 @@ Các thành phần hiển thị trên template theo kiến trúc bố cục Frap
 | `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID thành phần |
 | `template_id` | BIGINT | FK -> `templates(id)`, NOT NULL | Thuộc template nào |
 | `position` | INT | NOT NULL | Vị trí hiển thị trên thẻ (0, 1, 2...) |
-| `type` | VARCHAR(50) | ENUM, NOT NULL | Loại phần tử: `FIELD`, `SECTION_BREAK`, `COLUMN_BREAK` |
+| `type` | VARCHAR(50) | ENUM, NOT NULL | Loại phần tử (`TemplateElementType`): `FIELD`, `SECTION_BREAK`, `COLUMN_BREAK` |
+| `side` | VARCHAR(10) | ENUM, NOT NULL, DEFAULT `FRONT` | Mặt thẻ (`CardSide`): `FRONT`, `BACK`. Mặt trước/sau xác định bởi cột này, không bởi `SemanticRole` |
+| `section_label` | VARCHAR(100) | NULL | Nhãn khối cho `SECTION_BREAK` |
+| `repeatable` | BOOLEAN | DEFAULT FALSE | Khối lặp theo nhóm thuộc tính nhiều giá trị |
 
 Ràng buộc duy nhất: UNIQUE(`template_id`, `position`).
 
@@ -322,14 +325,17 @@ Cấu hình chi tiết cho phần tử dạng FIELD, ánh xạ trực tiếp thu
 | `font_size` | INT | NULL | Cỡ chữ tùy chỉnh |
 | `alignment` | VARCHAR(20) | ENUM('LEFT', 'CENTER', 'RIGHT', 'JUSTIFY'), NULL | Căn lề |
 | `color` | VARCHAR(50) | NULL | Mã màu hex hiển thị |
+| `hidden` | BOOLEAN | DEFAULT FALSE, NOT NULL | Ràng buộc ngữ nghĩa phía server (Quiz resolve qua `semantic_role`), không render ra client |
 
 #### Danh sách SemanticRole (`vn.ptit.snapvocab.domain.enumeration.SemanticRole`):
-- `TARGET_WORD`: Từ vựng mục tiêu, câu hỏi chính ở mặt trước thẻ.
+- `TARGET_WORD`: Từ vựng mục tiêu cần ghi nhớ.
 - `EXAMPLE_SENTENCE`: Câu ví dụ minh họa hoặc ngữ cảnh sử dụng.
 - `NATIVE_TRANSLATION`: Bản dịch nghĩa tiếng mẹ đẻ (tiếng Việt).
 - `DEFINITION`: Định nghĩa / giải nghĩa chính của từ vựng.
 - `AUDIO`: Dữ liệu âm thanh / phát âm.
 - `IMAGE`: Hình ảnh minh họa trực quan.
+
+`semantic_role` NULLABLE (ví dụ seed `phonetic` không mang role). Không thêm giá trị ngoài enum trên khi chưa có quyết định riêng. Quiz resolve dữ liệu qua cột này — xem [decisions/quiz.md](../decisions/quiz.md) §3.
 
 ### Bảng `fsrs_records`
 Kế thừa `BaseTimeEntity`. Quản lý tiến trình ôn tập ngắt quãng theo thuật toán FSRS cho từng cặp (user, topic_item).
@@ -354,6 +360,141 @@ Kế thừa `BaseTimeEntity`. Quản lý tiến trình ôn tập ngắt quãng t
 - `template_fields`: Unique constraint trên `element_id`. Index trên `schema_attribute_id`.
 - `fsrs_records`: Unique constraint ghép `(user_id, topic_item_id)` đảm bảo mỗi người học có đúng 1 tiến trình cho mỗi mục từ.
 - `fsrs_records`: Index ghép trên `(user_id, due, state)` phục vụ query lấy danh sách thẻ đến hạn ôn tập cực nhanh.
+
+## 3A. Quiz (Kiểm tra & Luyện tập Từ vựng)
+
+Phân hệ Quiz hỗ trợ kiểm tra và củng cố từ vựng cá nhân theo 3 chế độ: `MCQ` (Trắc nghiệm), `MATCHING` (Ghép cặp từ - nghĩa), `FILL_BLANK` (Điền từ vào câu ví dụ).
+Quyết định kiến trúc: [decisions/quiz.md](../decisions/quiz.md); Hợp đồng API: `QuizController`. Script DDL quản lý schema thủ công: `snap-vocab-backend/migration_quiz.sql`.
+
+### Đặc điểm thiết kế & Persistence Contract:
+1. **Snapshot dữ liệu độc lập**: Toàn bộ nội dung câu hỏi và đáp án được snapshot trực tiếp vào `quiz_questions`, `quiz_question_options`, `quiz_matching_tiles` (không tạo FK tới `topic_items`). Topic nguồn lưu `topic_id` và `topic_name` snapshot. Đảm bảo lịch sử và kết quả làm quiz của người học bất biến ngay cả khi Topic hoặc từ vựng bị sửa/xóa.
+2. **Chấm điểm lũy tiến (Incremental Grading)**: Chấm và phản hồi đúng/sai ngay sau mỗi tương tác (từng câu MCQ/FILL_BLANK, từng cặp ghép Matching). Endpoint `complete` chỉ chốt tổng kết (`finalize`), không chấm lại từ đầu.
+3. **Per-pair Matching Attempt**: Mỗi lần thử ghép một cặp (trái - phải) được lưu thành một bản ghi riêng trong `quiz_matching_attempts`, không lưu gộp theo round. Điểm số (`outcome`) của cặp được chốt ở lần thử đầu tiên (`CORRECT` nếu đúng ngay, `INCORRECT` nếu từng ghép sai); trạng thái hoàn tất (`resolved`) được đánh dấu khi ghép đúng thành công ở bất kỳ lần thử nào.
+4. **Idempotency**: Chống chấm/cộng điểm trùng lặp khi mạng chập chờn thông qua `Idempotency-Key` (khởi tạo quiz, check câu hỏi, ghép cặp matching). Thao tác complete/cancel có tính idempotent tự nhiên dựa trên trạng thái `QuizStatus`.
+5. **Độc lập với FSRS**: Kết quả làm Quiz hoàn toàn độc lập, không ghi đè hay cập nhật tham số tiến trình ôn tập vào bảng `fsrs_records`.
+
+### Bảng `quizzes`
+Kế thừa `BaseTimeEntity`. Quản lý phiên làm bài Quiz của người dùng.
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID phiên quiz |
+| `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | Người học thực hiện quiz |
+| `topic_id` | BIGINT | NOT NULL | ID Topic nguồn (snapshot, không FK) |
+| `topic_name` | VARCHAR(255) | NOT NULL | Tên Topic nguồn tại thời điểm tạo quiz |
+| `mode` | VARCHAR(20) | ENUM('MCQ', 'MATCHING', 'FILL_BLANK'), NOT NULL | Chế độ làm quiz |
+| `direction` | VARCHAR(10) | ENUM('EN_VI', 'VI_EN'), NULL | Hướng câu hỏi (NULL đối với FILL_BLANK) |
+| `status` | VARCHAR(20) | ENUM('IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'EXPIRED'), NOT NULL | Trạng thái phiên quiz. `EXPIRED` = hệ thống đóng session dở dang sau TTL 24h (D17); khác `CANCELLED` (learner chủ động bỏ). Cột là VARCHAR nên không cần DDL migration. |
+| `requested_count` | INT | NOT NULL | Số câu hỏi/cặp ghép yêu cầu (5, 10, 20) |
+| `create_idempotency_key` | VARCHAR(128) | NOT NULL | Khóa chống trùng lặp khi khởi tạo quiz |
+| `total_units` | INT | NULL | Tổng số đơn vị câu hỏi thực tế (cập nhật khi complete) |
+| `correct_count` | INT | NULL | Số câu/cặp làm đúng (cập nhật khi complete) |
+| `incorrect_count` | INT | NULL | Số câu/cặp làm sai (cập nhật khi complete) |
+| `completed_at` | DATETIME(6) | NULL | Thời điểm hoàn thành quiz |
+| `cancelled_at` | DATETIME(6) | NULL | Thời điểm hủy quiz giữa chừng |
+| `version` | BIGINT | NULL | Phiên bản phục vụ Optimistic Locking |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
+| `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
+
+### Bảng `quiz_questions`
+Đơn vị câu hỏi (MCQ, FILL_BLANK) hoặc vế trái của cặp ghép (MATCHING) trong phiên quiz.
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID câu hỏi quiz |
+| `quiz_id` | BIGINT | FK -> `quizzes(id)`, NOT NULL | Thuộc phiên quiz nào |
+| `position` | INT | NOT NULL | Thứ tự hiển thị câu hỏi trong quiz (0, 1, 2...) |
+| `round_no` | INT | NULL | Vòng hiển thị cho Matching (1-based, 5 cặp/round); NULL cho mode khác |
+| `topic_item_id` | BIGINT | NULL | ID từ vựng gốc (snapshot tham chiếu, không FK) |
+| `prompt` | TEXT | NOT NULL | Câu hỏi (MCQ), câu khuyết từ (FILL_BLANK), hoặc vế trái (MATCHING) |
+| `correct_answer` | TEXT | NOT NULL | Đáp án đúng (bảo mật phía backend, chỉ trả về sau khi đã chấm) |
+| `correct_option_key` | VARCHAR(64) | NULL | Key phương án đúng (cho MCQ) |
+| `left_key` | VARCHAR(64) | NULL | Key định danh vế trái (cho MATCHING) |
+| `left_display_order` | INT | NULL | Thứ tự hiển thị vế trái (cho MATCHING) |
+| `correct_right_key` | VARCHAR(64) | NULL | Key vế phải đúng tương ứng (cho MATCHING) |
+| `outcome` | VARCHAR(20) | ENUM('UNCOMMITTED', 'CORRECT', 'INCORRECT'), NOT NULL | Điểm chấm (Matching cố định sau lần thử đầu tiên) |
+| `resolved` | BOOLEAN | DEFAULT FALSE, NOT NULL | Trạng thái đã hoàn thành đơn vị (đã chấm hoặc ghép đúng) |
+| `resolved_at` | DATETIME(6) | NULL | Thời điểm hoàn thành đơn vị câu hỏi |
+| `attempt_count` | INT | DEFAULT 0, NOT NULL | Số lần gửi đáp án / thử ghép cặp |
+| `learner_answer` | TEXT | NULL | Đáp án người học đã chọn/nhập |
+| `check_idempotency_key` | VARCHAR(128) | NULL | Khóa chống trùng lặp khi check câu MCQ / FILL_BLANK |
+| `checked_at` | DATETIME(6) | NULL | Thời điểm chấm câu hỏi |
+
+### Bảng `quiz_question_options`
+Danh sách các phương án lựa chọn cho câu hỏi trắc nghiệm (MCQ).
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID phương án lựa chọn |
+| `question_id` | BIGINT | FK -> `quiz_questions(id)`, NOT NULL | Thuộc câu hỏi trắc nghiệm nào |
+| `option_key` | VARCHAR(64) | NOT NULL | Mã định danh phương án (opaque key gửi lên khi check) |
+| `label` | TEXT | NOT NULL | Nội dung hiển thị của phương án |
+| `display_order` | INT | NOT NULL | Thứ tự hiển thị các phương án |
+
+### Bảng `quiz_matching_tiles`
+Danh sách các thẻ/ô vế phải cho bài ghép nối (MATCHING).
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID ô ghép vế phải |
+| `quiz_id` | BIGINT | FK -> `quizzes(id)`, NOT NULL | Thuộc phiên quiz nào |
+| `round_no` | INT | NOT NULL | Thuộc vòng hiển thị nào |
+| `tile_key` | VARCHAR(64) | NOT NULL | Mã định danh thẻ vế phải (opaque key) |
+| `label` | TEXT | NOT NULL | Nội dung hiển thị trên thẻ |
+| `display_order` | INT | NOT NULL | Thứ tự hiển thị xáo trộn trong round |
+| `matched` | BOOLEAN | DEFAULT FALSE, NOT NULL | Trạng thái đã được ghép đúng và khóa |
+
+### Bảng `quiz_matching_attempts`
+Kế thừa `BaseCreatedAtEntity`. Lưu nhật ký từng lần thử ghép cặp trong bài MATCHING (per-pair attempt).
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID lượt thử ghép |
+| `quiz_id` | BIGINT | FK -> `quizzes(id)`, NOT NULL | Thuộc phiên quiz nào |
+| `question_id` | BIGINT | FK -> `quiz_questions(id)`, NOT NULL | Vế trái tương ứng |
+| `round_no` | INT | NOT NULL | Round hiện tại khi thử |
+| `left_key` | VARCHAR(64) | NOT NULL | Mã thẻ bên trái được chọn |
+| `right_key` | VARCHAR(64) | NOT NULL | Mã thẻ bên phải được chọn |
+| `correct` | BOOLEAN | NOT NULL | Kết quả ghép cặp (đúng / sai) |
+| `attempt_no` | INT | NOT NULL | Lần thử thứ mấy đối với thẻ vế trái này (1-based) |
+| `round_matched_count` | INT | NOT NULL | Số cặp đã ghép đúng của round tại thời điểm thử |
+| `round_total_pairs` | INT | NOT NULL | Tổng số cặp của round |
+| `idempotency_key` | VARCHAR(128) | NOT NULL | Khóa chống trùng lặp và replay kết quả |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm thực hiện lần thử |
+
+### Ràng buộc & Indexes (Quiz)
+- `quizzes`:
+  - Unique constraint ghép: `uk_quiz_user_create_key` trên `(user_id, create_idempotency_key)`.
+  - Index ghép: `idx_quiz_user_created` trên `(user_id, created_at)` phục vụ truy vấn lịch sử quiz theo người dùng.
+  - Khóa ngoại `fk_quizzes_user`: `user_id` -> `users(id)`.
+- `quiz_questions`:
+  - Unique constraint ghép: `uk_quiz_question_position` trên `(quiz_id, position)`.
+  - Unique constraint ghép: `uk_quiz_question_left_key` trên `(quiz_id, left_key)`.
+  - Khóa ngoại `fk_quiz_questions_quiz`: `quiz_id` -> `quizzes(id)`.
+- `quiz_question_options`:
+  - Unique constraint ghép: `uk_quiz_option_key` trên `(question_id, option_key)`.
+  - Khóa ngoại `fk_quiz_options_question`: `question_id` -> `quiz_questions(id)`.
+- `quiz_matching_tiles`:
+  - Unique constraint ghép: `uk_quiz_tile_key` trên `(quiz_id, tile_key)`.
+  - Khóa ngoại `fk_quiz_tiles_quiz`: `quiz_id` -> `quizzes(id)`.
+- `quiz_matching_attempts`:
+  - Unique constraint ghép: `uk_quiz_attempt_key` trên `(quiz_id, idempotency_key)`.
+  - Khóa ngoại `fk_quiz_attempts_quiz`: `quiz_id` -> `quizzes(id)`.
+  - Khóa ngoại `fk_quiz_attempts_question`: `question_id` -> `quiz_questions(id)`.
+
+### Persistence Contract Summary (Truy vết)
+Bảng tham chiếu tóm tắt các yêu cầu lưu trữ tối thiểu:
+
+| # | Dữ liệu cần lưu | Lý do | Hiện thực hóa |
+| :--- | :--- | :--- | :--- |
+| P1 | Quiz session: owner (`user_id`), Topic nguồn, `mode`, `direction`, `status`, số câu, thời điểm tạo/hoàn thành/hủy | Create / Complete / History | Bảng `quizzes` |
+| P2 | Câu hỏi / item ghép của session: nội dung hiển thị đã resolve theo `SemanticRole`, đáp án đúng (không trả ra client trước khi chấm), thứ tự, `roundNo` (Matching) | Chấm phía Backend; kết quả ổn định khi dữ liệu Topic thay đổi | Bảng `quiz_questions`, `quiz_question_options`, `quiz_matching_tiles` |
+| P3 | Kết quả check từng câu MCQ / FILL_BLANK: đáp án Learner gửi, đúng/sai, thời điểm | Incremental grading | Các trường `outcome`, `resolved`, `learner_answer`, `checked_at` trong `quiz_questions` |
+| P4 | Từng **pair attempt** Matching: item trái, item phải, đúng/sai, thứ tự attempt, thời điểm | Per-pair attempt; không lưu theo round | Bảng `quiz_matching_attempts` |
+| P5 | Summary khi complete: correctCount, incorrectCount, totalUnits, accuracy | Result / Progress | `total_units`, `correct_count`, `incorrect_count` trong `quizzes`; `accuracy` tính toán động trong DTO |
+| P6 | Idempotency key + replay kết quả cho mỗi mutation (create, check, pair attempt, complete, cancel) | Retry không chấm/cộng trùng | `create_idempotency_key` trong `quizzes`, `check_idempotency_key` trong `quiz_questions`, `idempotency_key` trong `quiz_matching_attempts`; Complete/Cancel qua trạng thái `status` |
+
+Kết quả Quiz không ghi vào `fsrs_records`.
 
 ## 4. Daily Mission & Gamification
 

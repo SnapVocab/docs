@@ -104,7 +104,7 @@
 
 **Business rules:**
 
-1. Mô hình EAV: TopicAttributeGroup → TopicAttribute → TopicItemAttributeValue.
+1. Mô hình EAV: Schema → SchemaAttributeGroup → SchemaAttribute; giá trị lưu ở TopicItemAttributeGroup → TopicItemAttributeValue.
 2. Soft-delete collection/topic không xóa TopicItem đã lưu của Learner.
 
 ---
@@ -143,14 +143,14 @@
 | ID         | Tính năng                  | P   | AC tóm tắt                                                                                |
 | ---------- | -------------------------- | --- | ----------------------------------------------------------------------------------------- |
 | F-FLASH-01 | Auto FsrsRecord per Item   | M   | 1 TopicItem gắn 1 FsrsRecord duy nhất; FsrsRecord khởi tạo card_state=NEW, FSRS params init |
-| F-FLASH-02 | System templates (seed)    | M   | CLASSIC, REVERSE, LISTENING, IMAGE_VOCAB, SPELLING, CONTEXT; seeded khi init DB           |
-| F-FLASH-03 | Topic template config      | S   | Cấu hình TemplateElement (FIELD, DIVIDER, BUTTON) và TemplateField (SemanticRole) cho Topic |
+| F-FLASH-02 | System templates (seed)    | M   | Đã seed theo `code`: `STANDARD`, `LISTENING`, `REVERSE`. IMAGE_VOCAB, SPELLING, CONTEXT: PLANNED. Các template này là chế độ hiển thị flashcard, không phải Quiz Mode |
+| F-FLASH-03 | Topic template config      | S   | Cấu hình TemplateElement (`FIELD`, `SECTION_BREAK`, `COLUMN_BREAK`; `side` = `CardSide`) và TemplateField (SemanticRole) |
 | F-FLASH-04 | Assign template → Topic    | M   | Đổi template không mất TopicItem, chỉ đổi render; FsrsRecord giữ nguyên                   |
-| F-FLASH-05 | Mobile render by config    | M   | Render front/back theo cấu hình TemplateElement và SemanticRole; ẩn field thiếu dữ liệu, không vỡ layout |
+| F-FLASH-05 | Mobile render by config    | M   | Render front/back theo `TemplateElement.side` (`CardSide`); SemanticRole quyết định hành vi field; ẩn field thiếu dữ liệu, không vỡ layout |
 | F-FLASH-06 | Submit FSRS rating         | M   | Learner chọn Again/Hard/Good/Easy; cập nhật FsrsRecord (card_state/due/stability/difficulty) |
 | F-FLASH-07 | Study session              | M   | Build queue new + due TopicItems; session → card → interact → rate → next → summary       |
 | F-FLASH-08 | Interaction types          | M   | FLIP (lật thẻ), TYPE_IN (gõ từ), TAP_TO_REVEAL (chạm lộ dần)                             |
-| F-FLASH-09 | Template field config      | S   | SemanticRole: FRONT, BACK, EXAMPLE, AUDIO, IMAGE, PHONETIC, TRANSLATION, HINT, TAG, EXTRA |
+| F-FLASH-09 | Template field config      | S   | SemanticRole: `TARGET_WORD`, `DEFINITION`, `NATIVE_TRANSLATION`, `EXAMPLE_SENTENCE`, `AUDIO`, `IMAGE` (nullable) |
 | F-FLASH-11 | Delete custom template     | S   | Soft-delete; Topic đang dùng → fallback template SYSTEM mặc định; FsrsRecord giữ nguyên   |
 
 **Business rules:**
@@ -169,21 +169,22 @@
 
 | ID        | Tính năng                | P   | AC tóm tắt                                                                            |
 | --------- | ------------------------ | --- | ------------------------------------------------------------------------------------- |
-| F-QUIZ-01 | Generate quiz from Topic | M   | Sinh quiz từ TopicItem trong Topic; yêu cầu min words ≥ 4; else empty CTA             |
-| F-QUIZ-02 | Multiple choice (MCQ)    | M   | Chọn nghĩa/từ đúng từ nhiều đáp án; đáp án nhiễu lấy cùng Topic/POS                    |
-| F-QUIZ-03 | Matching                 | S   | Ghép từ tiếng Anh ↔ nghĩa tiếng Việt; hiển thị N cặp                                  |
-| F-QUIZ-04 | Fill blank               | C   | Điền từ còn thiếu trong câu/gợi ý; so khớp case-insensitive + trim                    |
-| F-QUIZ-05 | Score + attempt          | M   | Tính điểm, correctCount, wrongCount, accuracy, duration; lưu QuizAttempt              |
-| F-QUIZ-06 | Idempotent submit        | M   | Event key đảm bảo retry không cộng trùng điểm/XP; quiz submit chỉ ghi 1 lần           |
+| F-QUIZ-01 | Generate quiz from Topic | M   | Sinh quiz từ TopicItem trong Topic, resolve dữ liệu theo SemanticRole của active Template; chọn Mode (`MCQ`/`MATCHING`/`FILL_BLANK`) và Direction (`EN_VI`/`VI_EN`); số câu ∈ {5, 10, 20}, item hợp lệ ≥ số câu; else lỗi + CTA |
+| F-QUIZ-02 | Multiple choice (MCQ)    | M   | Chọn nghĩa/từ đúng từ nhiều đáp án; check từng câu, feedback ngay; đáp án nhiễu cùng Topic |
+| F-QUIZ-03 | Matching                 | S   | Ghép từ tiếng Anh ↔ nghĩa tiếng Việt; check **từng cặp** (per-pair attempt), feedback ngay; cặp đúng bị khóa |
+| F-QUIZ-04 | Fill blank               | C   | Điền từ còn thiếu trong câu/gợi ý; submit từng câu, feedback ngay; so khớp case-insensitive + trim |
+| F-QUIZ-05 | Grade + finalize         | M   | Backend chấm từng interaction khi nhận; `complete` finalize session: correctCount, incorrectCount, accuracy |
+| F-QUIZ-06 | Idempotent check/complete | M  | `Idempotency-Key` đảm bảo retry check/pair attempt/complete không chấm hoặc cộng trùng điểm/XP |
 | F-QUIZ-07 | Progress/XP hook         | S   | Hoàn thành quiz → event trigger cập nhật Progress, XP, Mission (nếu gamification bật) |
-| F-QUIZ-08 | Quiz history             | S   | Learner xem lịch sử QuizAttempt: điểm, thời gian, accuracy; filter theo Topic          |
+| F-QUIZ-08 | Quiz history             | S   | Learner xem lịch sử Quiz session: điểm, thời gian, accuracy; filter theo Topic         |
 
 **Business rules:**
 
-1. Đáp án nhiễu lấy từ TopicItem cùng Topic/POS, không trùng nghĩa.
+1. Đáp án nhiễu lấy từ TopicItem cùng Topic, không trùng nghĩa.
 2. Số từ chưa đủ → CTA "Lưu thêm từ trước khi tạo quiz."
-3. Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP).
-4. Submit idempotent (event key).
+3. Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận kết quả Quiz, progress, XP).
+4. Incremental grading: không submit toàn bộ bài; không check Matching theo cả round.
+5. `LISTENING` là Template flashcard, không phải Quiz Mode.
 
 ---
 
@@ -225,7 +226,7 @@
 
 **Business rules:**
 
-1. Progress cập nhật sau mọi hoạt động học: lưu từ, flashcard review, quiz submit.
+1. Progress cập nhật sau mọi hoạt động học: lưu từ, flashcard review, quiz complete.
 2. Streak rule: min activity threshold mỗi ngày (≥ 1 review hoặc ≥ 1 quiz).
 3. Dữ liệu progress cá nhân không công khai, ngoại trừ thông tin trên Leaderboard (`displayName`, `avatar`, `Weekly XP`).
 
@@ -454,4 +455,4 @@ gantt
 - [x] Milestone M1–M4 mapping đầy đủ
 - [x] Mỗi F có: ID, tên, priority, AC tóm tắt
 - [x] Business rules per area
-- [x] Idempotency: quiz submit, reward claim, XP/Coin dùng event key
+- [x] Idempotency: quiz check/complete, reward claim, XP/Coin dùng idempotency key

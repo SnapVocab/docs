@@ -63,9 +63,10 @@ Mỗi `Template` liên kết trực tiếp với `Schema` qua trường `schema_
   - `is_default`: Đánh dấu template mặc định sẽ được chọn khi Topic mới được tạo.
 - **`TemplateElement`**: Khối phần tử layout trên thẻ:
   - `position`: Thứ tự hiển thị tăng dần từ trên xuống dưới.
-  - `type`: Phân loại phần tử gồm:
+  - `side` (`CardSide`: `FRONT` | `BACK`, mặc định `FRONT`): Mặt thẻ chứa phần tử. **Mặt trước/mặt sau được xác định bởi `side`**, không suy ra từ vị trí `SECTION_BREAK` hay từ `SemanticRole`.
+  - `type` (`TemplateElementType`): Phân loại phần tử gồm:
     - `FIELD`: Trường dữ liệu hiển thị (liên kết 1-1 với `TemplateField`).
-    - `SECTION_BREAK`: Phân tách giữa các phần (ví dụ: phân cách Mặt trước / Mặt sau).
+    - `SECTION_BREAK`: Mở một khối (section) trong cùng một mặt thẻ; mang `section_label` và cờ `repeatable` (lặp lại theo nhóm thuộc tính nhiều giá trị).
     - `COLUMN_BREAK`: Phân chia cột hiển thị linh hoạt (theo chuẩn Frappe layout).
 - **`TemplateField`**: Cấu hình chi tiết cho phần tử kiểu `FIELD`:
   - `schema_attribute_id`: Khóa ngoại tham chiếu trực tiếp đến `SchemaAttribute` của cùng Schema.
@@ -77,20 +78,22 @@ Mỗi `Template` liên kết trực tiếp với `Schema` qua trường `schema_
 
 ### 2.3. Vai trò Ngữ nghĩa (`SemanticRole`)
 
-Để ứng dụng di động hiểu được ý nghĩa hiển thị mà không cần hardcode tên trường, mỗi `TemplateField` được gán một `SemanticRole`:
+Để ứng dụng di động và Quiz Engine hiểu ý nghĩa dữ liệu mà không cần hardcode tên trường (`SchemaAttribute.name`), mỗi `TemplateField` có thể được gán một `SemanticRole`. `SemanticRole` là **semantic contract** giữa dữ liệu Template/Schema và các consumer (Flashcard renderer, Quiz Engine). Tập giá trị canonical là enum thực tế `vn.ptit.snapvocab.domain.enumeration.SemanticRole` — không thêm giá trị mới khi chưa có quyết định riêng:
 
-| SemanticRole | Ý nghĩa | Ứng dụng hiển thị trên thẻ |
-| :--- | :--- | :--- |
-| `TARGET_WORD` / `FRONT` | Từ vựng mục tiêu / câu hỏi chính | Từ vựng, thuật ngữ chính cần học ghi nhớ |
-| `DEFINITION` / `BACK` | Định nghĩa / giải nghĩa chính | Giải nghĩa từ vựng |
-| `NATIVE_TRANSLATION` | Bản dịch nghĩa tiếng mẹ đẻ | Nghĩa tiếng Việt bổ trợ |
-| `EXAMPLE_SENTENCE` | Câu ví dụ ngữ cảnh | Câu ví dụ minh họa |
-| `AUDIO` | Dữ liệu âm thanh phát âm | Nút nghe hoặc tự động phát âm khi lật thẻ |
-| `IMAGE` | Hình ảnh minh họa | Ảnh minh họa ở vị trí trực quan của thẻ |
-| `PHONETIC` | Phiên âm quốc tế | Ký hiệu ngữ âm IPA |
-| `HINT` | Gợi ý khi cần | Ẩn mặc định, mở khi bấm trợ giúp |
-| `TAG` | Thẻ phân loại hoặc cấp độ | Phân loại từ (noun, verb), cấp độ (A1, B2) |
-| `EXTRA` | Thông tin bổ sung | Từ đồng nghĩa, trái nghĩa, ghi chú cá nhân |
+| SemanticRole | Ý nghĩa |
+| :--- | :--- |
+| `TARGET_WORD` | Từ vựng mục tiêu cần ghi nhớ |
+| `DEFINITION` | Định nghĩa / giải nghĩa chính |
+| `NATIVE_TRANSLATION` | Bản dịch nghĩa tiếng mẹ đẻ (tiếng Việt) |
+| `EXAMPLE_SENTENCE` | Câu ví dụ ngữ cảnh |
+| `AUDIO` | Dữ liệu âm thanh phát âm |
+| `IMAGE` | Hình ảnh minh họa |
+
+Ghi chú:
+- `FRONT` / `BACK` **không phải** `SemanticRole`; đó là `CardSide` trên `TemplateElement` (xem §2.2).
+- `semantic_role` là NULLABLE: một field có thể hiển thị mà không mang vai trò ngữ nghĩa (ví dụ seed `phonetic` hiện có `semanticRole = null`). Việc `phonetic` có cần `SemanticRole` riêng hay không: **REQUIRES PRODUCT DECISION**.
+- Schema mặc định (D10, [decisions/quiz.md](./quiz.md)): `main.translation` → `NATIVE_TRANSLATION`; `meaning` → `DEFINITION`; `definition_translation` không mang role. Seed hiện tại **chưa** wire `main.translation` vào template nào — IMPLEMENTATION GAP G7.
+- Cách Quiz resolve dữ liệu theo `SemanticRole`: xem [decisions/quiz.md](./quiz.md) §3.
 
 ---
 
@@ -143,9 +146,10 @@ Backend xác định active_template của Topic (hoặc template theo mode yêu
 Backend map dữ liệu EAV của từng TopicItem vào các trường của Template
                  │
                  ▼
-Mobile Client render Flashcard theo SemanticRole:
-├─ Mặt trước (Front): Các element trước SECTION_BREAK (hoặc TARGET_WORD, AUDIO...)
-├─ Mặt sau (Back): Các element sau SECTION_BREAK (hoặc DEFINITION, TRANSLATION, EXAMPLE...)
+Mobile Client render Flashcard theo TemplateElement.side (CardSide):
+├─ Mặt trước (Front): các element có side = FRONT, theo position ASC
+├─ Mặt sau (Back): các element có side = BACK, theo position ASC
+└─ SemanticRole quyết định hành vi ngữ nghĩa (VD: AUDIO → nút phát âm), không quyết định mặt thẻ
                  │
                  ▼
 Learner đánh giá độ nhớ (Again, Hard, Good, Easy) -> Cập nhật FsrsRecord
@@ -225,6 +229,9 @@ Lưu các phần tử thành phần của một template theo thứ tự hiển 
 | `template_id` | `bigint(20)` | FK -> `templates(id)`, NOT NULL | Template chứa phần tử |
 | `position` | `int(11)` | NOT NULL | Thứ tự vị trí xuất hiện (0, 1, 2...) |
 | `type` | `varchar(50)` | NOT NULL | Kiểu phần tử: `FIELD`, `SECTION_BREAK`, `COLUMN_BREAK` |
+| `side` | `varchar(10)` | NOT NULL, DEFAULT `FRONT` | Mặt thẻ (`CardSide`): `FRONT`, `BACK` |
+| `section_label` | `varchar(100)` | NULLABLE | Nhãn khối (dùng với `SECTION_BREAK`) |
+| `repeatable` | `bit(1)` | NULLABLE, DEFAULT 0 | Khối lặp theo nhóm thuộc tính nhiều giá trị |
 
 > Ràng buộc duy nhất: `uk_template_element_position (template_id, position)`.
 
@@ -357,13 +364,16 @@ erDiagram
         bigint template_id FK
         int position
         varchar type "FIELD, SECTION_BREAK, COLUMN_BREAK"
+        varchar side "FRONT, BACK (CardSide)"
+        varchar section_label
+        bit repeatable
     }
 
     template_fields {
         bigint id PK
         bigint element_id FK_UK
         bigint schema_attribute_id FK
-        varchar semantic_role "TARGET_WORD, DEFINITION, AUDIO..."
+        varchar semantic_role "TARGET_WORD, DEFINITION, NATIVE_TRANSLATION, EXAMPLE_SENTENCE, AUDIO, IMAGE"
         varchar field_label
         bit hide_if_empty
         bit audio_action
@@ -455,7 +465,18 @@ Phân loại phần tử bố cục trong template (chuẩn Frappe layout):
 public enum TemplateElementType {
     FIELD,          // Trường dữ liệu hiển thị (liên kết 1-1 với TemplateField)
     COLUMN_BREAK,   // Ngắt cột bố cục (chia layout nhiều cột)
-    SECTION_BREAK   // Phân tách khối thẻ (ngăn cách Mặt trước / Mặt sau)
+    SECTION_BREAK   // Mở một khối (section) trong cùng mặt thẻ
+}
+```
+
+### `CardSide`
+
+Mặt thẻ của một `TemplateElement` (cột `template_elements.side`):
+
+```java
+public enum CardSide {
+    FRONT,
+    BACK
 }
 ```
 
@@ -523,9 +544,10 @@ public enum DataType {
    - Tạo Topic mới: Mặc định gán Schema hệ thống (`DEFAULT_ENGLISH`) và Template mặc định (`is_default = true`, tức `STANDARD`).
    - Đổi chế độ học: Người học có thể đổi chế độ ôn tập (Standard -> Listening -> Reverse) ngay trên Topic settings hoặc trước phiên học. Hệ thống chỉ cập nhật `topic.active_template_id`.
    - Không nhân bản dữ liệu: Dữ liệu từ vựng EAV (`topic_items`) và tiến trình FSRS (`fsrs_records`) được bảo toàn trọn vẹn.
-2. **Phân định hai mặt thẻ dựa theo `SECTION_BREAK` & `SemanticRole`**:
-   - Mặt trước (Front): Các phần tử xuất hiện trước `SECTION_BREAK` đầu tiên (ví dụ `TARGET_WORD`, `AUDIO`).
-   - Mặt sau (Back): Các phần tử xuất hiện sau `SECTION_BREAK` (ví dụ `DEFINITION`, `NATIVE_TRANSLATION`, `EXAMPLE_SENTENCE`, `IMAGE`).
+2. **Phân định hai mặt thẻ dựa theo `TemplateElement.side` (`CardSide`)**:
+   - Mặt trước (Front): các phần tử có `side = FRONT` (ví dụ template `STANDARD`: `TARGET_WORD`, `AUDIO`).
+   - Mặt sau (Back): các phần tử có `side = BACK` (ví dụ template `STANDARD`: `DEFINITION`, `EXAMPLE_SENTENCE`, `IMAGE`).
+   - `SECTION_BREAK` chỉ nhóm khối trong một mặt; `SemanticRole` không quyết định mặt thẻ.
 3. **Ẩn trường trống (`hide_if_empty = true`)**: Nếu một mục từ không có dữ liệu cho thuộc tính tương ứng, ứng dụng di động sẽ tự động bỏ qua khối hiển thị đó mà không để lại khoảng trống bất thường.
 4. **Hành vi âm thanh (`audio_action = true`)**: Khi người dùng nhấn vào trường có cờ này hoặc trường có vai trò `AUDIO`, ứng dụng sẽ kích hoạt phát file âm thanh phát âm.
 
@@ -540,14 +562,16 @@ public enum DataType {
 
 ### 7.1. Quản lý Topic & Template
 
-| Phương thức | Đường dẫn | Mô tả | Quyền truy cập |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/v1/collections/{collectionId}/topics` | Tạo Topic mới (tự động gán Schema & Template mặc định nếu không truyền) | Bearer JWT |
-| `PUT` | `/api/v1/topics/{topicId}/active-template/{templateId}` | Thay đổi chế độ học (active template) cho Topic | Bearer JWT |
-| `POST` | `/api/v1/topics/{topicId}/schema/fork` | Fork Schema và toàn bộ Templates riêng cho Topic | Bearer JWT |
-| `GET` | `/api/v1/schemas/{schemaId}/templates` | Lấy danh sách các templates của một Schema | Bearer JWT |
-| `GET` | `/api/v1/templates/{id}` | Lấy chi tiết một Template kèm các Elements và Fields | Bearer JWT |
-| `PUT` | `/api/v1/templates/{id}` | Cập nhật layout cho một Template | Bearer JWT |
+Base path canonical: `/api` (không dùng `/api/v1`).
+
+| Phương thức | Đường dẫn | Mô tả | Quyền truy cập | Trạng thái |
+| :--- | :--- | :--- | :--- | :--- |
+| `POST` | `/api/collections/{collectionId}/topics` | Tạo Topic mới (tự động gán Schema & Template mặc định nếu không truyền) | Bearer JWT | Đã implement |
+| `PUT` | `/api/topics/{topicId}/active-template/{templateId}` | Thay đổi chế độ học (active template) cho Topic | Bearer JWT | Đã implement |
+| `POST` | `/api/topics/{topicId}/schema/fork` | Fork Schema và toàn bộ Templates riêng cho Topic | Bearer JWT | Đã implement |
+| `GET` | `/api/schemas/{schemaId}/templates` | Lấy danh sách các templates của một Schema | Bearer JWT | PLANNED |
+| `GET` | `/api/templates/{id}` | Lấy chi tiết một Template kèm các Elements và Fields | Bearer JWT | PLANNED |
+| `PUT` | `/api/templates/{id}` | Cập nhật layout cho một Template | Bearer JWT | PLANNED |
 
 #### Response mẫu: Cấu hình Template của Topic
 
@@ -565,6 +589,7 @@ public enum DataType {
         "id": 101,
         "position": 0,
         "type": "FIELD",
+        "side": "FRONT",
         "field": {
           "id": 201,
           "schemaAttributeId": 1,
@@ -581,6 +606,7 @@ public enum DataType {
         "id": 102,
         "position": 1,
         "type": "FIELD",
+        "side": "FRONT",
         "field": {
           "id": 202,
           "schemaAttributeId": 4,
@@ -597,12 +623,14 @@ public enum DataType {
         "id": 103,
         "position": 2,
         "type": "SECTION_BREAK",
+        "side": "BACK",
         "field": null
       },
       {
         "id": 104,
         "position": 3,
         "type": "FIELD",
+        "side": "BACK",
         "field": {
           "id": 203,
           "schemaAttributeId": 3,
@@ -619,6 +647,7 @@ public enum DataType {
         "id": 105,
         "position": 4,
         "type": "FIELD",
+        "side": "BACK",
         "field": {
           "id": 204,
           "schemaAttributeId": 5,
@@ -640,10 +669,10 @@ public enum DataType {
 
 ### 7.2. Phiên Học Flashcard (Study Session)
 
-| Phương thức | Đường dẫn | Mô tả | Quyền truy cập |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/topics/{topicId}/study-session` | Tải phiên ôn tập: template đang active và các mục đến hạn | Bearer JWT |
-| `POST` | `/api/v1/fsrs-records/{id}/review` | Gửi kết quả đánh giá thẻ (Again, Hard, Good, Easy) | Bearer JWT |
+| Phương thức | Đường dẫn | Mô tả | Quyền truy cập | Trạng thái |
+| :--- | :--- | :--- | :--- | :--- |
+| `GET` | `/api/topics/{topicId}/study-session` | Tải phiên ôn tập: template đang active và các mục đến hạn | Bearer JWT | PLANNED |
+| `POST` | `/api/fsrs-records/{id}/review` | Gửi kết quả đánh giá thẻ (Again, Hard, Good, Easy) | Bearer JWT | PLANNED |
 
 #### Response mẫu: Dữ liệu phiên học Flashcard
 
@@ -660,6 +689,7 @@ public enum DataType {
         {
           "position": 0,
           "type": "FIELD",
+          "side": "FRONT",
           "semanticRole": "TARGET_WORD",
           "attributeId": 1,
           "fontSize": 24,
@@ -667,11 +697,13 @@ public enum DataType {
         },
         {
           "position": 1,
-          "type": "SECTION_BREAK"
+          "type": "SECTION_BREAK",
+          "side": "BACK"
         },
         {
           "position": 2,
           "type": "FIELD",
+          "side": "BACK",
           "semanticRole": "DEFINITION",
           "attributeId": 3,
           "fontSize": 20,
@@ -733,11 +765,11 @@ INSERT INTO templates (id, schema_id, code, name, is_default, created_at, update
 (3, 1, 'REVERSE', 'Đảo Chiều (Đoán Từ)', 0, NOW(), NOW());
 
 -- 4. Cấu hình Elements & Fields cho STANDARD Template
-INSERT INTO template_elements (id, template_id, position, type) VALUES
-(1, 1, 0, 'FIELD'),
-(2, 1, 1, 'SECTION_BREAK'),
-(3, 1, 2, 'FIELD'),
-(4, 1, 3, 'FIELD');
+INSERT INTO template_elements (id, template_id, position, type, side) VALUES
+(1, 1, 0, 'FIELD', 'FRONT'),
+(2, 1, 1, 'SECTION_BREAK', 'BACK'),
+(3, 1, 2, 'FIELD', 'BACK'),
+(4, 1, 3, 'FIELD', 'BACK');
 
 INSERT INTO template_fields (element_id, schema_attribute_id, semantic_role, field_label, hide_if_empty, audio_action, font_size, alignment, color) VALUES
 (1, 1, 'TARGET_WORD', 'Từ vựng', 0, 0, 24, 'CENTER', '#111827'),

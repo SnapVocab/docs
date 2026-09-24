@@ -19,16 +19,16 @@ Nếu mới vào dự án, nên đọc theo thứ tự sau:
 
 Các tài liệu trong thư mục này cần bám theo các quyết định canonical dưới đây:
 
-| Chủ đề | Quyết định |
-| --- | --- |
-| Source of truth | [spec/specs.md](./spec/specs.md) |
-| AI pipeline | Florence-2 zero-shot (OD + self-grounding; CLIP tùy chọn; không SAM) |
-| Actor | Guest, Learner, Admin |
-| Learning domain | Collection (system/user) → Topic → TopicItem (mô hình EAV); đã lược bỏ hoàn toàn Deck, Note, Card, ReviewLog cũ |
-| Flashcard Template | Template gắn với Topic, gồm TemplateElement và TemplateField mang SemanticRole |
-| SRS | Thuật toán FSRS quản lý qua bảng fsrs_records cho từng cặp (user, topic_item) |
-| Milestone | M1 Auth+Dict → M2 Scan → M3 Learning → M4 Game+Prod |
-| Community scope | Lược bỏ hoàn toàn chức năng community/study group; chỉ giữ leaderboard cá nhân |
+| Chủ đề             | Quyết định                                                                                                      |
+| ------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Source of truth    | [spec/specs.md](./spec/specs.md)                                                                                |
+| AI pipeline        | Florence-2 zero-shot (OD + self-grounding; CLIP tùy chọn; không SAM)                                            |
+| Actor              | Guest, Learner, Admin                                                                                           |
+| Learning domain    | Collection (system/user) → Topic → TopicItem (mô hình EAV); đã lược bỏ hoàn toàn Deck, Note, Card, ReviewLog cũ |
+| Flashcard Template | Template gắn với Topic, gồm TemplateElement và TemplateField mang SemanticRole                                  |
+| SRS                | Thuật toán FSRS quản lý qua bảng fsrs_records cho từng cặp (user, topic_item)                                   |
+| Milestone          | M1 Auth+Dict → M2 Scan → M3 Learning → M4 Game+Prod                                                             |
+| Community scope    | Lược bỏ hoàn toàn chức năng community/study group; chỉ giữ leaderboard cá nhân                                  |
 
 ## Cấu trúc tài liệu
 
@@ -76,6 +76,7 @@ docs/
 ### 4. Decision records
 
 - [decisions/custom_card.md](./decisions/custom_card.md): thiết kế hệ thống Template cho Topic, thành phần TemplateElement và TemplateField mang SemanticRole ánh xạ thuộc tính EAV thành thẻ học.
+- [decisions/quiz.md](./decisions/quiz.md): quyết định kiến trúc Quiz — base path `/api`, incremental grading (MCQ/Fill Blank từng câu, Matching từng cặp), resolve dữ liệu theo SemanticRole, QuizMode vs QuizDirection.
 - [decisions/daily_mission.md](./decisions/daily_mission.md): thiết kế Daily Mission, Daily Chest, Weekly Milestone, mission pool, event tracking và reward idempotency.
 
 ### 5. Design
@@ -84,12 +85,12 @@ docs/
 
 ## Milestone triển khai
 
-| Milestone | Tên | Mục tiêu chính | Tài liệu liên quan |
-| --- | --- | --- | --- |
-| M1 | Core Auth & Vocabulary Lookup | Auth, profile, dictionary, topic, saved vocabulary, flashcard cơ bản | [spec/specs.md](./spec/specs.md), [spec/buss_mainflow.md](./spec/buss_mainflow.md) |
-| M2 | Camera/Object Recognition MVP | Camera/gallery, upload, AI recognition, word mapping, save from scan | [sa/sa.md](./sa/sa.md), [sa/server.md](./sa/server.md) |
-| M3 | Learning Engine | Custom card, quiz, SRS, progress, notification | [decisions/custom_card.md](./decisions/custom_card.md), [spec/phan_ra_tinh_nang.md](./spec/phan_ra_tinh_nang.md) |
-| M4 | Gamification & Production Readiness | Mission, XP, coin, badge, shop, leaderboard, admin CMS, production hardening | [decisions/daily_mission.md](./decisions/daily_mission.md), [sa/server.md](./sa/server.md) |
+| Milestone | Tên                                 | Mục tiêu chính                                                               | Tài liệu liên quan                                                                                                                                         |
+| --------- | ----------------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M1        | Core Auth & Vocabulary Lookup       | Auth, profile, dictionary, topic, saved vocabulary, flashcard cơ bản         | [spec/specs.md](./spec/specs.md), [spec/buss_mainflow.md](./spec/buss_mainflow.md)                                                                         |
+| M2        | Camera/Object Recognition MVP       | Camera/gallery, upload, AI recognition, word mapping, save from scan         | [sa/sa.md](./sa/sa.md), [sa/server.md](./sa/server.md)                                                                                                     |
+| M3        | Learning Engine                     | Custom card, quiz, SRS, progress, notification                               | [decisions/custom_card.md](./decisions/custom_card.md), [decisions/quiz.md](./decisions/quiz.md), [spec/phan_ra_tinh_nang.md](./spec/phan_ra_tinh_nang.md) |
+| M4        | Gamification & Production Readiness | Mission, XP, coin, badge, shop, leaderboard, admin CMS, production hardening | [decisions/daily_mission.md](./decisions/daily_mission.md), [sa/server.md](./sa/server.md)                                                                 |
 
 ## Quy ước khi cập nhật tài liệu
 
@@ -104,12 +105,12 @@ docs/
 
 Tài liệu dùng các nhóm ID sau để truy vết yêu cầu:
 
-| Prefix | Ý nghĩa | Ví dụ |
-| --- | --- | --- |
-| FR | Functional Requirement | FR-02 Image Recognition Vocabulary Flow |
-| BF | Business Flow | BF-06 Scan-to-Vocabulary |
-| SS | Subsystem | SS-07 AI Service |
-| MH | Màn hình | Camera Scan, Detection Result |
-| F | Feature backlog item | F-RECOG-05 AI Florence-2 pipeline |
+| Prefix | Ý nghĩa                | Ví dụ                                   |
+| ------ | ---------------------- | --------------------------------------- |
+| FR     | Functional Requirement | FR-02 Image Recognition Vocabulary Flow |
+| BF     | Business Flow          | BF-06 Scan-to-Vocabulary                |
+| SS     | Subsystem              | SS-07 AI Service                        |
+| MH     | Màn hình               | Camera Scan, Detection Result           |
+| F      | Feature backlog item   | F-RECOG-05 AI Florence-2 pipeline       |
 
 Khi implement một chức năng, nên bắt đầu từ FR trong [spec/specs.md](./spec/specs.md), đi qua BF trong [spec/buss_mainflow.md](./spec/buss_mainflow.md), kiểm tra AC trong [spec/phan_ra_tinh_nang.md](./spec/phan_ra_tinh_nang.md), rồi mới đối chiếu kiến trúc và database.
