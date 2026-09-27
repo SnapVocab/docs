@@ -117,7 +117,7 @@ Ví dụ:
 
 - Nếu Review Queue snapshot rỗng, không cấp mission `Hoàn thành ôn tập SRS hôm nay`.
 - Nếu Learner chưa có từ nào từng học sai, không cấp mission `Học lại 5 thẻ sai`.
-- Nếu Learner chưa mở khóa booster/shop, không cấp mission `Dùng 1 booster XP`.
+- Nếu Learner không sở hữu XP Booster nào (`quantity ≥ 1`) hoặc đang có XP Booster active, không cấp mission `Dùng 1 booster XP` ([shop.md](./shop.md)).
 - Nếu Learner không có dữ liệu leaderboard cá nhân trong ngày, có thể thay bằng nhiệm vụ XP hoặc streak.
 
 ### 4.3. Weighted random
@@ -239,7 +239,8 @@ Với mission liên quan Review Queue:
 | `targetValue` | Number | Mục tiêu cần đạt |
 | `rewardCoin` | Number | Coin thưởng |
 | `rewardXp` | Number | XP thưởng |
-| `rewardItemCode` | Nullable String | Vật phẩm thưởng nếu có |
+| `rewardItemCode` | Nullable String | `shop_items.code` của vật phẩm thưởng (1 đơn vị); item phải `PUBLISHED` khi cấu hình |
+| `rewardItemFallbackCoin` | Nullable Number | Bắt buộc khi có `rewardItemCode`: Coin cộng thay nếu không cấp được item (cosmetic đã sở hữu / XP Booster đạt `maxQuantity`) — [shop.md](./shop.md) §7.5 |
 | `weight` | Number | Trọng số random |
 | `eligibilityRule` | JSON | Rule lọc theo ngữ cảnh |
 | `isActive` | Boolean | Bật/tắt template |
@@ -281,7 +282,8 @@ Ràng buộc dữ liệu:
 | `idempotencyKey` | String | Khóa chống claim trùng |
 | `rewardCoin` | Number | Coin đã cộng |
 | `rewardXp` | Number | XP đã cộng |
-| `rewardItemCode` | Nullable String | Vật phẩm đã cộng |
+| `rewardItemCode` | Nullable String | Vật phẩm đã cộng (null nếu đã chuyển sang fallback) |
+| `rewardItemFallbackCoin` | Nullable Number | Coin fallback thực tế đã cộng thay item |
 | `claimedBy` | Enum | `USER` |
 | `createdAt` | DateTime | Thời điểm claim |
 
@@ -409,7 +411,8 @@ Response mẫu:
       "reward": {
         "coin": 100,
         "xp": 0,
-        "itemCode": "XP_BOOSTER_1H"
+        "itemCode": "XP_BOOSTER_X2_30M",
+        "itemFallbackCoin": 50
       }
     },
     {
@@ -420,7 +423,8 @@ Response mẫu:
       "reward": {
         "coin": 200,
         "xp": 0,
-        "itemCode": "SPECIAL_BADGE_OR_AVATAR_FRAME"
+        "itemCode": "FRAME_GOLD_WEEKLY",
+        "itemFallbackCoin": 100
       }
     }
   ]
@@ -474,8 +478,10 @@ Chu kỳ tuần tính từ Thứ 2 đến Chủ Nhật theo GMT+7.
 | Mốc | Điều kiện | Reward đề xuất | Vai trò |
 | :--- | :--- | :--- | :--- |
 | Rương Đồng | 3 Activity Stamps trong tuần | 50 Coin | Mốc dễ đạt để tạo động lực giữa tuần |
-| Rương Bạc | 5 Activity Stamps trong tuần | 100 Coin, 1 XP Booster 1 giờ | Mốc chính cho người học đều các ngày trong tuần |
-| Rương Vàng | 7 Activity Stamps trong tuần | 200 Coin, huy hiệu đặc biệt hoặc khung avatar | Mốc danh giá cho người duy trì đủ cả tuần |
+| Rương Bạc | 5 Activity Stamps trong tuần | 100 Coin + 1 `XP_BOOSTER_X2_30M` (fallback 50 Coin) | Mốc chính cho người học đều các ngày trong tuần |
+| Rương Vàng | 7 Activity Stamps trong tuần | 200 Coin + `FRAME_GOLD_WEEKLY` (Avatar Frame chỉ nhận qua reward, `purchasable = false`; fallback 100 Coin khi đã sở hữu) | Mốc danh giá cho người duy trì đủ cả tuần |
+
+Reward vật phẩm tham chiếu đúng một `shop_items.code`; `itemFallbackCoin` là cấu hình của reward (không hard-code trong Shop service) và được cộng khi không cấp được item — [shop.md](./shop.md) S17, §7.5. XP từ Weekly Chest không được XP Booster nhân.
 
 ### 10.3. Quy tắc claim Weekly Chest
 
@@ -494,7 +500,7 @@ Chu kỳ tuần tính từ Thứ 2 đến Chủ Nhật theo GMT+7.
 - Khi Learner mở Daily Mission lần đầu trong ngày, hệ thống tạo đúng 5 Daily Missions bắt buộc.
 - Hệ thống không cấp nhiệm vụ community/study group.
 - Hệ thống không cấp mission SRS nếu Review Queue snapshot rỗng.
-- Hệ thống không cấp mission shop/booster nếu user chưa mở khóa shop/booster.
+- Hệ thống không cấp mission `USE_XP_BOOSTER` nếu user không sở hữu XP Booster (`quantity ≥ 1`) hoặc đang có booster active; Shop luôn mở khi module Gamification bật (M4) nên `BUY_SHOP_ITEM` không có điều kiện mở khóa.
 - Nếu đủ template hợp lệ, user không nhận cùng một mission code trong 2 ngày liên tiếp.
 
 ### 11.2. Tracking

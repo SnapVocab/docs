@@ -54,7 +54,7 @@ Kế thừa `BaseTimeEntity`.
 | `native_language` | VARCHAR(10) | NULL | Ngôn ngữ mẹ đẻ (mặc định vi) |
 | `learning_language` | VARCHAR(10) | NULL | Ngôn ngữ đang học (mặc định en) |
 | `exp` | BIGINT | DEFAULT 0 | Điểm kinh nghiệm tích lũy |
-| `coin` | BIGINT | DEFAULT 0 | Tiền tệ trong ứng dụng |
+| `coin` | BIGINT | NOT NULL, DEFAULT 0, CHECK `>= 0` | Số dư Coin hiện hành (ledger: `coin_transactions`) |
 | `streak_days` | INT | DEFAULT 0 | Chuỗi ngày học liên tục |
 | `last_studied_at` | DATETIME(6) | NULL | Thời điểm học gần nhất |
 | `activated` | BOOLEAN | DEFAULT FALSE, NOT NULL | Trạng thái kích hoạt tài khoản |
@@ -513,7 +513,8 @@ Thiết kế từ `daily_mission.md` nhằm thúc đẩy duy trì thói quen h�
 | `targetValue` | Number | | Chỉ tiêu số lượng cần đạt |
 | `rewardCoin` | Number | | Thưởng xu |
 | `rewardXp` | Number | | Thưởng điểm XP |
-| `rewardItemCode`| String | Nullable | Vật phẩm thưởng nếu có |
+| `rewardItemCode`| String | Nullable | `shop_items.code` của vật phẩm thưởng (1 đơn vị) |
+| `rewardItemFallbackCoin`| Number | Nullable; bắt buộc khi có `rewardItemCode` | Coin cộng thay khi không cấp được item |
 | `weight` | Number | | Trọng số random |
 | `eligibilityRule`| JSON | | Rule lọc theo ngữ cảnh |
 | `isActive` | Boolean| | Bật/tắt template |
@@ -546,7 +547,8 @@ Thiết kế từ `daily_mission.md` nhằm thúc đẩy duy trì thói quen h�
 | `idempotencyKey`| String | Unique | Key chống nhận thưởng nhiều lần |
 | `rewardCoin` | Number | | Số xu thực tế được cộng |
 | `rewardXp` | Number | | Điểm XP thực tế được cộng |
-| `rewardItemCode`| String | Nullable | Vật phẩm đã cộng |
+| `rewardItemCode`| String | Nullable | Vật phẩm đã cộng (null nếu chuyển sang fallback) |
+| `rewardItemFallbackCoin`| Number | Nullable | Coin fallback thực tế đã cộng |
 | `claimedBy` | Enum | | Ghi nhận người claim (USER) |
 | `createdAt` | DateTime| | Thời điểm claim |
 
@@ -578,20 +580,30 @@ Thiết kế từ `daily_mission.md` nhằm thúc đẩy duy trì thói quen h�
 | :--- | :--- | :--- | :--- |
 | `id` | UUID | Khóa chính (PK) | ID log nhận XP |
 | `userId` | Long | FK -> `User(id)` | Người nhận XP |
-| `amount` | Number | Not Null | Số lượng XP nhận được |
-| `sourceType` | Enum | | Nguồn nhận (MISSION, QUIZ, SCAN, REVIEW...) |
+| `amount` | Number | Not Null | Tổng XP nhận được (`baseAmount + bonusAmount`) |
+| `baseAmount` | Number | Not Null | XP cơ bản theo rule |
+| `bonusAmount` | Number | Not Null, default 0 | XP cộng thêm từ XP Booster (chỉ `FLASHCARD_REVIEW`, `QUIZ`) |
+| `boosterActivationId` | Long | FK -> `booster_activations(id)`, Null | Booster đã áp dụng |
+| `sourceType` | Enum | | `FLASHCARD_REVIEW`, `QUIZ`, `SAVE_WORD`, `MISSION_REWARD`, `DAILY_CHEST`, `WEEKLY_CHEST`, `ADMIN_ADJUSTMENT` |
 | `eventKey` | String | Unique | Khóa chống cộng trùng XP từ 1 event |
 | `createdAt` | DateTime| | Thời điểm nhận |
 
-### Bảng `CoinTransaction`
+### Bảng `coin_transactions`
+Ledger append-only. `users.coin` là số dư hiện hành; invariant `users.coin = SUM(amount)`. Canonical: [shop.md](../decisions/shop.md) §3.4, §9.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | UUID | Khóa chính (PK) | ID giao dịch Coin |
-| `userId` | Long | FK -> `User(id)` | Người nhận/tiêu Coin |
-| `amount` | Number | Not Null | Số lượng Coin (dương = nhận, âm = tiêu) |
-| `sourceType` | Enum | | Nguồn (MISSION, WEEKLY_CHEST, SHOP_BUY...) |
-| `eventKey` | String | Unique | Khóa chống giao dịch trùng từ 1 event |
-| `createdAt` | DateTime| | Thời điểm giao dịch |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID giao dịch Coin |
+| `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | Người nhận/tiêu Coin |
+| `amount` | BIGINT | NOT NULL, CHECK `amount <> 0` | Dương = nhận, âm = tiêu. Không có cột `type` |
+| `balance_after` | BIGINT | NOT NULL, CHECK `>= 0` | Số dư sau giao dịch |
+| `source_type` | VARCHAR(30) | NOT NULL | `MISSION_REWARD`, `DAILY_CHEST`, `WEEKLY_CHEST`, `SHOP_PURCHASE`, `ADMIN_ADJUSTMENT` |
+| `reference_id` | VARCHAR(64) | NULL | VD `shop_items.id` với `SHOP_PURCHASE` |
+| `description` | VARCHAR(255) | NULL | Snapshot tên vật phẩm/nguồn tại thời điểm giao dịch |
+| `event_key` | VARCHAR(191) | UNIQUE, NOT NULL | Chống trùng. Mua hàng: `SHOP_PURCHASE:{userId}:{Idempotency-Key}` |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm giao dịch |
+
+Index: `(user_id, created_at)`.
 
 ### Bảng `levels`
 Định nghĩa các mốc cấp độ theo điểm kinh nghiệm (EXP).
@@ -604,35 +616,64 @@ Thiết kế từ `daily_mission.md` nhằm thúc đẩy duy trì thói quen h�
 | `title` | VARCHAR(100) | NULL | Danh hiệu người học ở cấp độ này |
 
 ### Bảng `shop_items`
-Kế thừa `BaseTimeEntity`. Quản lý danh mục vật phẩm bày bán trong cửa hàng.
+Kế thừa `BaseTimeEntity`. Danh mục vật phẩm. Canonical: [shop.md](../decisions/shop.md) §3.1, §9.
 
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
 | `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID vật phẩm |
-| `name` | VARCHAR(255) | NOT NULL | Tên vật phẩm |
-| `type` | VARCHAR(50) | NOT NULL | Phân loại vật phẩm (THEME, AVATAR_FRAME, STREAK_FREEZE...) |
-| `price` | BIGINT | NOT NULL | Giá bán (tính bằng Coin) |
-| `is_active` | BOOLEAN | DEFAULT TRUE, NOT NULL | Cờ kích hoạt bày bán |
+| `code` | VARCHAR(64) | UNIQUE, NOT NULL | Mã ổn định (VD `XP_BOOSTER_X2_30M`); reward tham chiếu bằng mã này; khóa sau publish |
+| `type` | VARCHAR(30) | NOT NULL | `THEME`, `AVATAR_FRAME`, `XP_BOOSTER` |
+| `name` | VARCHAR(100) | NOT NULL | Tên vật phẩm |
+| `description` | VARCHAR(500) | NULL | Mô tả công dụng |
+| `icon_key` | VARCHAR(255) | NULL (bắt buộc khi publish) | Object key icon |
+| `status` | VARCHAR(20) | NOT NULL, DEFAULT `DRAFT` | `DRAFT`, `PUBLISHED`, `ARCHIVED` |
+| `purchasable` | BOOLEAN | NOT NULL, DEFAULT FALSE | Đang bán trong Shop |
+| `price` | BIGINT | NULL, CHECK `> 0`; NOT NULL khi `purchasable` | Giá (Coin) |
+| `available_from` | DATETIME(6) | NULL | Bắt đầu bán |
+| `available_until` | DATETIME(6) | NULL | Kết thúc bán |
+| `sort_order` | INT | NOT NULL, DEFAULT 0 | Thứ tự hiển thị |
+| `theme_key` | VARCHAR(50) | UNIQUE, NULL | Chỉ `THEME`; giá trị thuộc theme registry |
+| `frame_asset_key` | VARCHAR(255) | NULL | Chỉ `AVATAR_FRAME` |
+| `boost_duration_minutes` | INT | NULL | Chỉ `XP_BOOSTER` (5–180, mặc định 30) |
+| `max_quantity` | INT | NULL | Chỉ `XP_BOOSTER` (1–10, mặc định 5) |
+| `published_at` | DATETIME(6) | NULL | Thời điểm publish |
+| `version` | BIGINT | NOT NULL, DEFAULT 0 | Optimistic lock cho Admin |
 | `created_at` | DATETIME(6) | NOT NULL | Thời điểm tạo |
 | `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
 
-### Bảng `user_inventories`
-Quản lý kho đồ, tài sản vật phẩm mà người học sở hữu.
+### Bảng `user_items`
+Quyền sở hữu vật phẩm: 1 row / (user, shop item). "Inventory" là API/màn hình, không phải bảng.
 
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID bản ghi kho đồ |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID bản ghi sở hữu |
 | `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | Người sở hữu |
-| `item_id` | BIGINT | FK -> `shop_items(id)`, NOT NULL | Vật phẩm sở hữu |
-| `quantity` | INT | DEFAULT 0, NOT NULL | Số lượng sở hữu |
-| `acquired_at` | DATETIME(6) | NOT NULL | Thời điểm nhận vật phẩm |
+| `shop_item_id` | BIGINT | Composite FK `(shop_item_id, item_type)` -> `shop_items(id, type)`, NOT NULL | ID vật phẩm |
+| `item_type` | VARCHAR(30) | NOT NULL, thuộc Composite FK | Copy từ `shop_items.type`; DB enforce tính nhất quán |
+| `quantity` | INT | NOT NULL, CHECK `>= 0` | Cosmetic = 1; XP Booster 0..`max_quantity` |
+| `equipped` | BOOLEAN | NOT NULL, DEFAULT FALSE | Chỉ cosmetic |
+| `equipped_slot` | VARCHAR(30) | GENERATED `IF(equipped, item_type, NULL)` STORED | Phục vụ unique 1 equipped/type |
+| `acquired_at` | DATETIME(6) | NOT NULL | Lần nhận đầu tiên |
+| `updated_at` | DATETIME(6) | NOT NULL | Thời điểm cập nhật |
 
-Ràng buộc duy nhất: UNIQUE(`user_id`, `item_id`).
+### Bảng `booster_activations`
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID lần kích hoạt |
+| `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | Người kích hoạt |
+| `shop_item_id` | BIGINT | FK -> `shop_items(id)`, NOT NULL | XP Booster đã dùng |
+| `started_at` | DATETIME(6) | NOT NULL | Server time lúc kích hoạt |
+| `expires_at` | DATETIME(6) | NOT NULL | `started_at + boost_duration_minutes`; active ⇔ `now < expires_at` |
+| `idempotency_key` | VARCHAR(128) | NOT NULL | Anchor chống kích hoạt trùng |
 
 ### Ràng buộc & Indexes (Gamification & Shop)
 - `levels`: Unique index trên `level_number`.
-- `shop_items`: Index trên `is_active` và `type`.
-- `user_inventories`: Unique index ghép trên `(user_id, item_id)`.
+- `users`: CHECK `coin >= 0`. Không có cột equip trên `users`.
+- `shop_items`: Unique `code`, unique `theme_key`, unique `(id, type)`; index `(status, purchasable, type, sort_order)`; CHECK `NOT purchasable OR price IS NOT NULL`.
+- `user_items`: Composite FK `(shop_item_id, item_type) -> shop_items(id, type)` (DB enforce `user_items.item_type == shop_items.type`); Unique `(user_id, shop_item_id)`; Unique `(user_id, equipped_slot)` ⇒ tối đa 1 `THEME` và 1 `AVATAR_FRAME` equipped/user.
+- `booster_activations`: Unique `(user_id, idempotency_key)`; index `(user_id, expires_at)`.
+- `coin_transactions`: Unique `event_key`; index `(user_id, created_at)`.
 - Leaderboard: Quản lý qua Redis Sorted Set với điểm số là Weekly XP, nguồn dữ liệu tham chiếu và đồng bộ từ trường `exp` trên bảng `users`.
 
 ---

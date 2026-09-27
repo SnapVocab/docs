@@ -700,8 +700,8 @@ Hệ thống tăng động lực học tập: điểm kinh nghiệm (XP), tiền
 | `MissionProgress` | Tiến độ nhiệm vụ của Learner (current, completed, claimedAt) |
 | `Badge`           | Định nghĩa huy hiệu (name, condition, iconUrl)               |
 | `UserBadge`       | Huy hiệu Learner đã đạt (earnedAt)                           |
-| `ExperienceLog`   | Lịch sử cộng XP (amount, source, eventKey, timestamp)        |
-| `CoinTransaction` | Lịch sử cộng/trừ coin (amount, type, eventKey, balance)      |
+| `ExperienceLog`   | Lịch sử cộng XP (baseAmount, bonusAmount, source, eventKey, boosterActivationId, timestamp) |
+| `CoinTransaction` | Ledger coin (amount có dấu, balanceAfter, sourceType, referenceId, eventKey unique) |
 | `LeaderboardEntry`| Bản ghi xếp hạng (userId, score, period, rank)               |
 
 ### Chức năng chính
@@ -718,7 +718,7 @@ Hệ thống tăng động lực học tập: điểm kinh nghiệm (XP), tiền
 | Method | Endpoint                              | Mô tả                                       | Auth    |
 | ------ | ------------------------------------- | -------------------------------------------- | ------- |
 | GET    | `/gamification/xp`                    | Tổng XP và lịch sử                           | Learner |
-| GET    | `/gamification/coins`                 | Balance coin và lịch sử giao dịch            | Learner |
+| GET    | `/api/me/wallet`                      | Balance coin và lịch sử giao dịch (cursor)   | Learner |
 | GET    | `/gamification/missions`              | Danh sách missions + progress                | Learner |
 | POST   | `/gamification/missions/{id}/claim`   | Claim reward nhiệm vụ (idempotent)           | Learner |
 | GET    | `/gamification/badges`                | Danh sách badges (earned + available)        | Learner |
@@ -742,7 +742,7 @@ Gamification
 
 - FR: FR-09
 - BF: BF-11, BF-12
-- Detail: [daily_mission.md](./daily_mission.md)
+- Detail: [daily_mission.md](../decisions/daily_mission.md), [shop.md](../decisions/shop.md) (CoinTransaction, XP Booster bonus)
 
 ### Milestone: M4
 
@@ -752,36 +752,58 @@ Gamification
 
 ### Mô tả
 
-Cửa hàng vật phẩm ảo trong ứng dụng. Learner dùng Coin mua vật phẩm (theme, avatar frame, booster). Không xử lý thanh toán tiền thật.
+Cửa hàng vật phẩm ảo trong ứng dụng. Learner dùng Coin mua `THEME`, `AVATAR_FRAME`, `XP_BOOSTER`. Không xử lý thanh toán tiền thật. Canonical: [decisions/shop.md](../decisions/shop.md).
 
 ### Entities
 
-| Entity     | Mô tả                                                           |
-| ---------- | ---------------------------------------------------------------- |
-| `ShopItem` | Vật phẩm trong cửa hàng (name, price, type, iconUrl, status)    |
-| `UserItem` | Vật phẩm Learner sở hữu/đang sử dụng (purchasedAt, equipped)   |
+| Entity              | Mô tả                                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------- |
+| `ShopItem`          | Vật phẩm (code, type, name, iconKey, status DRAFT/PUBLISHED/ARCHIVED, purchasable, price, sale window, field theo type) |
+| `UserItem`          | Sở hữu: 1 row/(Learner, ShopItem) — itemType, quantity, equipped, acquiredAt                            |
+| `BoosterActivation` | Một lần kích hoạt XP Booster (startedAt, expiresAt, idempotencyKey)                                     |
+
+"Inventory" là API resource/màn hình, không phải entity.
 
 ### Chức năng chính
 
-- Duyệt danh sách vật phẩm
-- Mua vật phẩm bằng Coin (balance ≥ price)
-- Áp dụng vật phẩm (đổi theme, avatar frame, booster)
-- Admin CRUD vật phẩm
+- Duyệt catalog đang bán (trạng thái sở hữu, `canPurchase`, `blockReason` do server tính)
+- Mua 1 đơn vị bằng Coin, idempotent (`Idempotency-Key`), kiểm tra `expectedPrice`
+- Trang bị/bỏ Theme, Avatar Frame (tối đa 1/type)
+- Kích hoạt XP Booster (×2 XP Review/Quiz, tối đa 1 active)
+- Cấp item từ reward (fallback Coin khi không cấp được)
+- Admin: tạo DRAFT, sửa, publish, archive, xóa DRAFT
 
 ### API Endpoints
 
-| Method    | Endpoint                        | Mô tả                               | Auth    |
-| --------- | ------------------------------- | ------------------------------------ | ------- |
-| GET       | `/shop/items`                   | Danh sách vật phẩm                   | Learner |
-| POST      | `/shop/items/{id}/buy`          | Mua vật phẩm                         | Learner |
-| POST      | `/shop/inventory/{id}/equip`    | Áp dụng vật phẩm                     | Learner |
-| GET       | `/shop/inventory`               | Danh sách vật phẩm sở hữu           | Learner |
-| GET/POST/PUT/DELETE | `/admin/shop-items`   | Admin CRUD vật phẩm                  | Admin   |
+| Method    | Endpoint                                  | Mô tả                                     | Auth    |
+| --------- | ----------------------------------------- | ----------------------------------------- | ------- |
+| GET       | `/api/shop/items`                         | Catalog + trạng thái theo Learner         | Learner |
+| POST      | `/api/shop/items/{itemId}/purchase`       | Mua (header `Idempotency-Key`)            | Learner |
+| GET       | `/api/me/items`                           | Inventory + equipped + activeBooster      | Learner |
+| PUT/DELETE | `/api/me/equipment/{type}`               | Trang bị / bỏ Theme, Avatar Frame         | Learner |
+| POST      | `/api/me/items/{itemId}/activate`         | Kích hoạt XP Booster (`Idempotency-Key`)  | Learner |
+| GET       | `/api/admin/shop/item-types`              | Metadata dynamic form                     | Admin   |
+| GET/POST  | `/api/admin/shop/items`                   | Danh sách / tạo DRAFT                     | Admin   |
+| GET/PATCH/DELETE | `/api/admin/shop/items/{id}`       | Chi tiết / sửa (có `version`) / xóa DRAFT | Admin   |
+| POST      | `/api/admin/shop/items/{id}/publish`      | DRAFT → PUBLISHED                         | Admin   |
+| POST      | `/api/admin/shop/items/{id}/archive`      | PUBLISHED → ARCHIVED                      | Admin   |
+
+### Sub-components
+
+```text
+Shop
+  ├── ShopCatalogService    — catalog, trạng thái theo Learner
+  ├── PurchaseService       — lock user → idempotency → validate → trừ Coin → cấp UserItem
+  ├── InventoryService      — inventory, equip/unequip, grant từ reward (fallback Coin)
+  ├── BoosterService        — activate, tra booster active cho XpService
+  └── AdminShopItemService  — DRAFT/PUBLISHED/ARCHIVED, validation, field khóa
+```
 
 ### Trace
 
 - FR: FR-09.06, FR-09.07
-- BF: BF-12
+- BF: BF-12, BF-14
+- Detail: [shop.md](../decisions/shop.md)
 
 ### Milestone: M4 (Could)
 
@@ -1121,7 +1143,7 @@ vn.ptit.snapvocab
 │   ├── Word, Definition, Translation, Pronunciation, WordDefinition, WordRelation
 │   ├── Collection, Topic, TopicItem, Schema, SchemaAttributeGroup, SchemaAttribute, TopicItemAttributeGroup, TopicItemAttributeValue
 │   ├── Template, TemplateElement, TemplateField
-│   ├── FsrsRecord, Level, ShopItem, UserInventory, Notification, UserNotification
+│   ├── FsrsRecord, Level, ShopItem, UserItem, BoosterActivation, Notification, UserNotification
 │   ├── common/                    (BaseTimeEntity, BaseCreatedAtEntity)
 │   ├── enumeration/               (CardState, ReviewRating, SemanticRole, CardSide, TemplateElementType, CollectionType...)
 │   └── mapper/                    (Entity mappers & DTO converters)

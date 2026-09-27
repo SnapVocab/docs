@@ -422,7 +422,7 @@ Security Layer
 | **Quiz** | PLANNED — chưa chốt tên bảng ([database.md](../db/database.md) §3A) | SS-10 | M3 |
 | **Progress** | `learning_events`, `learning_progress` | SS-12 | M3 |
 | **Gamification** | `missions`, `mission_progress`, `badges`, `user_badges`, `experience_logs`, `coin_transactions`, `leaderboard_entries` | SS-13 | M4 |
-| **Economy** | `shop_items`, `user_inventories`, `levels` | SS-14 | M4 |
+| **Economy** | `shop_items`, `user_items`, `booster_activations`, `coin_transactions`, `levels` | SS-14 | M4 |
 | **Media** | `storage_metadata` | SS-16 | M1 |
 | **Notification** | `notifications`, `user_notifications` | SS-15 | M3 |
 

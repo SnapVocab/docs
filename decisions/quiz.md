@@ -204,7 +204,7 @@ Không thêm role mới (ví dụ không tạo `PHONETIC`) khi chưa có quyết
 - Tên bảng/entity Quiz: PLANNED, xem [database.md](../db/database.md) §Quiz.
 - Tính năng skip câu / skip cặp: **TBD** — chưa có requirement canonical.
 - **Retry Mistakes session** (quiz mới chỉ gồm câu sai): defer **M4** (D16). Cần quyết định question-count (rule hiện tại {5, 10, 20} không cho 2–4 câu), reward và cách sinh session trước khi implement.
-- **XP / Coin:** chưa kích hoạt; UI Result hiển thị `+0 XP` / `+0 Coin` kèm ghi chú, mở ở M4 (FR-06.07, FR-09).
+- **XP:** `complete` ghi `10 XP × số câu đúng` qua `XpService.award(QUIZ, eventKey = QUIZ:{quizId})` — XP Booster ×2 xét tại thời điểm complete; `QuizResultDTO.xp {baseAmount, bonusAmount, amount}` (null nếu 0 câu đúng). **Coin:** chưa kích hoạt, UI hiển thị `+0 Coin`.
 
 ---
 

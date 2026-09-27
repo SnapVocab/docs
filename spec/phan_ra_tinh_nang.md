@@ -239,13 +239,14 @@
 | ID        | Tính năng             | P   | AC tóm tắt                                                                                      |
 | --------- | --------------------- | --- | ----------------------------------------------------------------------------------------------- |
 | F-GAME-01 | XP log                | S   | Cộng XP khi hoàn thành activity; idempotent event key; ExperienceLog ghi source + amount        |
-| F-GAME-02 | Coin transaction      | S   | Cộng/trừ Coin; balance ≥ 0 mọi lúc; CoinTransaction ghi type (earn/spend) + eventKey            |
+| F-GAME-02 | Coin transaction      | S   | Cộng/trừ Coin; balance ≥ 0 mọi lúc; CoinTransaction ghi amount có dấu + balanceAfter + sourceType + eventKey unique |
 | F-GAME-03 | Daily mission         | S   | 3–5 nhiệm vụ/ngày từ pool (context-aware + weighted random); tracking → claim → reward          |
 | F-GAME-04 | Weekly mission/stamps | C   | Hoàn thành tất cả daily → Activity Stamp; 3/5/7 stamps → Rương Đồng/Bạc/Vàng                    |
 | F-GAME-05 | Badges                | S   | Huy hiệu khi đạt điều kiện cụ thể (streak 30 ngày, 100 lượt scan có lưu từ…); UserBadge + notification |
 | F-GAME-06 | Leaderboard           | S   | Xếp hạng theo Weekly XP; Redis sorted set hoặc snapshot cache; hiển thị top N + vị trí user |
-| F-GAME-07 | Shop browse + buy     | C   | Duyệt vật phẩm; mua bằng Coin (balance ≥ price); trừ Coin → tạo UserItem                        |
-| F-GAME-08 | Apply item            | C   | Áp dụng vật phẩm: theme, avatar frame, booster (x2 XP…); UserItem.equipped                      |
+| F-GAME-07 | Shop browse + buy     | C   | Catalog `THEME`/`AVATAR_FRAME`/`XP_BOOSTER`; mua 1 đơn vị, `Idempotency-Key` + `expectedPrice`; trừ Coin + CoinTransaction + UserItem cùng transaction; cosmetic không mua trùng; XP Booster ≤ `maxQuantity` |
+| F-GAME-08a | Equip cosmetic       | C   | Trang bị/bỏ Theme, Avatar Frame; `UserItem.equipped`; tối đa 1 equipped/type, equip mới tự bỏ item cũ trong cùng transaction |
+| F-GAME-08b | Activate XP Booster  | C   | ×2 XP Review/Quiz, mặc định 30 phút server time; tối đa 1 active; không stack/queue/extend; `BoosterActivation` |
 | F-GAME-09 | Admin config          | S   | Admin CRUD: Missions, Badges, Shop Items, XP reward rules                                       |
 | F-GAME-10 | Mission reset cycle   | S   | Daily missions reset 00:00 Asia/Ho_Chi_Minh (xem ../decisions/daily_mission.md §3.1); progress không cộng dồn sang ngày sau    |
 | F-GAME-11 | Anti-cheat            | S   | Không cộng progress cho action spam; lượt scan hợp lệ phải có "≥ 1 từ được lưu thành công"      |
@@ -259,6 +260,7 @@
 3. Balance Coin ≥ 0 mọi thời điểm.
 4. Mission claim: COMPLETED → CLAIMED → cộng reward; chỉ cộng 1 lần.
 5. Leaderboard: Redis cache, không full-scan aggregate mỗi request.
+6. Shop/Inventory/XP Booster: [decisions/shop.md](../decisions/shop.md) là canonical.
 
 ---
 

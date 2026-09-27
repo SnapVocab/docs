@@ -255,7 +255,7 @@ Hệ thống backend được chia thành **18 phân hệ** thuộc 5 lớp ch�
 | Module | SS | Trách nhiệm | Milestone |
 | --- | --- | --- | --- |
 | Gamification | SS-13 | Level, XP, Coin, Mission, Badge, Leaderboard (Redis sorted set) — idempotent event key | M4 |
-| Shop | SS-14 | ShopItem, UserInventory, buy/equip vật phẩm bằng Coin | M4 |
+| Shop | SS-14 | ShopItem, UserItem, BoosterActivation; mua/equip/kích hoạt XP Booster bằng Coin ([shop.md](../decisions/shop.md)) | M4 |
 | Notification | SS-15 | Push (Expo/FCM), In-app notification, device token, UserNotification, settings | M3 |
 | Storage | SS-16 | Presigned upload/download, MIME/size validation, orphan cleanup, private bucket | M1, M2, M4 |
 | Admin (Backend) | SS-17 | API quản trị: user mgmt, dict CRUD, topic, template, game config, dashboard stats | M4 |
@@ -278,7 +278,7 @@ Hệ thống backend được chia thành **18 phân hệ** thuộc 5 lớp ch�
 | **Quiz** | PLANNED — tên entity chưa chốt ([database.md](../db/database.md) §3A) | Kiểm tra từ vựng | NOT IMPLEMENTED (M3) |
 | **Progress** | LearningProgress, LearningEvent | Streak, accuracy, summary aggregate | Dự kiến M3 |
 | **Gamification** | Level, Mission, UserMission, Badge, UserBadge, ExperienceLog, CoinTransaction, Leaderboard | Cấp độ, nhiệm vụ, huy hiệu, XP, coin, ranking | Level đã có, còn lại M4 |
-| **Economy** | ShopItem, UserInventory | Cửa hàng, túi đồ người dùng | Đã có |
+| **Economy** | ShopItem, UserItem, BoosterActivation, CoinTransaction | Cửa hàng, vật phẩm sở hữu, XP Booster, ledger Coin | Skeleton entity, chưa implement (M4) |
 | **Media** | StorageMetadata, UploadSession | Object key, owner, MIME, size | Đã có |
 | **Notification** | Notification, UserNotification | In-app notification | Đã có |
 
@@ -837,7 +837,7 @@ vn.ptit.snapvocab
 │   ├── Word, Definition, Translation, Pronunciation, WordDefinition, WordRelation
 │   ├── Collection, Topic, TopicItem, Schema, SchemaAttributeGroup, SchemaAttribute, TopicItemAttributeGroup, TopicItemAttributeValue
 │   ├── Template, TemplateElement, TemplateField
-│   ├── FsrsRecord, Level, ShopItem, UserInventory, Notification, UserNotification
+│   ├── FsrsRecord, Level, ShopItem, UserItem, BoosterActivation, Notification, UserNotification
 │   ├── common/                    (BaseTimeEntity, BaseCreatedAtEntity)
 │   ├── enumeration/               (CardState, ReviewRating, SemanticRole, TemplateElementType, CollectionType...)
 │   └── mapper/                    (Entity mappers & DTO converters)

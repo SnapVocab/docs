@@ -78,6 +78,7 @@ docs/
 - [decisions/custom_card.md](./decisions/custom_card.md): thiết kế hệ thống Template cho Topic, thành phần TemplateElement và TemplateField mang SemanticRole ánh xạ thuộc tính EAV thành thẻ học.
 - [decisions/quiz.md](./decisions/quiz.md): quyết định kiến trúc Quiz — base path `/api`, incremental grading (MCQ/Fill Blank từng câu, Matching từng cặp), resolve dữ liệu theo SemanticRole, QuizMode vs QuizDirection.
 - [decisions/daily_mission.md](./decisions/daily_mission.md): thiết kế Daily Mission, Daily Chest, Weekly Milestone, mission pool, event tracking và reward idempotency.
+- [decisions/shop.md](./decisions/shop.md): Shop canonical — `THEME`/`AVATAR_FRAME`/`XP_BOOSTER`, UserItem ownership + equip, XP Booster ×2, purchase idempotency/concurrency, Admin boundary, API, schema.
 
 ### 5. Design
 
@@ -90,7 +91,7 @@ docs/
 | M1        | Core Auth & Vocabulary Lookup       | Auth, profile, dictionary, topic, saved vocabulary, flashcard cơ bản         | [spec/specs.md](./spec/specs.md), [spec/buss_mainflow.md](./spec/buss_mainflow.md)                                                                         |
 | M2        | Camera/Object Recognition MVP       | Camera/gallery, upload, AI recognition, word mapping, save from scan         | [sa/sa.md](./sa/sa.md), [sa/server.md](./sa/server.md)                                                                                                     |
 | M3        | Learning Engine                     | Custom card, quiz, SRS, progress, notification                               | [decisions/custom_card.md](./decisions/custom_card.md), [decisions/quiz.md](./decisions/quiz.md), [spec/phan_ra_tinh_nang.md](./spec/phan_ra_tinh_nang.md) |
-| M4        | Gamification & Production Readiness | Mission, XP, coin, badge, shop, leaderboard, admin CMS, production hardening | [decisions/daily_mission.md](./decisions/daily_mission.md), [sa/server.md](./sa/server.md)                                                                 |
+| M4        | Gamification & Production Readiness | Mission, XP, coin, badge, shop, leaderboard, admin CMS, production hardening | [decisions/daily_mission.md](./decisions/daily_mission.md), [decisions/shop.md](./decisions/shop.md), [sa/server.md](./sa/server.md)                        |
 
 ## Quy ước khi cập nhật tài liệu
 

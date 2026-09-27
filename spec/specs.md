@@ -59,6 +59,7 @@ Mục tiêu chính:
 | 1   | Fine-tune mô hình AI trong MVP               | MVP dùng Florence-2 zero-shot (không huấn luyện lại); fine-tune LoRA trên COCO+Open Images là hướng mở rộng đã có thiết kế thí nghiệm (kèm phép đo vocabulary collapse) |
 | 2   | Nhận diện AI offline hoàn toàn trên thiết bị | Xử lý chính được thực hiện qua AI service độc lập để giảm yêu cầu phần cứng mobile                                                                                      |
 | 3   | Thanh toán tiền thật                         | Cửa hàng chỉ dùng coin/điểm thưởng trong ứng dụng, không xử lý ví điện tử hoặc giao dịch tiền thật                                                                      |
+| 3a  | Mở rộng Shop ngoài M4                        | Streak Freeze (chờ đặc tả streak settlement riêng), Gems/tiền tệ thứ hai, rarity, stock, flash sale/discount, coin booster, retry token, item tim/gợi ý/thời gian     |
 | 4   | Chấm điểm phát âm nâng cao                   | Hệ thống phát âm từ vựng; đánh giá giọng nói/ngữ âm của người học là chức năng mở rộng                                                                                  |
 | 5   | Từ điển học thuật hoàn chỉnh                 | Dữ liệu từ điển dùng để tra cứu học tập, không thay thế từ điển chuyên ngành đầy đủ                                                                                     |
 
@@ -409,13 +410,20 @@ Business rules:
 | FR-09.03 | Mission             | Hệ thống cung cấp nhiệm vụ ngày/tuần/thành tựu                       | Should  |
 | FR-09.04 | Badge               | Learner nhận huy hiệu khi đạt điều kiện cụ thể                       | Should  |
 | FR-09.05 | Leaderboard cá nhân | Learner xem xếp hạng theo XP tuần (Weekly XP). Lượng XP tổng kết từ 00:00 Thứ Hai đến 23:59 Chủ Nhật (theo múi giờ cấu hình của server). | Should  |
-| FR-09.06 | Shop item           | Learner dùng coin mua vật phẩm trong cửa hàng                        | Could   |
-| FR-09.07 | Apply item          | Learner áp dụng vật phẩm như theme, avatar frame hoặc booster nếu có | Could   |
+| FR-09.06 | Shop item           | Learner dùng coin mua vật phẩm trong cửa hàng (`THEME`, `AVATAR_FRAME`, `XP_BOOSTER`) | Could   |
+| FR-09.07 | Apply item          | Learner trang bị theme/avatar frame hoặc kích hoạt XP Booster đã sở hữu | Could   |
 
 Business rules:
 
 - Reward phải có rule rõ ràng để tránh cộng trùng khi retry API.
 - Coin chỉ là đơn vị trong ứng dụng, không quy đổi thành tiền thật trong phạm vi đồ án.
+- Shop canonical: [decisions/shop.md](../decisions/shop.md). Tóm tắt:
+  - `ShopItemType` = `THEME` | `AVATAR_FRAME` | `XP_BOOSTER` (developer-controlled); Admin chỉ tạo item và cấu hình tham số trong giới hạn của type.
+  - Mua 1 đơn vị/request, bắt buộc `Idempotency-Key`; trừ Coin + ghi `CoinTransaction` + cấp `UserItem` trong một transaction; cosmetic không mua trùng; XP Booster giới hạn `maxQuantity` theo item (mặc định 5).
+  - Mỗi Learner tối đa 1 `THEME` và 1 `AVATAR_FRAME` equipped; equip item mới tự bỏ item cũ cùng type.
+  - XP Booster: ×2 XP cho Flashcard/SRS Review và Quiz (không áp dụng Mission/Chest/Admin/Save word), mặc định 30 phút theo server time, tối đa 1 active, không stack/queue/extend; bonus XP tính vào Weekly XP.
+  - Theme chỉ đổi token bề mặt; không đổi màu brand/semantic.
+  - Thứ tự ưu tiên khi cắt scope M4: Avatar Frame + XP Booster trước Theme.
 - Leaderboard nên dùng Redis/cache khi dữ liệu tăng hoặc cần cập nhật thường xuyên.
 - Daily missions reset lúc 00:00 múi giờ Asia/Ho_Chi_Minh.
 
@@ -558,11 +566,14 @@ Business rules:
 | MissionProgress  | Tiến độ thực hiện nhiệm vụ của Learner  |
 | Badge            | Định nghĩa huy hiệu                     |
 | UserBadge        | Huy hiệu Learner đã đạt được            |
-| CoinTransaction  | Lịch sử cộng/trừ coin                   |
-| ExperienceLog    | Lịch sử cộng XP                         |
-| ShopItem         | Vật phẩm trong cửa hàng                 |
-| UserItem         | Vật phẩm Learner đã sở hữu/đang sử dụng |
-| LeaderboardEntry | Bản ghi xếp hạng cá nhân                |
+| CoinTransaction  | Ledger cộng/trừ coin (amount có dấu, balanceAfter, eventKey unique) |
+| ExperienceLog    | Lịch sử cộng XP (base + bonus từ XP Booster)                        |
+| ShopItem         | Vật phẩm trong cửa hàng (type `THEME`/`AVATAR_FRAME`/`XP_BOOSTER`)  |
+| UserItem         | Quyền sở hữu: 1 row/(Learner, ShopItem), `quantity`, `equipped`     |
+| BoosterActivation| Một lần kích hoạt XP Booster (`startedAt`, `expiresAt`)             |
+| LeaderboardEntry | Bản ghi xếp hạng cá nhân                                            |
+
+"Inventory" là API resource/màn hình (danh sách `UserItem`), **không** phải entity. Chi tiết: [decisions/shop.md](../decisions/shop.md).
 
 ### 6.5 Nhóm dữ liệu Chủ đề học tập
 
@@ -641,7 +652,7 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | 1   | Security                | API cá nhân yêu cầu JWT; password hash an toàn; refresh token revoke được; không log secret/OTP                  |
 | 2   | Authorization           | Learner chỉ truy cập dữ liệu cá nhân; Admin API yêu cầu `ROLE_ADMIN`                                             |
 | 3   | OTP Safety              | OTP TTL ≤ 10 phút; tối đa 5 lần thử; resend cooldown ≥ 60s; không tái sử dụng sau success                        |
-| 4   | Idempotency             | Reward/XP/coin/claim mission, quiz check và quiz complete dùng idempotency key — retry không chấm/cộng trùng       |
+| 4   | Idempotency             | Reward/XP/coin/claim mission, quiz check, quiz complete, mua Shop item và kích hoạt XP Booster dùng idempotency key — retry không chấm/cộng/trừ trùng |
 | 5   | File Safety             | Validate MIME allowlist ảnh; avatar ≤ 5MB, scan ≤ 10MB (trừ khi cấu hình khác); object key do backend sinh       |
 | 6   | Privacy                 | Bucket private; presigned URL TTL ngắn (≤ 15 phút); ảnh scan/avatar không public mặc định                        |
 | 7   | Recognition Performance | Recognition xử lý qua hàng đợi; mặc định 1 worker/GPU; timeout worker→AI 60s cấu hình được; GPU T4 ~15–30s/ảnh full mode |
@@ -698,7 +709,7 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | 15  | Leaderboard cá nhân phản ánh XP/activity theo rule (M4).                                                  |
 | 16  | Admin (nếu milestone bật) ban/unban hoặc CRUD dictionary qua role `ROLE_ADMIN`, không qua mobile Learner. |
 | 17  | Mission/badge/XP/coin idempotent — retry không cộng trùng.                                                |
-| 18  | Learner mua item bằng coin; UserItem được ghi nhận (nếu Shop được triển khai).                            |
+| 18  | Learner mua item bằng coin: coin trừ đúng 1 lần dù retry cùng `Idempotency-Key`; mua song song không làm balance âm; `UserItem` + `CoinTransaction` được ghi cùng transaction ([shop.md](../decisions/shop.md) §12). |
 | 19  | Upload media private bucket + presigned; không lộ object ngoài quyền.                                     |
 | 20  | OpenAPI/Swagger đủ cho mobile tích hợp; error envelope thống nhất.                                        |
 | 21  | Docs/code/UI không chứa secrets môi trường thật.                                                          |
@@ -720,6 +731,7 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | Tech Stack            | [../sa/techstack.md](../sa/techstack.md)                     | Công nghệ theo lớp           |
 | Server & Deployment   | [../sa/server.md](../sa/server.md)                           | Môi trường, ops, smoke test  |
 | Docs index            | [../README.md](../README.md)                                 | Mục lục + quy tắc đồng bộ    |
+| Shop decision         | [../decisions/shop.md](../decisions/shop.md)                 | Canonical Shop/Item/Inventory/XP Booster/Coin purchase |
 
 ---
 

@@ -614,14 +614,34 @@
 | 4    | System  | Khi mission hoàn thành → trao reward: XP, Coin, Badge (theo rule). Ghi ExperienceLog, CoinTransaction.     |
 | 5    | System  | Gửi In-app Notification "Bạn đã hoàn thành nhiệm vụ X, nhận Y coin!"                                      |
 
-### Happy Path — Cửa hàng vật phẩm
+### Happy Path — Mua vật phẩm
 
-| Bước | Actor   | Hành động                                                                                          |
-| ---- | ------- | -------------------------------------------------------------------------------------------------- |
-| 1    | Learner | Mở Shop → duyệt danh sách vật phẩm (theme, avatar frame, booster).                               |
-| 2    | Learner | Chọn mua vật phẩm bằng Coin.                                                                      |
-| 3    | System  | Kiểm tra balance Coin ≥ giá. Trừ coin (CoinTransaction). Tạo UserItem.                           |
-| 4    | Learner | Áp dụng vật phẩm (VD: đổi theme, đổi avatar frame).                                              |
+Chi tiết canonical: [decisions/shop.md](../decisions/shop.md) §7.
+
+| Bước | Actor   | Hành động                                                                                                     |
+| ---- | ------- | ------------------------------------------------------------------------------------------------------------- |
+| 1    | Learner | Mở Shop → duyệt vật phẩm đang bán (`THEME`, `AVATAR_FRAME`, `XP_BOOSTER`); xem trước Theme/Avatar Frame.      |
+| 2    | Learner | Xác nhận "Mua X với Y Coin?". Mobile gửi `Idempotency-Key` + `expectedPrice`.                                 |
+| 3    | System  | Lock Learner; kiểm tra item đang bán, giá khớp, chưa sở hữu cosmetic / chưa đạt `maxQuantity`, balance ≥ giá. |
+| 4    | System  | Trong một transaction: trừ Coin, ghi `CoinTransaction` (`SHOP_PURCHASE`), tạo `UserItem` hoặc `quantity + 1`. |
+| 5    | System  | Sau commit: phát event `SHOP_ITEM_PURCHASED` (mission `BUY_SHOP_ITEM`). Trả balance + quantity mới.          |
+
+### Happy Path — Trang bị Theme / Avatar Frame
+
+| Bước | Actor   | Hành động                                                                                        |
+| ---- | ------- | ------------------------------------------------------------------------------------------------ |
+| 1    | Learner | Mở Inventory → chọn Theme/Avatar Frame đã sở hữu → `Dùng`/`Trang bị`.                            |
+| 2    | System  | Trong một transaction: bỏ equip item cùng type đang dùng, equip item mới (tối đa 1/type).        |
+| 3    | Learner | App áp theme / hiển thị frame. `Bỏ`/`Tháo` → quay về mặc định.                                   |
+
+### Happy Path — Kích hoạt XP Booster
+
+| Bước | Actor   | Hành động                                                                                                         |
+| ---- | ------- | ----------------------------------------------------------------------------------------------------------------- |
+| 1    | Learner | Inventory → chọn XP Booster → `Dùng` (mobile gửi `Idempotency-Key`).                                              |
+| 2    | System  | Kiểm tra `quantity ≥ 1` và chưa có XP Booster active. Trừ 1, tạo `BoosterActivation` (`expiresAt = now + duration`). |
+| 3    | System  | Trong thời gian active: XP từ Flashcard/SRS Review và Quiz được ×2 tại thời điểm ghi XP; bonus tính Weekly XP.    |
+| 4    | System  | Hết `expiresAt` (server time, kể cả khi app đóng) → booster tự hết hiệu lực.                                      |
 
 ### Happy Path — Huy hiệu
 
@@ -638,11 +658,18 @@
 | AF-12.1 | Coin không đủ mua vật phẩm      | Hiển thị "Bạn không đủ Coin", gợi ý hoàn thành nhiệm vụ.          |
 | AF-12.2 | Mission đã hoàn thành            | Trạng thái COMPLETED, không claim lại. Chờ reset (daily/weekly).   |
 | AF-12.3 | Retry claim reward               | Idempotent — event key đảm bảo không cộng trùng XP/Coin.          |
+| AF-12.4 | Retry mua cùng `Idempotency-Key` (double tap, timeout, mất response) | Trả kết quả cũ (`replayed = true`), không trừ Coin lần 2. |
+| AF-12.5 | Giá đổi giữa lúc xem và lúc mua  | `PRICE_CHANGED` → hiển thị giá mới, Learner xác nhận lại.          |
+| AF-12.6 | Vật phẩm ngừng bán / ngoài thời gian bán | `ITEM_NOT_AVAILABLE`, không trừ Coin.                       |
+| AF-12.7 | Mua lại Theme/Avatar Frame đã sở hữu | `ITEM_ALREADY_OWNED`, không trừ Coin.                          |
+| AF-12.8 | XP Booster đã đạt `maxQuantity`  | `MAX_QUANTITY_REACHED`, không trừ Coin.                            |
+| AF-12.9 | Kích hoạt XP Booster khi đang có booster active | `BOOSTER_ALREADY_ACTIVE`, không trừ vật phẩm, không cộng dồn thời gian. |
+| AF-12.10 | Reward cấp cosmetic đã sở hữu hoặc XP Booster vượt `maxQuantity` | Cộng `fallbackCoin` cấu hình trong reward. |
 
 ### Post-condition
 
 - XP/Coin đã được cập nhật theo rule.
-- Badge/UserItem đã được ghi nhận.
+- Badge/UserItem/BoosterActivation đã được ghi nhận.
 - CoinTransaction và ExperienceLog đã được log.
 
 ### Business Rules
@@ -650,6 +677,7 @@
 1. Reward có rule rõ ràng, idempotent (event key, retry không cộng trùng).
 2. Coin chỉ là đơn vị trong ứng dụng, không quy đổi tiền thật.
 3. Balance Coin ≥ 0 tại mọi thời điểm.
+4. Shop, equip, XP Booster: theo [decisions/shop.md](../decisions/shop.md) (S1–S19).
 
 ---
 
@@ -735,7 +763,8 @@
 
 1. Tất cả API quản trị yêu cầu `ROLE_ADMIN`.
 2. CMS chạy độc lập, không nằm trong mobile app.
-3. Xóa từ vựng: soft-delete để không hỏng Note/Card của Learner.
+3. Xóa từ vựng: soft-delete để không hỏng TopicItem/FsrsRecord của Learner.
+4. Shop item: Admin tạo `DRAFT` → publish → archive; chỉ chọn type/`themeKey` có sẵn, tham số trong giới hạn developer; field hiệu ứng khóa sau publish ([decisions/shop.md](../decisions/shop.md) §8).
 4. Admin không can thiệp vào tiến độ học tập cá nhân cụ thể của Learner.
 
 ---

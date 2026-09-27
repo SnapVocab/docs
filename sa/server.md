@@ -409,7 +409,7 @@ Chi tiết và số đo ở `ai-service/README.md`. Các biến chính:
 | **Quiz** | PLANNED — chưa chốt tên bảng; persistence contract: [database.md](../db/database.md) §3A | SS-10 |
 | **Progress** | `learning_events`, `learning_progress` | SS-12 |
 | **Gamification** | `missions`, `mission_progress`, `badges`, `user_badges`, `experience_logs`, `coin_transactions`, `leaderboard_entries` | SS-13 |
-| **Economy** | `shop_items`, `user_inventories`, `levels` | SS-14 |
+| **Economy** | `shop_items`, `user_items`, `booster_activations`, `coin_transactions`, `levels` | SS-14 |
 | **Media** | `storage_metadata` (object key, owner, MIME, size, type, state, timestamp) | SS-16 |
 | **Notification** | `notifications`, `user_notifications` | SS-15 |
 
