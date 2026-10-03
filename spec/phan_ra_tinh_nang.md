@@ -119,7 +119,7 @@
 | F-VOCAB-02 | Add TopicItem from word/scan/top | M   | Tạo TopicItem + khởi tạo FsrsRecord vào Topic đích; unique per Topic (không trùng từ trong cùng Topic); trùng → thông báo lỗi thân thiện |
 | F-VOCAB-03 | List/filter/sort TopicItems      | M   | Lọc theo UI state (new/learning/reviewing/mastered) suy từ FSRS, ngày lưu, độ khó, ngày due |
 | F-VOCAB-04 | Delete/archive TopicItem         | M   | Không xóa Word gốc trong từ điển; FsrsRecord gắn từ → xóa/ẩn; soft operation      |
-| F-VOCAB-05 | Learning state surface           | S   | Hiển thị state UI theo map chuẩn: NEW→new; LEARNING/RELEARNING→learning; REVIEW interval <21d→reviewing; REVIEW interval ≥21d→mastered |
+| F-VOCAB-05 | Learning state surface           | S   | Hiển thị state UI theo map chuẩn: NEW→new; LEARNING/RELEARNING→learning; REVIEW `stability` <21d→reviewing; REVIEW `stability` ≥21d→mastered |
 | F-VOCAB-06 | Source tag                       | C   | Gắn nguồn từ: SCAN / DICT / TOPIC; hiển thị filter theo source                    |
 | F-VOCAB-07 | EAV attribute values             | M   | Lưu các giá trị thuộc tính động: nghĩa, POS, ví dụ, IPA, audio, hình ảnh           |
 | F-VOCAB-08 | Empty state UX                   | M   | Chưa có từ → CTA "Tra cứu / Scan để thêm từ mới"; chưa có Topic → tạo Topic nhanh |

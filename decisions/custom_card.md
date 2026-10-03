@@ -254,20 +254,19 @@ Lưu chi tiết cấu hình hiển thị cho các phần tử kiểu `FIELD`.
 
 #### Bảng `fsrs_records`
 
-Lưu trữ trạng thái ôn tập FSRS của từng người dùng đối với từng mục trong chủ đề.
+Lưu trữ trạng thái ôn tập FSRS của từng người dùng đối với từng mục trong chủ đề. Schema canonical: [database.md](../db/database.md) `fsrs_records`. Không có cột interval / `last_review`; learning state `reviewing`/`mastered` suy từ `state` + `stability` ([specs.md](../spec/specs.md) FR-04).
 
 | Cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
 | `id` | `bigint(20)` | PK, AUTO_INCREMENT | Định danh bản ghi ôn tập |
 | `user_id` | `bigint(20)` | FK -> `users(id)`, NOT NULL | Người học |
 | `topic_item_id` | `bigint(20)` | FK -> `topic_items(id)`, NOT NULL | Mục từ vựng đang học |
-| `card_state` | `varchar(50)` | NOT NULL | Trạng thái: `NEW`, `LEARNING`, `REVIEW`, `RELEARNING`, `SUSPENDED` |
+| `state` | `tinyint` (ordinal) | NOT NULL | Trạng thái: 0 `NEW`, 1 `LEARNING`, 2 `REVIEW`, 3 `RELEARNING`, 4 `SUSPENDED` |
 | `due` | `datetime(6)` | NOT NULL | Thời điểm đến hạn ôn tiếp theo |
-| `stability` | `double` | NOT NULL | Độ bền trí nhớ (S) |
-| `difficulty` | `double` | NOT NULL | Độ khó của thẻ (D) |
+| `stability` | `float` | NOT NULL | Độ bền trí nhớ (S), tính theo ngày |
+| `difficulty` | `float` | NOT NULL | Độ khó của thẻ (D) |
 | `reps` | `int(11)` | NOT NULL | Số lượt ôn tập thành công |
 | `lapses` | `int(11)` | NOT NULL | Số lần quên thẻ |
-| `last_review` | `datetime(6)` | NULLABLE | Thời điểm ôn tập gần nhất |
 | `created_at` | `datetime(6)` | NOT NULL | Thời điểm tạo bản ghi |
 | `updated_at` | `datetime(6)` | NOT NULL | Thời điểm cập nhật |
 
@@ -386,13 +385,12 @@ erDiagram
         bigint id PK
         bigint user_id FK
         bigint topic_item_id FK
-        varchar card_state "NEW, LEARNING, REVIEW..."
+        tinyint state "NEW, LEARNING, REVIEW..."
         datetime due
-        double stability
-        double difficulty
+        float stability
+        float difficulty
         int reps
         int lapses
-        datetime last_review
         datetime created_at
         datetime updated_at
     }

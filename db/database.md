@@ -55,7 +55,8 @@ Kế thừa `BaseTimeEntity`.
 | `learning_language` | VARCHAR(10) | NULL | Ngôn ngữ đang học (mặc định en) |
 | `exp` | BIGINT | DEFAULT 0 | Điểm kinh nghiệm tích lũy |
 | `coin` | BIGINT | NOT NULL, DEFAULT 0, CHECK `>= 0` | Số dư Coin hiện hành (ledger: `coin_transactions`) |
-| `streak_days` | INT | DEFAULT 0 | Chuỗi ngày học liên tục |
+| `streak_days` | INT | DEFAULT 0 | Chuỗi ngày học liên tục hiện tại |
+| `longest_streak_days` | INT | NOT NULL, DEFAULT 0 | Chuỗi dài nhất từng đạt (MH-STATS-01) |
 | `last_studied_at` | DATETIME(6) | NULL | Thời điểm học gần nhất |
 | `activated` | BOOLEAN | DEFAULT FALSE, NOT NULL | Trạng thái kích hoạt tài khoản |
 | `bio` | TEXT | NULL | Giới thiệu ngắn |
@@ -495,6 +496,25 @@ Bảng tham chiếu tóm tắt các yêu cầu lưu trữ tối thiểu:
 | P6 | Idempotency key + replay kết quả cho mỗi mutation (create, check, pair attempt, complete, cancel) | Retry không chấm/cộng trùng | `create_idempotency_key` trong `quizzes`, `check_idempotency_key` trong `quiz_questions`, `idempotency_key` trong `quiz_matching_attempts`; Complete/Cancel qua trạng thái `status` |
 
 Kết quả Quiz không ghi vào `fsrs_records`.
+
+## 3B. Progress (SS-12)
+
+Learning state / due count query trực tiếp từ `fsrs_records` + `topic_items` (không có bảng aggregate `learning_progress`). Streak đọc từ `users.streak_days`, `users.longest_streak_days`, `users.last_studied_at` — **không** tính lại từ `learning_events` khi gọi API.
+
+### Bảng `learning_events`
+Append-only. Ghi trong cùng transaction với hành động học đã thành công (event type theo [daily_mission.md](../decisions/daily_mission.md) §6). Nguồn cho `GET /api/progress/history` và rebuild khi aggregate lệch.
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID event |
+| `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | Người học |
+| `event_type` | VARCHAR(40) | NOT NULL | `WORD_SCANNED_AND_SAVED`, `FLASHCARD_ANSWERED`, `FLASHCARD_SESSION_COMPLETED`, `SRS_REVIEW_COMPLETED`, `QUIZ_COMPLETED`, ... |
+| `source_key` | VARCHAR(191) | UNIQUE, NOT NULL | Khóa chống ghi trùng từ cùng một hành động (VD `QUIZ_COMPLETED:{quizId}`) |
+| `learning_date` | DATE | NOT NULL | Ngày học theo `Asia/Ho_Chi_Minh` |
+| `metadata` | JSON | NULL | Dữ liệu phụ (topicItemId, quizId, correct...) |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm phát sinh |
+
+Index: `(user_id, learning_date)`.
 
 ## 4. Daily Mission & Gamification
 

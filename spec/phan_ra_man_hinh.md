@@ -356,6 +356,8 @@ flowchart TD
 - **Quick actions:** Camera Scan, Search, Flashcard, Quiz, SRS Review
 - **Recently learned:** 3–5 từ gần nhất
 
+**API:** Progress widget + SRS due + Streak → `GET /api/progress/home-widget` (M3); XP/Level → `GET /api/gamification/xp` (M4).
+
 **Hành động điều hướng:**
 
 | Hành động     | Đích         |
@@ -852,6 +854,10 @@ flowchart TD
 - Review count, số Quiz đã hoàn thành
 - Daily goal progress (Could)
 
+> "Đang ôn" = `reviewingCount` (learning state). "Cần ôn hôm nay" = `dueCount` (workload). Hai số không dùng thay nhau.
+
+**API (M3):** `GET /api/progress/summary`, `GET /api/progress/streak`, `GET /api/progress/history`.
+
 ---
 
 ### MH-STATS-02 — Level Progress
@@ -871,6 +877,8 @@ flowchart TD
 - XP progress bar
 - Recent XP events (source + amount)
 - Level benefits (nếu có)
+
+**API (M4):** `GET /api/gamification/xp` — trả totalXp, level (current / next / progress), recentEvents. Không có `/api/levels/current`.
 
 ---
 

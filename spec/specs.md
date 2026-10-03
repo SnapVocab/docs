@@ -319,14 +319,15 @@ Learning state UI là taxonomy hiển thị/aggregate, dựa trên `card_state` 
 | `NEW` | — | `new` |
 | `LEARNING` | — | `learning` |
 | `RELEARNING` | — | `learning` |
-| `REVIEW` | `interval < 21 ngày` | `reviewing` |
-| `REVIEW` | `interval >= 21 ngày` | `mastered` |
+| `REVIEW` | `stability < 21` (ngày) | `reviewing` |
+| `REVIEW` | `stability >= 21` (ngày) | `mastered` |
 
 Business rules cho learning state:
 
 - `mastered` là trạng thái suy ra từ thẻ FSRS đã mature, không phải Learner đánh dấu tay.
-- Ngưỡng mature/mastered mặc định là `interval >= 21 ngày` theo quy ước mature card tương tự Anki; nếu cấu hình sản phẩm đổi ngưỡng, mọi query/list/progress/mission phải dùng cùng một config.
-- `learnedCount` = số bản ghi FSRS không còn `NEW` (`LEARNING + REVIEW + RELEARNING`); `dueCount`/`đang ôn` = số bản ghi có `due <= now`; `masteredCount` = số bản ghi có UI state `mastered`.
+- Ngưỡng mature/mastered mặc định là `stability >= 21` ngày (quy ước mature card tương tự Anki). Dùng `fsrs_records.stability` thay cho interval vì bảng không lưu interval/last review; `stability` là số ngày để retrievability giảm còn 90%, xấp xỉ interval FSRS ở desired retention mặc định 0.9. Nếu cấu hình sản phẩm đổi ngưỡng, mọi query/list/progress/mission phải dùng cùng một config.
+- `learnedCount` = số bản ghi FSRS không còn `NEW` (`LEARNING + REVIEW + RELEARNING`); `reviewingCount` ("Đang ôn") = số bản ghi có UI state `reviewing`; `masteredCount` = số bản ghi có UI state `mastered`.
+- `dueCount` ("Cần ôn hôm nay") = số bản ghi có `due <= now` — là workload, **không** phải learning state; không được hiển thị dưới nhãn "Đang ôn".
 
 ### FR-05 — Flashcard & Topic Template
 

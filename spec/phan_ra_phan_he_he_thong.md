@@ -345,12 +345,12 @@ Phân hệ backend phía Spring Boot chịu trách nhiệm orchestrate luồng n
 
 | Method | Endpoint | Mô tả | Auth |
 | ------ | -------- | ----- | ---- |
-| POST | `/api/scan/upload-url` | Body `{contentType}` → `{uploadUrl, objectName, contentType, expiredAt}` | Learner |
-| POST | `/api/scan` (`application/json`) | Body `{objectKey}` → `202 {requestId, status: PENDING}` | Learner |
-| GET | `/api/scan/{requestId}` | `{requestId, status, errorCode, createdAt, finishedAt, result}`; `result = {imageWidth, imageHeight, items[]}` khi `DONE`. Scan của người khác trả 404 | Learner |
-| GET | `/api/scan/quota` | `{limit, used, remaining, resetAt}` | Learner |
-| POST | `/api/scan` (`multipart/form-data`) | **Deprecated** — endpoint đồng bộ cũ, field `file`, trả kết quả ngay (kèm ảnh vẽ sẵn box nếu AI bật). Vẫn tính quota | Learner |
-| GET | `/api/scan/history` | Lịch sử scan của Learner (Should — chưa triển khai) | Learner |
+| POST | `/scan/upload-url` | Body `{contentType}` → `{uploadUrl, objectName, contentType, expiredAt}` | Learner |
+| POST | `/scan` (`application/json`) | Body `{objectKey}` → `202 {requestId, status: PENDING}` | Learner |
+| GET | `/scan/{requestId}` | `{requestId, status, errorCode, createdAt, finishedAt, result}`; `result = {imageWidth, imageHeight, items[]}` khi `DONE`. Scan của người khác trả 404 | Learner |
+| GET | `/scan/quota` | `{limit, used, remaining, resetAt}` | Learner |
+| POST | `/scan` (`multipart/form-data`) | **Deprecated** — endpoint đồng bộ cũ, field `file`, trả kết quả ngay (kèm ảnh vẽ sẵn box nếu AI bật). Vẫn tính quota | Learner |
+| GET | `/scan/history` | Lịch sử scan của Learner (Should — chưa triển khai) | Learner |
 
 Mỗi phần tử `items[]`: `label`, `score`, `source`, `reliability`, `box {x1, y1, x2, y2}`, `word` (LookupResult, `null` nếu không có trong từ điển). Mã lỗi trả trong `RestResponse.error`; riêng `QUOTA_EXCEEDED` kèm `data = {limit, used, remaining, resetAt}`.
 
@@ -628,7 +628,7 @@ Quản lý hàng đợi ôn tập theo thuật toán FSRS (Free Spaced Repetitio
 
 - SRS logic tích hợp chặt với SS-09 (FsrsRecord entity + FsrsService). Tách SS vì trách nhiệm nghiệp vụ khác nhau: SS-09 quản lý study session / template, SS-11 quản lý review scheduling.
 - FSRS parameters: card_state (NEW/LEARNING/REVIEW/RELEARNING/SUSPENDED), due, stability, difficulty, reps, lapses.
-- UI/progress state dùng map chuẩn FR-04: NEW→new; LEARNING/RELEARNING→learning; REVIEW interval <21 ngày→reviewing; REVIEW interval ≥21 ngày→mastered.
+- UI/progress state dùng map chuẩn FR-04: NEW→new; LEARNING/RELEARNING→learning; REVIEW `stability` <21 ngày→reviewing; REVIEW `stability` ≥21 ngày→mastered.
 
 ### Trace
 
@@ -649,8 +649,8 @@ Tổng hợp và hiển thị tiến độ học tập cá nhân: số từ, str
 
 | Entity             | Mô tả                                                                     |
 | ------------------ | -------------------------------------------------------------------------- |
-| `LearningProgress` | Aggregate: totalWords, learnedCount, dueCount, masteredCount, streak, accuracy theo learning-state map |
-| `LearningEvent`    | Sự kiện học (type, timestamp, metadata) — rebuild từ review event / Quiz complete |
+| `LearningProgress` | DTO aggregate (không phải bảng): totalWords, learnedCount, reviewingCount, masteredCount, dueCount, accuracy — query trực tiếp từ `fsrs_records` + `topic_items` |
+| `LearningEvent`    | Bảng `learning_events` (append-only): sự kiện học hợp lệ (type, learningDate, metadata) — nguồn cho activity history ([database.md](../db/database.md) §3B) |
 
 ### Chức năng chính
 
@@ -662,20 +662,33 @@ Tổng hợp và hiển thị tiến độ học tập cá nhân: số từ, str
 - Goal tracking (Could)
 - Cập nhật sau mỗi hoạt động: lưu từ, flashcard review, quiz complete
 
-Quy tắc aggregate:
+Quy tắc aggregate (theo learning-state map, [specs.md](./specs.md) FR-04):
 
-- `learnedCount` = số TopicItem có UI state khác `new` (`learning + reviewing + mastered`).
-- `dueCount` / đang ôn = số FsrsRecord có `due <= now`.
-- `masteredCount` = số FsrsRecord có `card_state = REVIEW` và interval ≥ 21 ngày.
+- `learnedCount` = số FsrsRecord có `state <> NEW` (`learning + reviewing + mastered`).
+- `reviewingCount` = số FsrsRecord có UI state `reviewing` (`REVIEW`, `stability` < 21 ngày). UI label "Đang ôn" **chỉ** dùng số này.
+- `masteredCount` = số FsrsRecord có UI state `mastered` (`REVIEW`, `stability` ≥ 21 ngày).
+- `dueCount` = số FsrsRecord có `due <= now` — là **workload hiện tại**, không phải learning state; UI label "Cần ôn hôm nay".
+- Ngày học tính theo `Asia/Ho_Chi_Minh` (GMT+7), cùng quy ước với Daily Mission.
+
+Source of truth theo số liệu (không tính lại streak từ event khi gọi API):
+
+| Số liệu | Source of truth |
+| ------- | --------------- |
+| Tổng số từ / learning state / due | `topic_items` + `fsrs_records` |
+| Streak hiện tại / dài nhất | `users.streak_days`, `users.longest_streak_days`, `users.last_studied_at` |
+| Activity chart ngày/tuần/tháng, lịch ngày học | `learning_events` (group theo `learning_date`) |
+| Accuracy, số quiz đã hoàn thành | Quiz session đã complete + review event |
 
 ### API Endpoints
 
-| Method | Endpoint                      | Mô tả                                     | Auth    |
-| ------ | ----------------------------- | ------------------------------------------ | ------- |
-| GET    | `/progress/summary`           | Tổng quan tiến độ                          | Learner |
-| GET    | `/progress/streak`            | Chi tiết streak                             | Learner |
-| GET    | `/progress/history`           | Lịch sử hoạt động (daily/weekly/monthly)   | Learner |
-| GET    | `/progress/home-widget`       | Summary ngắn gọn cho Home screen           | Learner |
+| Method | Endpoint                      | Mô tả                                     | Màn hình | Auth    |
+| ------ | ----------------------------- | ------------------------------------------ | -------- | ------- |
+| GET    | `/progress/summary`           | Learning state counts, dueCount, accuracy, số quiz đã hoàn thành | MH-STATS-01 | Learner |
+| GET    | `/progress/streak`            | Streak hiện tại + dài nhất + `lastStudiedDate` | MH-STATS-01 | Learner |
+| GET    | `/progress/history`           | Activity theo ngày/tuần/tháng (`?period=day\|week\|month&from&to`) | MH-STATS-01 | Learner |
+| GET    | `/progress/home-widget`       | Summary ngắn gọn: saved/learned/mastered, dueCount, streak | MH-MAIN-01 | Learner |
+
+XP và Level **không** thuộc Progress — xem `/gamification/xp` (SS-13).
 
 ### Trace
 
@@ -717,14 +730,26 @@ Hệ thống tăng động lực học tập: điểm kinh nghiệm (XP), tiền
 
 | Method | Endpoint                              | Mô tả                                       | Auth    |
 | ------ | ------------------------------------- | -------------------------------------------- | ------- |
-| GET    | `/gamification/xp`                    | Tổng XP và lịch sử                           | Learner |
-| GET    | `/api/me/wallet`                      | Balance coin và lịch sử giao dịch (cursor)   | Learner |
+| GET    | `/gamification/xp`                    | Tổng XP, level hiện tại (derive từ `users.exp` + `levels`), XP tới level kế, recent `ExperienceLog` — phục vụ MH-STATS-02 và Home. Không có endpoint `/levels/current` riêng | Learner |
+| GET    | `/me/wallet`                      | Balance coin và lịch sử giao dịch (cursor)   | Learner |
 | GET    | `/gamification/missions`              | Danh sách missions + progress                | Learner |
 | POST   | `/gamification/missions/{id}/claim`   | Claim reward nhiệm vụ (idempotent)           | Learner |
 | GET    | `/gamification/badges`                | Danh sách badges (earned + available)        | Learner |
 | GET    | `/leaderboards`                       | Bảng xếp hạng (period, type)                | Learner |
 | GET/POST/PUT/DELETE | `/admin/missions`       | Admin CRUD missions                          | Admin   |
 | GET/POST/PUT/DELETE | `/admin/badges`         | Admin CRUD badges                            | Admin   |
+
+Response `GET /gamification/xp` (level = bản ghi `levels` có `required_exp` lớn nhất ≤ `users.exp`):
+
+```json
+{
+  "totalXp": 2450,
+  "level": { "levelNumber": 7, "title": "Explorer", "minXp": 2000, "nextLevelXp": 3000, "progress": 0.45 },
+  "recentEvents": [{ "sourceType": "QUIZ", "amount": 30, "createdAt": "2026-10-02T08:00:00+07:00" }]
+}
+```
+
+Level cao nhất: `nextLevelXp = null`, `progress = 1`.
 
 ### Sub-components
 
@@ -777,16 +802,16 @@ Cửa hàng vật phẩm ảo trong ứng dụng. Learner dùng Coin mua `THEME`
 
 | Method    | Endpoint                                  | Mô tả                                     | Auth    |
 | --------- | ----------------------------------------- | ----------------------------------------- | ------- |
-| GET       | `/api/shop/items`                         | Catalog + trạng thái theo Learner         | Learner |
-| POST      | `/api/shop/items/{itemId}/purchase`       | Mua (header `Idempotency-Key`)            | Learner |
-| GET       | `/api/me/items`                           | Inventory + equipped + activeBooster      | Learner |
-| PUT/DELETE | `/api/me/equipment/{type}`               | Trang bị / bỏ Theme, Avatar Frame         | Learner |
-| POST      | `/api/me/items/{itemId}/activate`         | Kích hoạt XP Booster (`Idempotency-Key`)  | Learner |
-| GET       | `/api/admin/shop/item-types`              | Metadata dynamic form                     | Admin   |
-| GET/POST  | `/api/admin/shop/items`                   | Danh sách / tạo DRAFT                     | Admin   |
-| GET/PATCH/DELETE | `/api/admin/shop/items/{id}`       | Chi tiết / sửa (có `version`) / xóa DRAFT | Admin   |
-| POST      | `/api/admin/shop/items/{id}/publish`      | DRAFT → PUBLISHED                         | Admin   |
-| POST      | `/api/admin/shop/items/{id}/archive`      | PUBLISHED → ARCHIVED                      | Admin   |
+| GET       | `/shop/items`                         | Catalog + trạng thái theo Learner         | Learner |
+| POST      | `/shop/items/{itemId}/purchase`       | Mua (header `Idempotency-Key`)            | Learner |
+| GET       | `/me/items`                           | Inventory + equipped + activeBooster      | Learner |
+| PUT/DELETE | `/me/equipment/{type}`               | Trang bị / bỏ Theme, Avatar Frame         | Learner |
+| POST      | `/me/items/{itemId}/activate`         | Kích hoạt XP Booster (`Idempotency-Key`)  | Learner |
+| GET       | `/admin/shop/item-types`              | Metadata dynamic form                     | Admin   |
+| GET/POST  | `/admin/shop/items`                   | Danh sách / tạo DRAFT                     | Admin   |
+| GET/PATCH/DELETE | `/admin/shop/items/{id}`       | Chi tiết / sửa (có `version`) / xóa DRAFT | Admin   |
+| POST      | `/admin/shop/items/{id}/publish`      | DRAFT → PUBLISHED                         | Admin   |
+| POST      | `/admin/shop/items/{id}/archive`      | PUBLISHED → ARCHIVED                      | Admin   |
 
 ### Sub-components
 

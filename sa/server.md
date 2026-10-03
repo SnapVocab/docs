@@ -407,7 +407,7 @@ Chi tiết và số đo ở `ai-service/README.md`. Các biến chính:
 | **Recognition** | `image_recognition_requests`, `recognition_results`, `detected_objects`, `scan_histories` | SS-06 |
 | **Template & SRS** | `templates`, `template_elements`, `template_fields`, `fsrs_records` | SS-09, SS-11 |
 | **Quiz** | PLANNED — chưa chốt tên bảng; persistence contract: [database.md](../db/database.md) §3A | SS-10 |
-| **Progress** | `learning_events`, `learning_progress` | SS-12 |
+| **Progress** | `learning_events` (aggregate query trực tiếp từ `fsrs_records`, streak trên `users`) | SS-12 |
 | **Gamification** | `missions`, `mission_progress`, `badges`, `user_badges`, `experience_logs`, `coin_transactions`, `leaderboard_entries` | SS-13 |
 | **Economy** | `shop_items`, `user_items`, `booster_activations`, `coin_transactions`, `levels` | SS-14 |
 | **Media** | `storage_metadata` (object key, owner, MIME, size, type, state, timestamp) | SS-16 |

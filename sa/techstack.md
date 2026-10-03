@@ -420,7 +420,7 @@ Security Layer
 | **Recognition** | `image_recognition_requests`, `recognition_results`, `detected_objects`, `scan_histories` | SS-06 | M2 |
 | **Template & SRS** | `templates`, `template_elements`, `template_fields`, `fsrs_records` | SS-09, SS-11 | M1, M3 |
 | **Quiz** | PLANNED — chưa chốt tên bảng ([database.md](../db/database.md) §3A) | SS-10 | M3 |
-| **Progress** | `learning_events`, `learning_progress` | SS-12 | M3 |
+| **Progress** | `learning_events` (aggregate query trực tiếp từ `fsrs_records`, streak trên `users`) | SS-12 | M3 |
 | **Gamification** | `missions`, `mission_progress`, `badges`, `user_badges`, `experience_logs`, `coin_transactions`, `leaderboard_entries` | SS-13 | M4 |
 | **Economy** | `shop_items`, `user_items`, `booster_activations`, `coin_transactions`, `levels` | SS-14 | M4 |
 | **Media** | `storage_metadata` | SS-16 | M1 |
@@ -688,7 +688,7 @@ Bảng map đổi được qua `RELIABILITY_BY_SOURCE`. Backend lọc lần cu�
 | **Buttons** | Primary, secondary, ghost, disabled, loading |
 | **Inputs** | Text, password, OTP (digit), search, error state |
 | **Cards** | Vocabulary card, quiz card, mission card, topic card |
-| **Badges/Chips** | Learning state badge (new/learning/reviewing/mastered suy từ FSRS + interval), source tag (SCAN/DICT/TOPIC), reliability badge |
+| **Badges/Chips** | Learning state badge (new/learning/reviewing/mastered suy từ FSRS `state` + `stability`), source tag (SCAN/DICT/TOPIC), reliability badge |
 | **Navigation** | Tab bar, header, back button |
 | **Gamification** | XP bar, Coin badge, Streak flame, Level badge, Progress bar, Mission progress |
 | **Leaderboard** | Leaderboard row, rank indicator, avatar |
