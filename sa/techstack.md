@@ -421,7 +421,7 @@ Security Layer
 | **Template & SRS** | `templates`, `template_elements`, `template_fields`, `fsrs_records` | SS-09, SS-11 | M1, M3 |
 | **Quiz** | PLANNED — chưa chốt tên bảng ([database.md](../db/database.md) §3A) | SS-10 | M3 |
 | **Progress** | `learning_events` (aggregate query trực tiếp từ `fsrs_records`, streak trên `users`) | SS-12 | M3 |
-| **Gamification** | `missions`, `mission_progress`, `badges`, `user_badges`, `experience_logs`, `coin_transactions`, `leaderboard_entries` | SS-13 | M4 |
+| **Gamification** | `mission_templates`, `user_daily_missions`, `user_daily_mission_progress_logs`, `user_daily_mission_claims`, `experience_logs`, `coin_transactions` (Badges, Leaderboard: chưa thiết kế schema) | SS-13 | M4 |
 | **Economy** | `shop_items`, `user_items`, `booster_activations`, `coin_transactions`, `levels` | SS-14 | M4 |
 | **Media** | `storage_metadata` | SS-16 | M1 |
 | **Notification** | `notifications`, `user_notifications` | SS-15 | M3 |
@@ -478,7 +478,7 @@ Security Layer
 | Dictionary cache | Key-value (word detail/translation) | 1–24h | Cache từ phổ biến, giảm DB query |
 | Leaderboard | Sorted set (ZADD/ZRANGEBYSCORE) | 5–15m | Ranking global/period — không full-scan aggregate |
 | Home dashboard summary | Key-value aggregate cache | 1–5m | Giảm query nặng progress/stats |
-| Mission state | Key-value tạm thời | 5m | Không thay thế DB |
+| Mission state | Không cache (đọc thẳng DB, [daily_mission.md](../decisions/daily_mission.md) §9) | — | — |
 | AI label → Word mapping | Key-value | 24h | Cache mapping label → Word ID |
 | Rate limiting | Counter (INCR/EXPIRE) | Window-based | OTP, login, upload nếu triển khai |
 | Distributed lock | Redisson lock | Auto-release | Tránh cộng reward trùng concurrent |

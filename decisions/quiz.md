@@ -26,7 +26,7 @@
 | D14 | Quiz size | `requestedCount` ∈ {5, 10, 20} (Quiz Settings mobile). Quiz luôn có đúng số unit đã chọn; không có dải 4..50. |
 | D15 | Quiz duration | Quiz Play **MAY** hiển thị stopwatch đếm lên phía client: UX-only, không ảnh hưởng chấm điểm/XP, không persist. Khi quiz COMPLETED, Backend tính `durationSeconds = completedAt - createdAt` và expose trong `QuizResultDTO`; MH-LEARN-04 hiển thị giá trị này. Client **không** tự tính duration, **không** gửi stopwatch lên server. |
 | D16 | Review vs Retry mistakes | **Review mistakes: đã hỗ trợ** — Result hiển thị `prompt`, `learnerAnswer`, `correctAnswer`, `outcome = INCORRECT` từ `QuizResultDTO.items`, không tạo session mới, không cần API mới. **Retry Mistakes** (tạo QuizSession chỉ gồm câu sai) **defer M4**; không được expose thành CTA active cho tới khi có quy tắc question-count / reward / session-generation. |
-| D17 | Session expiration | Session `IN_PROGRESS` chỉ resume được trong **24h kể từ `createdAt`**. Lifecycle: `IN_PROGRESS → COMPLETED` (learner nộp bài) \| `→ CANCELLED` (learner chủ động bỏ) \| `→ EXPIRED` (hệ thống đóng vì quá TTL). `CANCELLED` **không** dùng thay `EXPIRED`. Lazy expiration (không cron/scheduler); expired không resume/answer/complete/cancel → `QUIZ_SESSION_EXPIRED` (HTTP **410 Gone**). |
+| D17 | Session expiration | Session `IN_PROGRESS` chỉ resume được trong **24h kể từ `createdAt`**. Lifecycle: `IN_PROGRESS → COMPLETED` (learner nộp bài) \| `→ CANCELLED` (learner chủ động bỏ) \| `→ EXPIRED` (hệ thống đóng vì quá TTL). `CANCELLED` **không** dùng thay `EXPIRED`. Lazy expiration (không cron/scheduler); expired không resume/answer/complete/cancel → `QUIZ_SESSION_EXPIRED` (HTTP **410 Gone**). Đọc lại vẫn được: Result trả **200** với `status = EXPIRED`, `summary = null`; History liệt kê với `status = EXPIRED`. |
 | D18 | Resume vs Create | **Làm tiếp** (Quiz History) = resume đúng `QuizSession` cũ, không sinh lại câu hỏi. **Bắt đầu** (Quiz Setup) = luôn tạo Quiz mới (`id` khác); **không** ngầm hiểu "Trắc nghiệm 5 câu" là bài cũ. Khi Setup phát hiện session `IN_PROGRESS` còn hạn **cùng ngữ cảnh** (`topicId` + `mode` + `direction` + `requestedCount`) thì hỏi learner: *Tiếp tục bài cũ* → resume; *Bắt đầu bài mới* → `CANCELLED` bài cũ rồi create. Không giữ đồng thời hai `IN_PROGRESS` cùng ngữ cảnh. |
 | D19 | Topic Selection (Hybrid) | Nguồn Quiz là thực thể `Topic` (`topicId`). Tuyệt đối **không** dùng `deckId` làm alias và **không** fallback giả `topicId = 1`. Quiz Setup hỗ trợ luồng hybrid: nếu nhận `topicId` từ màn trước (Topic Detail / bài học dở) thì preselect, nhưng learner vẫn có thể đổi Topic bất cứ lúc nào qua Bottom Sheet; nếu mở từ Learn Hub thì chưa chọn Topic, CTA Start Quiz bị disabled cho tới khi chọn Topic hợp lệ. |
 
@@ -75,7 +75,8 @@ IN_PROGRESS -> EXPIRED      hệ thống đóng session dở dang sau TTL 24h k�
 
 - TTL cố định `createdAt + 24h`; **không** dùng `lastActivityAt` ở phiên bản này.
 - **Lazy expiration**: kiểm tra ngay trong request (resume / check / pair attempt / complete / cancel / result / history) và persist `EXPIRED` vì expiration là irreversible. Không có cron job.
-- Mọi tương tác với session đã expired trả `QUIZ_SESSION_EXPIRED` → HTTP **410 Gone**.
+- Mọi thao tác **làm bài** với session đã expired (resume `GET /api/me/quizzes/{id}`, check, pair attempt, complete, cancel) trả `QUIZ_SESSION_EXPIRED` → HTTP **410 Gone**.
+- Ngoại lệ chỉ đọc: `GET /api/me/quizzes/{id}/result` trả **200** với `status = EXPIRED`, `summary = null`, `durationSeconds = null`, `xp = null` (không có điểm cuối); mobile hiển thị "Phiên quiz đã hết hạn", không trình bày như bài hoàn thành. Tương tự `CANCELLED`.
 - History (`GET /api/me/quizzes`) không được trình bày session quá 24h như còn resume được; expire batch trước khi map DTO, client không phải là source of truth của status.
 
 ### 2.0.1. Resume vs Create (D18)
@@ -205,6 +206,7 @@ Không thêm role mới (ví dụ không tạo `PHONETIC`) khi chưa có quyết
 - Tính năng skip câu / skip cặp: **TBD** — chưa có requirement canonical.
 - **Retry Mistakes session** (quiz mới chỉ gồm câu sai): defer **M4** (D16). Cần quyết định question-count (rule hiện tại {5, 10, 20} không cho 2–4 câu), reward và cách sinh session trước khi implement.
 - **XP:** `complete` ghi `10 XP × số câu đúng` qua `XpService.award(QUIZ, eventKey = QUIZ:{quizId})` — XP Booster ×2 xét tại thời điểm complete; `QuizResultDTO.xp {baseAmount, bonusAmount, amount}` (null nếu 0 câu đúng). **Coin:** chưa kích hoạt, UI hiển thị `+0 Coin`.
+- **Daily Mission trong `complete`** ([daily_mission.md](./daily_mission.md) §3.2, §6): lock row quiz → lock `users` → validation (status, unit chưa resolve) → chụp `actionInstant = Economy.now()` → `ensureAssigned` → set `COMPLETED`, `completedAt = actionInstant` → XP → `ProgressService.record(…, actionInstant)` → `MissionProgress.apply(QUIZ_COMPLETED, {totalUnits, correctCount, requestedCount})`, tất cả trong cùng transaction. Nhánh replay (`COMPLETED`) return sớm, không chạm mission. Code hiện tại lấy lock `users` muộn hơn (trong `XpService`) và chụp `completedAt` riêng — cần đổi khi implement Daily Mission (G9).
 
 ---
 
@@ -228,3 +230,4 @@ Không thực hiện code change trong phase tài liệu này. Các gap cần x�
 | G6 | `SnapVocab/src/features/learn/learning-state.ts` | Comment tham chiếu `/api/v1/learning-hub/summary` | Cập nhật về `/api/...` khi endpoint được định nghĩa |
 | G7 | Seed `DataInitializer` + DB hiện có | Không wire `main.translation` → `NATIVE_TRANSLATION`; `EXAMPLE_SENTENCE` trỏ `meaning.example` thay vì `examples.content` | **DONE** (Q1): `template_fields.hidden` + binding ẩn do `SemanticBindingMigration` thêm cho DEFAULT_ENGLISH; fork chỉ REPORT mặc định |
 | G8 | `SnapVocab/src/features/template-builder/mappers/backend-to-client.ts` | Field có `semanticRole = null` bị gán mặc định `TARGET_WORD`; lưu lại template sẽ tạo nhiều field `TARGET_WORD` | Giữ `null` khi round-trip |
+| G9 | `QuizService.complete`, `ProgressService.record`, `ProgressEventListener` | Lock `users` qua `XpService` sau khi đã set `completedAt`; `record` tự lấy `Economy.now()` | Thứ tự §5 "Daily Mission trong `complete`"; `record` nhận `actionInstant` |

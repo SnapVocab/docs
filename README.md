@@ -35,12 +35,16 @@ Các tài liệu trong thư mục này cần bám theo các quyết định cano
 ```text
 docs/
 ├── README.md
-├── design.md
 ├── db/
 │   └── database.md
 ├── decisions/
 │   ├── custom_card.md
-│   └── daily_mission.md
+│   ├── daily_mission.md
+│   ├── quiz.md
+│   └── shop.md
+├── ui/
+│   └── collection_creation_flow_ui.md
+├── ke_hoach_phan_chia_cong_viec.xlsx
 ├── sa/
 │   ├── sa.md
 │   ├── server.md
@@ -77,12 +81,12 @@ docs/
 
 - [decisions/custom_card.md](./decisions/custom_card.md): thiết kế hệ thống Template cho Topic, thành phần TemplateElement và TemplateField mang SemanticRole ánh xạ thuộc tính EAV thành thẻ học.
 - [decisions/quiz.md](./decisions/quiz.md): quyết định kiến trúc Quiz — base path `/api`, incremental grading (MCQ/Fill Blank từng câu, Matching từng cặp), resolve dữ liệu theo SemanticRole, QuizMode vs QuizDirection.
-- [decisions/daily_mission.md](./decisions/daily_mission.md): thiết kế Daily Mission, Daily Chest, Weekly Milestone, mission pool, event tracking và reward idempotency.
+- [decisions/daily_mission.md](./decisions/daily_mission.md): thiết kế Daily Mission (5 nhiệm vụ/ngày, reward theo từng nhiệm vụ), mission pool, event tracking và reward idempotency.
 - [decisions/shop.md](./decisions/shop.md): Shop canonical — `THEME`/`AVATAR_FRAME`/`XP_BOOSTER`, UserItem ownership + equip, XP Booster ×2, purchase idempotency/concurrency, Admin boundary, API, schema.
 
 ### 5. Design
 
-- [design.md](./design.md): tài liệu thiết kế UI/UX. File hiện là nơi dự kiến tổng hợp guideline giao diện, design system, màu sắc, typography, component và screen states.
+- [snapVocab-frontend/docs/design.md](../snapVocab-frontend/docs/design.md): design tokens/component (nguồn design duy nhất, được [shop.md](./decisions/shop.md) tham chiếu). File nằm trong thư mục prototype nhưng nội dung là ACTIVE.
 
 ## Milestone triển khai
 
@@ -92,6 +96,32 @@ docs/
 | M2        | Camera/Object Recognition MVP       | Camera/gallery, upload, AI recognition, word mapping, save from scan         | [sa/sa.md](./sa/sa.md), [sa/server.md](./sa/server.md)                                                                                                     |
 | M3        | Learning Engine                     | Custom card, quiz, SRS, progress, notification                               | [decisions/custom_card.md](./decisions/custom_card.md), [decisions/quiz.md](./decisions/quiz.md), [spec/phan_ra_tinh_nang.md](./spec/phan_ra_tinh_nang.md) |
 | M4        | Gamification & Production Readiness | Mission, XP, coin, badge, shop, leaderboard, admin CMS, production hardening | [decisions/daily_mission.md](./decisions/daily_mission.md), [decisions/shop.md](./decisions/shop.md), [sa/server.md](./sa/server.md)                        |
+
+## Trạng thái tài liệu (audit 2026-10-03)
+
+Khi hai tài liệu khác nhau, tài liệu AUTHORITATIVE thắng; DERIVED phải sửa theo. Tài liệu ACTIVE không được tham chiếu SUPERSEDED/HISTORICAL như nguồn hiện hành.
+
+| Tài liệu | Trạng thái | Ghi chú |
+| :--- | :--- | :--- |
+| `docs/decisions/daily_mission.md` | ACTIVE / AUTHORITATIVE (rule Daily Mission) | Daily Mission: scope, catalog, progress đồng bộ, DB, API, mobile, admin. PD-DM-01 duyệt 2026-10-04; còn mở không chặn: PD-DM-02/06, PD-LB-01 |
+| `docs/decisions/shop.md` | ACTIVE / AUTHORITATIVE | Shop, Coin ledger, XP Booster, reward grant |
+| `docs/decisions/quiz.md` | ACTIVE / AUTHORITATIVE | Quiz, XP quiz |
+| `docs/decisions/custom_card.md` | ACTIVE / AUTHORITATIVE | Template/flashcard |
+| `docs/spec/specs.md` | ACTIVE / AUTHORITATIVE (FR, scope) | Chi tiết nghiệp vụ theo decisions |
+| `docs/db/database.md` | ACTIVE / AUTHORITATIVE (schema) | Phần mission khớp `daily_mission.md` §7 |
+| `docs/spec/buss_mainflow.md`, `phan_ra_tinh_nang.md`, `phan_ra_phan_he_he_thong.md`, `phan_ra_man_hinh.md` | ACTIVE / DERIVED | |
+| `docs/sa/sa.md`, `server.md`, `techstack.md` | ACTIVE / DERIVED | |
+| `docs/ke_hoach_phan_chia_cong_viec.xlsx` | ACTIVE / DERIVED | Kế hoạch phân công; endpoint/bảng theo decisions |
+| `docs/ui/collection_creation_flow_ui.md` | ACTIVE / DERIVED | Ảnh minh họa gốc chưa có trong repo |
+| `snapVocab-frontend/docs/design.md` | ACTIVE / DERIVED | Design tokens duy nhất (shop.md tham chiếu); nằm trong thư mục prototype |
+| `snapVocab-frontend/docs/mascot_snapy.md` | ACTIVE / DERIVED | Mascot |
+| `SnapVocab/docs/*`, `SnapVocab/AGENTS.md`, `SnapVocab/claude.md` | ACTIVE / DERIVED | Quy ước code mobile |
+| `snapAdmin/docs/design/design.md` | ACTIVE / DERIVED | Admin UI; còn nội dung ngoài scope (Gems, Streak Recovery) chưa audit nghiệp vụ |
+| `snap-vocab-backend/README.md`, `snapAdmin/README.md`, `snapVocab-frontend/README.md`, `snap-vocab-backend/ai-service/README.md` | ACTIVE / DERIVED | README kỹ thuật |
+| `plan/shop-item/*` | HISTORICAL | Kịch bản/sơ đồ Shop trước khi implement; `shop.md` thắng |
+| `plan/engagement/implementation_plan.md` | SUPERSEDED | Daily Goal/Challenge/Weekly; không dùng làm nguồn |
+| `.tmp/mission-review/REPORT.md` | HISTORICAL | Review mock admin 17/09; tham chiếu file không còn tồn tại |
+| `docs/design.md` (đã xóa) | BROKEN / REMOVED | File rỗng; link đã trỏ sang `snapVocab-frontend/docs/design.md` |
 
 ## Quy ước khi cập nhật tài liệu
 

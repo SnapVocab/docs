@@ -783,7 +783,7 @@ flowchart TD
 
 **Empty state:** "Chưa có bài Quiz nào."
 
-> **Resume/expire (D17):** thoát qua modal → `CANCELLED`. Bị ngắt ngoài ý muốn (app đóng, back cứng) → giữ `IN_PROGRESS`, resume được trong 24h kể từ `createdAt`; quá hạn Backend chuyển `EXPIRED` và mọi tương tác trả `QUIZ_SESSION_EXPIRED` (410). Khi đang làm bài mà nhận lỗi này, mobile dừng quiz, báo "Phiên quiz đã hết hạn" và điều hướng về Quiz Setup.
+> **Resume/expire (D17):** thoát qua modal → `CANCELLED`. Bị ngắt ngoài ý muốn (app đóng, back cứng) → giữ `IN_PROGRESS`, resume được trong 24h kể từ `createdAt`; quá hạn Backend chuyển `EXPIRED` và mọi thao tác làm bài (resume/check/attempt/complete/cancel) trả `QUIZ_SESSION_EXPIRED` (410); xem Result vẫn trả 200 với `status = EXPIRED`, không có điểm. Khi đang làm bài mà nhận lỗi này, mobile dừng quiz, báo "Phiên quiz đã hết hạn" và điều hướng về Quiz Setup.
 
 ---
 
@@ -908,20 +908,23 @@ flowchart TD
 | Thuộc tính | Mô tả                                 |
 | ---------- | ------------------------------------- |
 | Actor      | Learner                               |
-| Feature    | F-GAME-03, F-GAME-04, F-GAME-10       |
+| Feature    | F-GAME-03, F-GAME-10                  |
 | BF         | BF-12                                 |
 | FR         | FR-09.03                              |
-| Mục tiêu   | Xem nhiệm vụ ngày/tuần và nhận thưởng |
+| Mục tiêu   | Xem nhiệm vụ ngày và nhận thưởng từng nhiệm vụ |
 
 **Dữ liệu hiển thị:**
 
-- **Daily missions** (3–5 missions): tên, progress bar (VD: 7/10), reward (coin + XP)
-- **Weekly stamps** (hoàn thành all daily → stamp → rương tuần)
-- Claim button (COMPLETED → CLAIMED)
-- Go-to-task CTA (deep link tới hoạt động liên quan)
+- **Daily missions** (đúng 5 missions): tên, mô tả, progress bar (VD: 7/10), reward riêng (coin + XP, item nếu có), trạng thái `Đang làm` / `Hoàn thành` / `Đã nhận thưởng`
+- Claim button trên từng mission (COMPLETED → CLAIMED); không có rương/thưởng tổng khi đủ 5/5, không có thưởng tuần/tháng
+- Cảnh báo mission đã hoàn thành nhưng chưa claim sẽ hết hạn lúc reset
+- Lỗi `503 MISSION_POOL_INSUFFICIENT`: trạng thái lỗi tạm thời, không hiển thị danh sách thiếu
+- Contract render/claim/invalidation: [daily_mission.md](../decisions/daily_mission.md) §9
+- Go-to-task CTA theo `triggerEvent` ([daily_mission.md](../decisions/daily_mission.md) §9): thêm từ → `/collections` (chọn collection, FAB "Thêm từ" truyền `topicId`); quiz → `/study/quiz-setup`; mua → Shop; booster → Inventory
+- Phụ thuộc DEP-DM-01: màn thêm từ (`/collections/add-word`) điền `main.translation` từ Quick Lookup khi field còn trống, để từ dùng được cho quiz
 - Reset countdown (thời gian đến 00:00)
 
-**Detail:** Xem [daily_mission.md](./daily_mission.md)
+**Detail:** Xem [daily_mission.md](../decisions/daily_mission.md)
 
 ---
 

@@ -28,6 +28,7 @@ Các bảng trong hệ thống áp dụng cơ chế kế thừa Auditing thông 
 - Các bảng dữ liệu chính sử dụng kiểu `BIGINT` (Long trong Java), khóa chính tự tăng (IDENTITY / AUTO_INCREMENT) để tối ưu hiệu năng join và đánh index.
 - Bảng `authorities` sử dụng trực tiếp tên quyền dạng `VARCHAR(50)` làm khóa chính (ROLE_USER, ROLE_ADMIN).
 - Bảng `scan_requests` dùng UUID dạng `VARCHAR(36)` làm khóa chính vì ID này được đưa ra ngoài (mobile poll theo `requestId`) và không nên đoán được.
+- Bảng `experience_logs` dùng UUID `VARCHAR(36)` làm khóa chính (hiện trạng code `ExperienceLog`).
 
 ### 5. Phạm vi chức năng
 
@@ -404,7 +405,7 @@ Kế thừa `BaseTimeEntity`. Quản lý phiên làm bài Quiz của người d�
 | :--- | :--- | :--- | :--- |
 | `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID câu hỏi quiz |
 | `quiz_id` | BIGINT | FK -> `quizzes(id)`, NOT NULL | Thuộc phiên quiz nào |
-| `position` | INT | NOT NULL | Thứ tự hiển thị câu hỏi trong quiz (0, 1, 2...) |
+| `position` | INT | NOT NULL | Thứ tự hiển thị câu hỏi trong quiz, bắt đầu từ 1 (1, 2, 3...) |
 | `round_no` | INT | NULL | Vòng hiển thị cho Matching (1-based, 5 cặp/round); NULL cho mode khác |
 | `topic_item_id` | BIGINT | NULL | ID từ vựng gốc (snapshot tham chiếu, không FK) |
 | `prompt` | TEXT | NOT NULL | Câu hỏi (MCQ), câu khuyết từ (FILL_BLANK), hoặc vế trái (MATCHING) |
@@ -502,13 +503,13 @@ Kết quả Quiz không ghi vào `fsrs_records`.
 Learning state / due count query trực tiếp từ `fsrs_records` + `topic_items` (không có bảng aggregate `learning_progress`). Streak đọc từ `users.streak_days`, `users.longest_streak_days`, `users.last_studied_at` — **không** tính lại từ `learning_events` khi gọi API.
 
 ### Bảng `learning_events`
-Append-only. Ghi trong cùng transaction với hành động học đã thành công (event type theo [daily_mission.md](../decisions/daily_mission.md) §6). Nguồn cho `GET /api/progress/history` và rebuild khi aggregate lệch.
+Append-only. Ghi trong cùng transaction với hành động học đã thành công (`ProgressService.record`). Nguồn cho `GET /api/progress/history` và rebuild khi aggregate lệch.
 
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
 | `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID event |
 | `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | Người học |
-| `event_type` | VARCHAR(40) | NOT NULL | `WORD_SCANNED_AND_SAVED`, `FLASHCARD_ANSWERED`, `FLASHCARD_SESSION_COMPLETED`, `SRS_REVIEW_COMPLETED`, `QUIZ_COMPLETED`, ... |
+| `event_type` | VARCHAR(40) | NOT NULL | Enum `LearningEventType`: `WORD_SCANNED_AND_SAVED`, `WORD_UPDATED`, `WORD_TAGGED`, `FLASHCARD_ANSWERED`, `FLASHCARD_SESSION_COMPLETED`, `SRS_REVIEW_COMPLETED`, `QUIZ_COMPLETED`. Hiện chỉ `QUIZ_COMPLETED` có producer |
 | `source_key` | VARCHAR(191) | UNIQUE, NOT NULL | Khóa chống ghi trùng từ cùng một hành động (VD `QUIZ_COMPLETED:{quizId}`) |
 | `learning_date` | DATE | NOT NULL | Ngày học theo `Asia/Ho_Chi_Minh` |
 | `metadata` | JSON | NULL | Dữ liệu phụ (topicItemId, quizId, correct...) |
@@ -518,95 +519,102 @@ Index: `(user_id, learning_date)`.
 
 ## 4. Daily Mission & Gamification
 
-Thiết kế từ `daily_mission.md` nhằm thúc đẩy duy trì thói quen học hàng ngày.
+Canonical: [daily_mission.md](../decisions/daily_mission.md) §7. Chỉ có 5 nhiệm vụ ngày, reward theo từng nhiệm vụ; không có Daily Chest, Bonus Mission, Weekly Milestone/Chest. Entity nằm ở package `vn.ptit.snapvocab.mission`. Dev/test: schema do Hibernate sinh từ entity; CHECK khai báo bằng `@Check` trên entity. Môi trường quản lý schema thủ công: `snap-vocab-backend/migration_daily_mission_v1.sql` (daily_mission.md §7, REL-DM-01 Proposed). Catalog seed bằng `MissionCatalogSeeder` (daily_mission.md §7.7). Không bảng mission nào bị purge theo tuổi; FK không cascade.
 
-### Bảng `MissionTemplate`
-| Field | Type | Quan hệ / Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | UUID | Khóa chính (PK) | ID Template nhiệm vụ |
-| `code` | String | Unique | Mã template |
-| `name` | String | | Tên nhiệm vụ hiển thị |
-| `description` | String | | Mô tả ngắn |
-| `type` | Enum | | DAILY, BONUS, CHEST |
-| `category` | Enum | | Nhóm nhiệm vụ (SCAN, VOCABULARY...) |
-| `triggerEvent` | String | | Event dùng để cập nhật tiến độ |
-| `targetValue` | Number | | Chỉ tiêu số lượng cần đạt |
-| `rewardCoin` | Number | | Thưởng xu |
-| `rewardXp` | Number | | Thưởng điểm XP |
-| `rewardItemCode`| String | Nullable | `shop_items.code` của vật phẩm thưởng (1 đơn vị) |
-| `rewardItemFallbackCoin`| Number | Nullable; bắt buộc khi có `rewardItemCode` | Coin cộng thay khi không cấp được item |
-| `weight` | Number | | Trọng số random |
-| `eligibilityRule`| JSON | | Rule lọc theo ngữ cảnh |
-| `isActive` | Boolean| | Bật/tắt template |
-| `createdAt` | DateTime| | Thời điểm tạo |
-| `updatedAt` | DateTime| | Thời điểm cập nhật |
+### Bảng `mission_templates`
+Kế thừa `BaseTimeEntity`. Mission Pool: seed (daily_mission.md §7.7), Admin cấu hình khi có (PD-DM-06).
 
-### Bảng `UserDailyMission`
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | UUID | Khóa chính (PK) | ID Nhiệm vụ của User |
-| `userId` | Long | FK -> `User(id)` | Của người dùng nào |
-| `missionTemplateId`| UUID | FK -> `MissionTemplate(id)`| Sử dụng template nào |
-| `missionDate` | Date | | Ngày cấp nhiệm vụ |
-| `slot` | Number | | Vị trí hiển thị (1-5, hoặc 6) |
-| `targetValue` | Number | | Target Snapshot |
-| `currentProgress`| Number | | Tiến độ đã đạt được |
-| `status` | Enum | | IN_PROGRESS, COMPLETED, CLAIMED, EXPIRED |
-| `snapshotData` | JSON | | Dữ liệu snapshot |
-| `assignedAt` | DateTime| | Thời điểm cấp mission |
-| `completedAt` | DateTime| Nullable | Thời điểm hoàn thành |
-| `claimedAt` | DateTime| Nullable | Thời điểm nhận thưởng |
-| `updatedAt` | DateTime| | Thời điểm cập nhật |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID template |
+| `code` | VARCHAR(64) | UNIQUE, NOT NULL, bất biến | Mã template |
+| `name` | VARCHAR(100) | NOT NULL | Tên hiển thị |
+| `description` | VARCHAR(255) | NOT NULL | Mô tả ngắn |
+| `category` | VARCHAR(20) | NOT NULL | `SCAN`, `VOCABULARY`, `FLASHCARD`, `SRS`, `QUIZ`, `RETENTION`, `SHOP` |
+| `trigger_event` | VARCHAR(40) | NOT NULL | `QUIZ_COMPLETED`, `LEARNING_ACTIVITY_RECORDED`, `TOPIC_ITEM_CREATED`, `SHOP_ITEM_PURCHASED`, `BOOSTER_USED` |
+| `min_quiz_accuracy_percent` | INT | NULL, CHECK 1–100 | Chỉ với `QUIZ_COMPLETED` |
+| `quiz_requested_count` | INT | NULL, CHECK IN (5, 10, 20) | Chỉ với `QUIZ_COMPLETED`; lọc theo `quizzes.requested_count` |
+| `target_value` | INT | NOT NULL, CHECK `>= 1` | Chỉ tiêu |
+| `reward_coin` | INT | NOT NULL, CHECK `>= 0` | Thưởng Coin |
+| `reward_xp` | INT | NOT NULL, CHECK `>= 0` | Thưởng XP |
+| `reward_item_code` | VARCHAR(64) | NULL | `shop_items.code` (1 đơn vị) |
+| `reward_item_fallback_coin` | INT | NULL, CHECK `>= 0`; NOT NULL ⇔ có `reward_item_code` | Coin thay khi không cấp được item |
+| `weight` | INT | NOT NULL, CHECK `>= 1`, DEFAULT 1 | Trọng số random |
+| `eligibility_rule` | VARCHAR(40) | NOT NULL, DEFAULT `NONE` | `NONE`, `HAS_IDLE_XP_BOOSTER`, `HAS_PURCHASABLE_ITEM` |
+| `is_active` | BOOLEAN | NOT NULL, DEFAULT FALSE | Bật/tắt |
+| `version` | BIGINT | NOT NULL, DEFAULT 0 | Optimistic lock Admin |
+| `created_at` / `updated_at` | DATETIME(6) | NOT NULL | |
 
-### Bảng `UserDailyMissionClaimLog`
-| Field | Type | Quan hệ / Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | UUID | Khóa chính (PK) | ID Log nhận thưởng |
-| `userDailyMissionId`| UUID | FK -> `UserDailyMission(id)`, Unique | Nhận thưởng từ nhiệm vụ nào |
-| `userId` | Long | FK -> `User(id)` | Người nhận thưởng |
-| `idempotencyKey`| String | Unique | Key chống nhận thưởng nhiều lần |
-| `rewardCoin` | Number | | Số xu thực tế được cộng |
-| `rewardXp` | Number | | Điểm XP thực tế được cộng |
-| `rewardItemCode`| String | Nullable | Vật phẩm đã cộng (null nếu chuyển sang fallback) |
-| `rewardItemFallbackCoin`| Number | Nullable | Coin fallback thực tế đã cộng |
-| `claimedBy` | Enum | | Ghi nhận người claim (USER) |
-| `createdAt` | DateTime| | Thời điểm claim |
+### Bảng `user_daily_missions`
+Kế thừa `BaseTimeEntity`. Snapshot định nghĩa template tại thời điểm cấp.
 
-### Bảng `UserDailyChest`
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | UUID | Khóa chính (PK) | ID Rương ngày |
-| `userId` | Long | FK -> `User(id)` | Người nhận rương |
-| `chestDate` | Date | | Ngày của rương |
-| `status` | Enum | LOCKED, UNLOCKED, CLAIMED | Trạng thái rương |
-| `claimedAt` | DateTime| Nullable | Thời điểm nhận thưởng |
-| `createdAt` | DateTime| | Thời điểm tạo |
-| `updatedAt` | DateTime| | Thời điểm cập nhật |
-### Bảng `UserWeeklyMilestone`
-| Field | Type | Quan hệ / Ràng buộc | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `id` | UUID | Khóa chính (PK) | ID Cột mốc tiến trình tuần |
-| `userId` | Long | FK -> `User(id)` | Người dùng |
-| `weekStartDate` | Date | | Ngày đầu tuần (Thứ Hai) |
-| `weekEndDate` | Date | | Ngày cuối tuần (Chủ Nhật) |
-| `activityStampCount`| Number | | Số ngày nhận rương Daily Chest trong tuần |
-| `bronzeStatus` | Enum | | Rương Đồng (LOCKED, UNLOCKED, CLAIMED) |
-| `silverStatus` | Enum | | Rương Bạc |
-| `goldStatus` | Enum | | Rương Vàng |
-| `updatedAt` | DateTime| | Thời điểm cập nhật |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID mission của user |
+| `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | Người nhận |
+| `mission_template_id` | BIGINT | FK -> `mission_templates(id)`, NOT NULL | Template gốc |
+| `mission_date` | DATE | NOT NULL | Ngày nhiệm vụ (Asia/Ho_Chi_Minh) của `actionInstant` |
+| `slot` | TINYINT | NOT NULL, CHECK 1–5 | Vị trí |
+| `code`, `name`, `description`, `category`, `trigger_event`, `min_quiz_accuracy_percent`, `quiz_requested_count`, `target_value`, `reward_coin`, `reward_xp`, `reward_item_code`, `reward_item_fallback_coin` | như `mission_templates` | Snapshot, bất biến | |
+| `current_progress` | INT | NOT NULL, DEFAULT 0, CHECK `0..target_value` | Tiến độ |
+| `status` | VARCHAR(20) | NOT NULL, CHECK IN (`IN_PROGRESS`, `COMPLETED`, `CLAIMED`) | `EXPIRED` không lưu, suy ra từ `mission_date < today` |
+| `completed_at` | DATETIME(6) | NULL | `actionInstant` của hành động làm đạt target |
+| `claimed_at` | DATETIME(6) | NULL | Thời điểm nhận thưởng |
+| `created_at` / `updated_at` | DATETIME(6) | NOT NULL | `created_at` = thời điểm cấp |
 
-### Bảng `ExperienceLog`
+### Bảng `user_daily_mission_progress_logs`
+Kế thừa `BaseCreatedAtEntity`, append-only. Chống cộng progress trùng **theo từng mission**.
+
 | Field | Type | Quan hệ / Ràng buộc | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `id` | UUID | Khóa chính (PK) | ID log nhận XP |
-| `userId` | Long | FK -> `User(id)` | Người nhận XP |
-| `amount` | Number | Not Null | Tổng XP nhận được (`baseAmount + bonusAmount`) |
-| `baseAmount` | Number | Not Null | XP cơ bản theo rule |
-| `bonusAmount` | Number | Not Null, default 0 | XP cộng thêm từ XP Booster (chỉ `FLASHCARD_REVIEW`, `QUIZ`) |
-| `boosterActivationId` | Long | FK -> `booster_activations(id)`, Null | Booster đã áp dụng |
-| `sourceType` | Enum | | `FLASHCARD_REVIEW`, `QUIZ`, `SAVE_WORD`, `MISSION_REWARD`, `DAILY_CHEST`, `WEEKLY_CHEST`, `ADMIN_ADJUSTMENT` |
-| `eventKey` | String | Unique | Khóa chống cộng trùng XP từ 1 event |
-| `createdAt` | DateTime| | Thời điểm nhận |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | |
+| `user_daily_mission_id` | BIGINT | FK -> `user_daily_missions(id)`, NOT NULL | |
+| `source_key` | VARCHAR(191) | NOT NULL | VD `QUIZ_COMPLETED:{quizId}`, `TOPIC_ITEM:{topicItemId}` |
+| `created_at` | DATETIME(6) | NOT NULL | |
+
+### Bảng `user_daily_mission_claims`
+Kế thừa `BaseCreatedAtEntity`, append-only.
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | |
+| `user_daily_mission_id` | BIGINT | FK -> `user_daily_missions(id)`, UNIQUE, NOT NULL | Mỗi mission claim tối đa 1 lần |
+| `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | Người nhận |
+| `idempotency_key` | VARCHAR(128) | NOT NULL | Header `Idempotency-Key` |
+| `reward_coin` | INT | NOT NULL | Coin đã cộng |
+| `reward_xp` | INT | NOT NULL | XP đã cộng |
+| `reward_item_code` | VARCHAR(64) | NULL | Item cấu hình |
+| `granted_item_quantity` | INT | NOT NULL, DEFAULT 0 | Số item thực cấp |
+| `fallback_coin` | BIGINT | NOT NULL, DEFAULT 0 | Coin fallback thực cộng |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm claim |
+
+### Bảng `user_word_credits`
+Append-only, tồn tại suốt đời tài khoản. Mỗi từ (chuẩn hóa) chỉ được tính cho `ADD_5_WORDS` một lần ([daily_mission.md](../decisions/daily_mission.md) §5.5).
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | |
+| `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | |
+| `word_hash` | BINARY(32) | NOT NULL, UNIQUE cùng `user_id` | SHA-256 của `TARGET_WORD` chuẩn hóa; so sánh nhị phân |
+| `user_daily_mission_id` | BIGINT | FK -> `user_daily_missions(id)`, NOT NULL | Mission đã tiêu credit |
+| `created_at` | DATETIME(6) | NOT NULL | `actionInstant` |
+
+### Bảng `experience_logs`
+Ledger XP append-only (code: `xp/domain/ExperienceLog`). Ngoại lệ PK: `id` là UUID `VARCHAR(36)` (đã có trong code).
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | VARCHAR(36) | Khóa chính (PK), UUID | ID log |
+| `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | Người nhận XP |
+| `amount` | INT | NOT NULL | `base_amount + bonus_amount` |
+| `base_amount` | INT | NOT NULL | XP cơ bản |
+| `bonus_amount` | INT | NOT NULL | XP Booster (chỉ source boostable `FLASHCARD_REVIEW`, `QUIZ`) |
+| `booster_activation_id` | BIGINT | NULL | Booster đã áp dụng |
+| `source_type` | VARCHAR(30) | NOT NULL | `FLASHCARD_REVIEW`, `QUIZ`, `SAVE_WORD`, `MISSION_REWARD`, `ADMIN_ADJUSTMENT` |
+| `event_key` | VARCHAR(191) | UNIQUE, NOT NULL | Chống cộng trùng |
+| `created_at` | DATETIME(6) | NOT NULL | Thời điểm ghi |
+
+Index: `(user_id, created_at)`.
 
 ### Bảng `coin_transactions`
 Ledger append-only. `users.coin` là số dư hiện hành; invariant `users.coin = SUM(amount)`. Canonical: [shop.md](../decisions/shop.md) §3.4, §9.
@@ -617,7 +625,7 @@ Ledger append-only. `users.coin` là số dư hiện hành; invariant `users.coi
 | `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | Người nhận/tiêu Coin |
 | `amount` | BIGINT | NOT NULL, CHECK `amount <> 0` | Dương = nhận, âm = tiêu. Không có cột `type` |
 | `balance_after` | BIGINT | NOT NULL, CHECK `>= 0` | Số dư sau giao dịch |
-| `source_type` | VARCHAR(30) | NOT NULL | `MISSION_REWARD`, `DAILY_CHEST`, `WEEKLY_CHEST`, `SHOP_PURCHASE`, `ADMIN_ADJUSTMENT` |
+| `source_type` | VARCHAR(30) | NOT NULL | `MISSION_REWARD`, `SHOP_PURCHASE`, `ADMIN_ADJUSTMENT` |
 | `reference_id` | VARCHAR(64) | NULL | VD `shop_items.id` với `SHOP_PURCHASE` |
 | `description` | VARCHAR(255) | NULL | Snapshot tên vật phẩm/nguồn tại thời điểm giao dịch |
 | `event_key` | VARCHAR(191) | UNIQUE, NOT NULL | Chống trùng. Mua hàng: `SHOP_PURCHASE:{userId}:{Idempotency-Key}` |
@@ -688,13 +696,20 @@ Quyền sở hữu vật phẩm: 1 row / (user, shop item). "Inventory" là API/
 | `idempotency_key` | VARCHAR(128) | NOT NULL | Anchor chống kích hoạt trùng |
 
 ### Ràng buộc & Indexes (Gamification & Shop)
+- `mission_templates`: Unique `code`.
+- `user_daily_missions`: Unique `(user_id, mission_date, slot)`, Unique `(user_id, mission_date, mission_template_id)`, index `(mission_template_id)`; snapshot `code` không unique. CHECK: `IN_PROGRESS` ⇔ `completed_at IS NULL`; `COMPLETED`/`CLAIMED` ⇒ `current_progress = target_value`; `CLAIMED` ⇔ `claimed_at IS NOT NULL`; snapshot reward cùng CHECK như `mission_templates`.
+- `user_daily_mission_progress_logs`: Unique `(user_daily_mission_id, source_key)`.
+- `user_daily_mission_claims`: Unique `user_daily_mission_id`, Unique `(user_id, idempotency_key)`; CHECK các cột số `>= 0`.
+- `user_word_credits`: Unique `(user_id, word_hash)`, index `(user_daily_mission_id)`.
+- FK của các bảng mission: không cascade (RESTRICT).
+- `experience_logs`: Unique `event_key`; index `(user_id, created_at)`.
 - `levels`: Unique index trên `level_number`.
 - `users`: CHECK `coin >= 0`. Không có cột equip trên `users`.
 - `shop_items`: Unique `code`, unique `theme_key`, unique `(id, type)`; index `(status, purchasable, type, sort_order)`; CHECK `NOT purchasable OR price IS NOT NULL`.
 - `user_items`: Composite FK `(shop_item_id, item_type) -> shop_items(id, type)` (DB enforce `user_items.item_type == shop_items.type`); Unique `(user_id, shop_item_id)`; Unique `(user_id, equipped_slot)` ⇒ tối đa 1 `THEME` và 1 `AVATAR_FRAME` equipped/user.
 - `booster_activations`: Unique `(user_id, idempotency_key)`; index `(user_id, expires_at)`.
 - `coin_transactions`: Unique `event_key`; index `(user_id, created_at)`.
-- Leaderboard: Quản lý qua Redis Sorted Set với điểm số là Weekly XP, nguồn dữ liệu tham chiếu và đồng bộ từ trường `exp` trên bảng `users`.
+- Leaderboard: chưa có bảng/code. Weekly XP = tổng `experience_logs.amount` trong cửa sổ tuần của FR-09.05 ([specs.md](../spec/specs.md)); `users.exp` là XP trọn đời (Level), **không** phải Weekly XP. Có tính `MISSION_REWARD` hay không: PD-LB-01 ([daily_mission.md](../decisions/daily_mission.md) §0).
 
 ---
 

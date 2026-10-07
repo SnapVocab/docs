@@ -175,7 +175,7 @@
 | F-QUIZ-04 | Fill blank               | C   | Điền từ còn thiếu trong câu/gợi ý; submit từng câu, feedback ngay; so khớp case-insensitive + trim |
 | F-QUIZ-05 | Grade + finalize         | M   | Backend chấm từng interaction khi nhận; `complete` finalize session: correctCount, incorrectCount, accuracy |
 | F-QUIZ-06 | Idempotent check/complete | M  | `Idempotency-Key` đảm bảo retry check/pair attempt/complete không chấm hoặc cộng trùng điểm/XP |
-| F-QUIZ-07 | Progress/XP hook         | S   | Hoàn thành quiz → event trigger cập nhật Progress, XP, Mission (nếu gamification bật) |
+| F-QUIZ-07 | Progress/XP hook         | S   | Hoàn thành quiz → cập nhật Progress, XP và progress Daily Mission trong cùng transaction |
 | F-QUIZ-08 | Quiz history             | S   | Learner xem lịch sử Quiz session: điểm, thời gian, accuracy; filter theo Topic         |
 
 **Business rules:**
@@ -240,18 +240,18 @@
 | --------- | --------------------- | --- | ----------------------------------------------------------------------------------------------- |
 | F-GAME-01 | XP log                | S   | Cộng XP khi hoàn thành activity; idempotent event key; ExperienceLog ghi source + amount        |
 | F-GAME-02 | Coin transaction      | S   | Cộng/trừ Coin; balance ≥ 0 mọi lúc; CoinTransaction ghi amount có dấu + balanceAfter + sourceType + eventKey unique |
-| F-GAME-03 | Daily mission         | S   | 3–5 nhiệm vụ/ngày từ pool (context-aware + weighted random); tracking → claim → reward          |
-| F-GAME-04 | Weekly mission/stamps | C   | Hoàn thành tất cả daily → Activity Stamp; 3/5/7 stamps → Rương Đồng/Bạc/Vàng                    |
+| F-GAME-03 | Daily mission         | S   | Đúng 5 nhiệm vụ/ngày từ pool (cân bằng theo slot + weighted random; personalization `missionProfile` để sau MVP); progress đồng bộ → manual claim → reward riêng từng nhiệm vụ |
+| ~~F-GAME-04~~ | ~~Weekly mission/stamps~~ | — | **Đã loại khỏi scope (2026-10-03):** không có Activity Stamp, Daily/Weekly Chest, thưởng tuần/tháng |
 | F-GAME-05 | Badges                | S   | Huy hiệu khi đạt điều kiện cụ thể (streak 30 ngày, 100 lượt scan có lưu từ…); UserBadge + notification |
 | F-GAME-06 | Leaderboard           | S   | Xếp hạng theo Weekly XP; Redis sorted set hoặc snapshot cache; hiển thị top N + vị trí user |
 | F-GAME-07 | Shop browse + buy     | C   | Catalog `THEME`/`AVATAR_FRAME`/`XP_BOOSTER`; mua 1 đơn vị, `Idempotency-Key` + `expectedPrice`; trừ Coin + CoinTransaction + UserItem cùng transaction; cosmetic không mua trùng; XP Booster ≤ `maxQuantity` |
 | F-GAME-08a | Equip cosmetic       | C   | Trang bị/bỏ Theme, Avatar Frame; `UserItem.equipped`; tối đa 1 equipped/type, equip mới tự bỏ item cũ trong cùng transaction |
 | F-GAME-08b | Activate XP Booster  | C   | ×2 XP Review/Quiz, mặc định 30 phút server time; tối đa 1 active; không stack/queue/extend; `BoosterActivation` |
-| F-GAME-09 | Admin config          | S   | Admin CRUD: Missions, Badges, Shop Items, XP reward rules                                       |
+| F-GAME-09 | Admin config          | S   | Admin CRUD: Mission templates (nhiệm vụ ngày), Badges, Shop Items, XP reward rules              |
 | F-GAME-10 | Mission reset cycle   | S   | Daily missions reset 00:00 Asia/Ho_Chi_Minh (xem ../decisions/daily_mission.md §3.1); progress không cộng dồn sang ngày sau    |
 | F-GAME-11 | Anti-cheat            | S   | Không cộng progress cho action spam; lượt scan hợp lệ phải có "≥ 1 từ được lưu thành công"      |
 
-**Detail:** Xem [daily_mission.md](../decisions/daily_mission.md) — MissionTemplate, UserDailyMission, reset cycle, activity stamps.
+**Detail:** Xem [daily_mission.md](../decisions/daily_mission.md) — MissionTemplate, UserDailyMission, reset cycle, claim reward theo từng nhiệm vụ.
 
 **Business rules:**
 
@@ -271,7 +271,7 @@
 | ID         | Tính năng             | P   | AC tóm tắt                                                                              |
 | ---------- | --------------------- | --- | --------------------------------------------------------------------------------------- |
 | F-NOTIF-01 | Push SRS reminder     | M   | Push notification nhắc nhở ôn SRS daily; qua Expo Push / Firebase FCM; respect settings |
-| F-NOTIF-02 | In-app notification   | S   | Lưu notification trong DB; badge/coin earned, mission complete, system announcement     |
+| F-NOTIF-02 | In-app notification   | S   | Lưu notification trong DB; badge/coin earned, system announcement (không có notification khi hoàn thành Daily Mission)     |
 | F-NOTIF-03 | Mark as read          | S   | Learner đánh dấu đã đọc từng notification hoặc read all                                 |
 | F-NOTIF-04 | Device token register | M   | Đăng ký/cập nhật device token khi mở app; hết hạn → re-register                         |
 | F-NOTIF-05 | Notification settings | M   | Learner bật/tắt push; cấu hình giờ nhận (nếu hỗ trợ); Settings screen                   |

@@ -408,7 +408,7 @@ Chi tiết và số đo ở `ai-service/README.md`. Các biến chính:
 | **Template & SRS** | `templates`, `template_elements`, `template_fields`, `fsrs_records` | SS-09, SS-11 |
 | **Quiz** | PLANNED — chưa chốt tên bảng; persistence contract: [database.md](../db/database.md) §3A | SS-10 |
 | **Progress** | `learning_events` (aggregate query trực tiếp từ `fsrs_records`, streak trên `users`) | SS-12 |
-| **Gamification** | `missions`, `mission_progress`, `badges`, `user_badges`, `experience_logs`, `coin_transactions`, `leaderboard_entries` | SS-13 |
+| **Gamification** | `mission_templates`, `user_daily_missions`, `user_daily_mission_progress_logs`, `user_daily_mission_claims`, `user_word_credits`, `experience_logs`, `coin_transactions` (Badges, Leaderboard: chưa thiết kế schema) | SS-13 |
 | **Economy** | `shop_items`, `user_items`, `booster_activations`, `coin_transactions`, `levels` | SS-14 |
 | **Media** | `storage_metadata` (object key, owner, MIME, size, type, state, timestamp) | SS-16 |
 | **Notification** | `notifications`, `user_notifications` | SS-15 |
@@ -460,7 +460,7 @@ Chi tiết và số đo ở `ai-service/README.md`. Các biến chính:
 | Dictionary cache | Key-value (word detail/translation) | 1–24h | Cache từ phổ biến, giảm DB query |
 | Leaderboard | Sorted set (ZADD/ZRANGEBYSCORE) | 5–15 phút | Ranking global theo Weekly XP |
 | Home summary | Key-value aggregate cache | 1–5 phút | Giảm query aggregate nặng |
-| Mission state | Key-value tạm thời | 5 phút | Không thay thế DB |
+| Mission state | Không cache: 5 row/user/ngày đọc thẳng DB; cache sẽ trả progress cũ ngay sau hành động ([daily_mission.md](../decisions/daily_mission.md) §9) | — | — |
 | AI label → Word mapping | Key-value | 24h | Cache mapping label → Word ID |
 | Rate limiting | Counter (INCR/EXPIRE) | Window-based | OTP/login/upload nếu triển khai |
 | Distributed lock | Redisson lock | Auto-release | Tránh cộng reward trùng trong concurrent |
@@ -735,7 +735,7 @@ Mobile ──→ Object Storage: GET presignedUrl (download binary)
 | **Storage** | upload-init, upload-complete, validation fail (MIME/size), orphan cleanup, presigned URL generation |
 | **Dictionary** | Lookup latency, not-found rate, import job result (count, errors, duration) |
 | **Learning** | Save word (source), flashcard recall (rating), quiz check (correct/incorrect) + complete (summary), SRS review (state change) |
-| **Gamification** | XP/coin transaction, mission complete, badge award, duplicate event ignored (idempotent) |
+| **Gamification** | XP/coin transaction, mission progress đồng bộ trong transaction hành động (rollback cùng nhau), mission complete, claim replay, word credit trọn đời, badge award (idempotent) |
 | **Leaderboard** | Cache refresh job, ranking update, Redis error/failover |
 | **Notification** | Push sent/fail, device token register/expire, in-app notification created |
 | **System** | DB/Redis/Storage/AI availability change, exception rate, unhandled errors |

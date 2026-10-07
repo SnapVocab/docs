@@ -1,7 +1,12 @@
 # Architecture Decision: Shop — ShopItem, UserItem, Equip, XP Booster, Coin Purchase
 
 > **Trạng thái:** APPROVED (Product decisions 2026-09-24; audit Shop/Inventory 2026-09-24).
-> **Implementation:** Backend learner API (§10.1) IMPLEMENTED 2026-09-24 — `shop/` (ShopController, ShopService, InventoryService, WalletService, ShopRewardService) + `xp/XpService`. Backend Admin API (§10.2) IMPLEMENTED 2026-09-25 — `AdminShopController`, `AdminShopService`. Chưa có: Admin frontend nối API thật, `GET /api/me` bổ sung `equipped`/`activeBooster`, caller thật cho XpService/ShopRewardService (Review, Quiz M4, Mission, Chest). Admin CMS và mobile Shop/Inventory hiện vẫn là **mock** (xem §13).
+> **Implementation (cập nhật 2026-10-06):**
+> - Backend learner API (§10.1) IMPLEMENTED 2026-09-24 — `shop/` (ShopController, ShopService, InventoryService, WalletService, ShopRewardService) + `xp/XpService`. Backend Admin API (§10.2) IMPLEMENTED 2026-09-25 — `AdminShopController`, `AdminShopService`.
+> - Caller thật: Quiz (`QuizService` → XpService, nguồn `QUIZ`) và Daily Mission (`DailyMissionService` → XpService/ShopRewardService) đã nối. **Review/FSRS chưa có producer** `FLASHCARD_REVIEW` — chưa quảng cáo Booster cho Review.
+> - Mobile `SnapVocab/src/features/shop` gọi API thật cho Shop/Inventory/Wallet (§11); Profile hiển thị frame equipped và hậu tố `×2` từ `GET /api/me/items` (§11.3). Admin Shop (`snapAdmin/src/domains/shop`) gọi API thật.
+> - Chưa có: `GET /api/me` bổ sung `equipped`/`activeBooster` (mobile hiện đọc từ `GET /api/me/items`, không chặn release). Enum `CoinSourceType`/`XpSourceType` vẫn còn `DAILY_CHEST`/`WEEKLY_CHEST`; các mock Admin khác còn nội dung ngoài scope (§13).
+> - Audit mobile Shop: [mobile_shop_audit_2026-10-06.md](../reviews/mobile_shop_audit_2026-10-06.md).
 > **Traceability:** FR-09.06, FR-09.07 ([specs.md](../spec/specs.md)) → BF-12 ([buss_mainflow.md](../spec/buss_mainflow.md)) → SS-13, SS-14 ([phan_ra_phan_he_he_thong.md](../spec/phan_ra_phan_he_he_thong.md)) → F-GAME-02, F-GAME-07, F-GAME-08a, F-GAME-08b, F-GAME-09 ([phan_ra_tinh_nang.md](../spec/phan_ra_tinh_nang.md)) → DB ([database.md](../db/database.md) §Gamification & Shop) → Screen MH-ECONOMY-01/02/03, MH-PROFILE-01/03 ([phan_ra_man_hinh.md](../spec/phan_ra_man_hinh.md)).
 > **Source of truth:** Nếu tài liệu khác mâu thuẫn với file này về Shop/Item/Inventory/Coin purchase/XP Booster, file này thắng; [specs.md](../spec/specs.md) chỉ giữ requirement tóm tắt và trỏ về đây.
 
@@ -16,7 +21,7 @@
 | S3 | Type vs Effect | **Không** tách `ItemEffectType`. Mỗi type là một runtime behavior do developer viết code; Admin chỉ cấu hình tham số trong giới hạn của type. |
 | S4 | Ownership | `UserItem` = bản ghi **sở hữu**: 1 row / (user, shopItem), có `quantity`. Không phải instance. "Inventory" chỉ là tên API resource/màn hình, **không** phải entity. |
 | S5 | Cosmetic | `THEME`, `AVATAR_FRAME`: `quantity` luôn = 1; mua lại → `ITEM_ALREADY_OWNED`. |
-| S6 | XP Booster | ×2 XP (hằng số developer), `durationMinutes` cấu hình theo item (mặc định 30). Áp dụng cho XP từ **Flashcard/SRS Review** và **Quiz**. Không áp dụng cho Mission, Daily/Weekly Chest, Admin adjustment, Save word hay reward thụ động. Bonus XP **có** tính vào Weekly XP/Leaderboard. |
+| S6 | XP Booster | ×2 XP (hằng số developer), `durationMinutes` cấu hình theo item (mặc định 30). Áp dụng cho XP từ **Flashcard/SRS Review** và **Quiz**. Không áp dụng cho Mission reward, Admin adjustment, Save word hay reward thụ động. Bonus XP **có** tính vào Weekly XP/Leaderboard. |
 | S7 | Booster concurrency | Tối đa **1** XP Booster active/user. Không stack, không queue, không extend. Kích hoạt khi đang active → `BOOSTER_ALREADY_ACTIVE`, không trừ item. |
 | S8 | Booster time | Wall-clock theo server time; vẫn trôi khi app đóng. Hết hạn **lazy** (`now >= expiresAt`), không cron, không cột status. |
 | S9 | Inventory limit | `XP_BOOSTER` có `maxQuantity` cấu hình theo item (mặc định 5, giới hạn developer 1–10). Mua khi đã đạt → `MAX_QUANTITY_REACHED`. |
@@ -27,7 +32,7 @@
 | S14 | Purchase history | Không có bảng Purchase/Order riêng. `CoinTransaction` (source `SHOP_PURCHASE`) là biên lai và anchor idempotency; Wallet hiển thị lịch sử. |
 | S15 | Server authority | Giá, quyền sở hữu, số dư, booster active và XP bonus do Backend quyết định. Client không gửi owner, price thực tế, multiplier hay thời gian. |
 | S16 | ShopItem lifecycle | `DRAFT → PUBLISHED → ARCHIVED`. `type`, `code` và field hiệu ứng bị khóa sau publish. Bật/tắt bán = `purchasable`, không đổi status. |
-| S17 | Reward item | Reward (mission/chest) tham chiếu **một** `shopItem.code` cụ thể. Không cấp được (cosmetic đã sở hữu hoặc booster đã đạt `maxQuantity`) → cộng `fallbackCoin` lấy từ **reward configuration**, không hard-code trong Shop service. |
+| S17 | Reward item | Reward của Daily Mission tham chiếu **một** `shopItem.code` cụ thể. Không cấp được (cosmetic đã sở hữu hoặc booster đã đạt `maxQuantity`) → cộng `fallbackCoin` lấy từ **reward configuration**, không hard-code trong Shop service. |
 | S18 | Quyền Admin | `ROLE_ADMIN`. Không có permission riêng kiểu `SHOP_MANAGE`. |
 | S19 | API base path | `/api` (như [quiz.md](./quiz.md) D1). Catalog: `/api/shop/...`; dữ liệu cá nhân: `/api/me/...`; quản trị: `/api/admin/shop/...`. |
 
@@ -65,8 +70,8 @@ enum Behavior { EQUIP, ACTIVATE }
 ```java
 enum ShopItemStatus { DRAFT, PUBLISHED, ARCHIVED }                 // developer-controlled
 enum ThemeKey { /* registry, đồng bộ với mobile theme registry */ } // developer-controlled
-enum CoinSourceType { MISSION_REWARD, DAILY_CHEST, WEEKLY_CHEST, SHOP_PURCHASE, ADMIN_ADJUSTMENT }
-enum XpSourceType   { FLASHCARD_REVIEW, QUIZ, SAVE_WORD, MISSION_REWARD, DAILY_CHEST, WEEKLY_CHEST, ADMIN_ADJUSTMENT }
+enum CoinSourceType { MISSION_REWARD, SHOP_PURCHASE, ADMIN_ADJUSTMENT }
+enum XpSourceType   { FLASHCARD_REVIEW, QUIZ, SAVE_WORD, MISSION_REWARD, ADMIN_ADJUSTMENT }
 ```
 
 - Booster chỉ áp dụng khi `XpSourceType ∈ {FLASHCARD_REVIEW, QUIZ}`.
@@ -168,7 +173,7 @@ Business rules:
 | Purchase / Order | `CoinTransaction` source `SHOP_PURCHASE` |
 | ItemEffect | Không tồn tại; behavior gắn với `ShopItemType` |
 | Theme definition | Mobile theme registry |
-| Item ledger (nhập/xuất item) | Không cần: mua → CoinTransaction; dùng → BoosterActivation; reward → claim log của mission/chest |
+| Item ledger (nhập/xuất item) | Không cần: mua → CoinTransaction; dùng → BoosterActivation; reward → claim log của mission |
 
 ---
 
@@ -243,13 +248,25 @@ Design tokens (snapVocab-frontend/docs/design.md §03)
 | :--- | :--- |
 | `background`, `card`, `muted`, `border`, `input` | `foreground`, `card-foreground`, `muted-foreground` |
 | `header-background`, `header-border`, hero/header gradient | `primary-*` (CTA, đúng, progress) |
-| `tab-bar-background`, `tab-bar-border`, `tab-bar-inactive` | `reward-*` (XP, Coin, Chest, Badge) |
+| `tab-bar-background`, `tab-bar-border`, `tab-bar-inactive` | `reward-*` (XP, Coin, Badge) |
 | | `mascot-*` (Snapy, streak) |
 | | `error-soft`/sai, `danger-*`, `warning-*`, `info-*`, `destructive`, `ring` |
 
 - Mỗi ThemeDefinition phải khai báo cả `light` và `dark`.
 - Accessibility do developer bảo đảm lúc build: test tự động contrast ≥ 4.5:1 của `foreground`/`muted-foreground` trên `background`, `card`, `muted`, `header-background`, `tab-bar-background` cho mọi theme × mode. Admin không chạm được token nên không thể phá contrast.
 - Theme **không** thay thế chế độ Sáng/Tối/Hệ thống; hai trục độc lập.
+
+### 6.4. Phạm vi áp dụng (quyết định 2026-10-06)
+
+| Hạng mục | Quyết định |
+| :--- | :--- |
+| Phạm vi theme | Chỉ khu Cửa hàng: Shop, Kho đồ, Ví Coin **và mọi modal của các luồng này** (xem thử, xác nhận mua, mua thành công, thiếu Coin, kích hoạt booster). Màn khác, header điều hướng gốc và **tab bar** giữ token mặc định; `tab-bar-*` không bị override trong giai đoạn này. |
+| Tên nhóm | `Giao diện cửa hàng` (tránh nhầm với chủ đề từ vựng và với Cài đặt → Giao diện Sáng/Tối). |
+| Cam kết trước khi mua | Preview và modal xác nhận hiện: "Áp dụng cho Cửa hàng, Kho đồ và Ví Coin." |
+| Preview | Màn mẫu dùng token thật của theme theo chế độ Sáng/Tối hiện tại: header, card có chữ + chữ phụ + nút, dòng giao dịch. Không có tab bar. |
+| Sáng/Tối | Luôn theo lựa chọn của người dùng trên toàn app; theme chỉ đổi bề mặt (`background`, `surface`, `surfaceMuted`, `border`, `headerBg`); `text`/`textMuted` cố định theo chế độ. |
+| Nền tảng mở rộng | Component dùng chung đọc token vai trò qua `useSurface()` (`components/ui/surface.tsx`); mặc định là `DEFAULT_SURFACE`. Mở rộng theme sang khu vực khác = bọc khu vực đó bằng `SurfaceProvider`, không sửa mã màu từng component. |
+| Quyền lợi người mua | Tại 2026-10-06 chưa có ShopItem `THEME` nào (DB clone từ remote), nên chưa ai mua theo phạm vi cũ. Nếu sau này mở rộng/thu hẹp phạm vi khi đã có người mua, phải xử lý quyền lợi trước khi đổi mô tả. |
 
 ### 6.3. Tương thích phiên bản app
 
@@ -267,7 +284,8 @@ Design tokens (snapVocab-frontend/docs/design.md §03)
 - `Idempotency-Key`: header bắt buộc cho purchase và activate, 1–128 ký tự (cùng quy ước [quiz.md](./quiz.md)); thiếu → `IDEMPOTENCY_KEY_REQUIRED` (400).
 - Chỉ request **thành công** mới lưu key. Request bị từ chối nghiệp vụ (VD `INSUFFICIENT_COINS`) không lưu key; gửi lại cùng key sẽ được đánh giá lại.
 - Replay trả HTTP 200, cùng shape response với `replayed = true`, phản ánh trạng thái **hiện tại** (balance, quantity).
-- Domain event (`SHOP_ITEM_PURCHASED`, `BOOSTER_USED`) phát **sau commit** và không phát khi replay.
+- Domain event (`SHOP_ITEM_PURCHASED`, `BOOSTER_USED`) phát **sau commit** và không phát khi replay. Daily Mission **không** dùng các event này: progress mission được cập nhật đồng bộ **bên trong** transaction purchase/activate ([daily_mission.md](./daily_mission.md) §3.2, §6).
+- Daily Mission trong transaction purchase/activate (nhánh không replay): sau validation chụp `actionInstant = Economy.now()` → `ensureAssigned` (eligibility xét **trước** mutation) → mutation → `MissionProgress.apply`. Thứ tự lock vẫn bắt đầu bằng `users`; row `user_daily_missions` thuộc riêng user nên không tạo chu trình chờ. Eligibility `HAS_PURCHASABLE_ITEM` của Daily Mission dùng lại `isAvailableAt` + `blockReason` (§7.2 bước 3–6).
 
 ### 7.2. Purchase
 
@@ -284,10 +302,12 @@ BEGIN
 4. item.price ≠ expectedPrice              → 409 PRICE_CHANGED {currentPrice}
 5. cosmetic ∧ đã sở hữu                    → 409 ITEM_ALREADY_OWNED
    XP_BOOSTER ∧ quantity ≥ maxQuantity     → 409 MAX_QUANTITY_REACHED
-6. UPDATE users SET coin = coin - price WHERE id = ? AND coin >= price
-     0 row                                 → 409 INSUFFICIENT_COINS
-7. INSERT coin_transactions(amount = -price, balance_after, SHOP_PURCHASE, reference_id = itemId, description = item.name, event_key)
-8. UPSERT user_items (insert quantity = 1 | quantity + 1)
+   balance < price                         → 409 INSUFFICIENT_COINS
+6. actionInstant = Economy.now(); ensureAssigned(user, date(actionInstant))   -- daily_mission.md §4
+7. UPDATE users SET coin = coin - price WHERE id = ? AND coin >= price
+8. INSERT coin_transactions(amount = -price, balance_after, SHOP_PURCHASE, reference_id = itemId, description = item.name, event_key)
+9. UPSERT user_items (insert quantity = 1 | quantity + 1)
+10. MissionProgress.apply(SHOP_ITEM_PURCHASED, SHOP_PURCHASE:{transactionId})  -- daily_mission.md §6
 COMMIT → publish SHOP_ITEM_PURCHASED
 ```
 
@@ -296,7 +316,7 @@ COMMIT → publish SHOP_ITEM_PURCHASED
 | Double tap / retry / timeout / server thành công nhưng mobile mất response | Mobile gửi lại **cùng key** → replay, không trừ coin lần 2 |
 | Hai request cùng key chạy song song | Lock user tuần tự hóa; request sau thấy tx ở bước 2 → replay. UNIQUE `event_key` là lớp phòng thủ cuối (vi phạm → rollback, đọc lại, trả replay) |
 | Mua song song hai item khác nhau, tổng giá > balance | Tuần tự hóa; request sau nhận `INSUFFICIENT_COINS` |
-| Lỗi bất kỳ giữa bước 6–8 | Rollback toàn bộ; không thể có "trừ coin mà không cấp item" |
+| Lỗi bất kỳ giữa bước 6–10 | Rollback toàn bộ; không thể có "trừ coin mà không cấp item" hay progress mission không khớp purchase |
 | Item bị archive / tắt bán / hết sale window khi đang xác nhận | `ITEM_NOT_AVAILABLE` |
 | Admin đổi giá khi learner đang xác nhận | `PRICE_CHANGED`; mobile hiện giá mới, yêu cầu xác nhận lại với **key mới** |
 
@@ -313,7 +333,9 @@ BEGIN
    type ≠ XP_BOOSTER                      → 400 ITEM_NOT_ACTIVATABLE
    quantity = 0                           → 409 ITEM_QUANTITY_EMPTY
 4. có activation active (bất kỳ XP booster nào) → 409 BOOSTER_ALREADY_ACTIVE {expiresAt}
-5. quantity − 1; INSERT booster_activations(startedAt = now, expiresAt = now + duration, key)
+5. actionInstant = Economy.now(); ensureAssigned(user, date(actionInstant))   -- daily_mission.md §4
+6. quantity − 1; INSERT booster_activations(startedAt = actionInstant, expiresAt = actionInstant + duration, key)
+7. MissionProgress.apply(BOOSTER_USED, BOOSTER_USED:{activationId})          -- daily_mission.md §6
 COMMIT → publish BOOSTER_USED
 ```
 
@@ -334,9 +356,9 @@ COMMIT
 
 Idempotent tự nhiên, không cần `Idempotency-Key`. Thứ tự "unequip rồi equip" bắt buộc để không vi phạm `UNIQUE(user_id, equipped_slot)`.
 
-### 7.5. Reward grant (Mission / Daily Chest / Weekly Chest)
+### 7.5. Reward grant (Daily Mission)
 
-Chạy **bên trong** transaction claim của reward (đã lock user):
+Chạy **bên trong** transaction claim của mission (đã lock user):
 
 ```text
 grant(userId, itemCode, quantity, fallbackCoin, eventKey):
@@ -346,7 +368,8 @@ grant(userId, itemCode, quantity, fallbackCoin, eventKey):
   ngược lại                                    → upsert user_items
 ```
 
-- `fallbackCoin` là field bắt buộc của reward configuration có item (xem [daily_mission.md](./daily_mission.md)); Shop service không hard-code giá trị.
+- `fallbackCoin` là field bắt buộc của reward configuration có item (`mission_templates.reward_item_fallback_coin`, [daily_mission.md](./daily_mission.md) §7.1); Shop service không hard-code giá trị.
+- Caller duy nhất: claim Daily Mission ([daily_mission.md](./daily_mission.md) §8.2), `source = MISSION_REWARD`, `eventKey = MISSION_REWARD:{userDailyMissionId}:ITEM`.
 - Reward configuration chỉ được chọn item `PUBLISHED` (kể cả `purchasable = false`).
 
 ---
@@ -538,7 +561,7 @@ Response activate: `{ "activation": { "itemId", "startedAt", "expiresAt" }, "qua
 | DELETE | `/api/admin/shop/items/{id}` | Chỉ `DRAFT` |
 | POST | `/api/admin/shop/assets/upload-url` | Presigned PUT `{fileName}` (PNG/WebP) → `objectName` dùng làm `iconKey`/`frameAssetKey` |
 
-Lỗi validation Admin: `error` = mã của vi phạm đầu tiên, `data.errors = [{field, code, message}]` liệt kê mọi vi phạm. PATCH chỉ báo `FIELD_LOCKED` khi field khóa **đổi giá trị**; gửi lại giá trị cũ được chấp nhận. Field không thuộc form (VD `status`, `publishedAt`) → `VALIDATION_ERROR`. Tồn tại/dung lượng asset kiểm ở publish; kích thước pixel/alpha chưa kiểm server-side.
+Lỗi validation Admin: `error` = mã của vi phạm đầu tiên, `data.errors = [{field, code, message}]` liệt kê mọi vi phạm. PATCH chỉ báo `FIELD_LOCKED` khi field khóa **đổi giá trị**; gửi lại giá trị cũ được chấp nhận. Field không thuộc form (VD `status`, `publishedAt`) → `VALIDATION_ERROR`. Tồn tại/dung lượng asset và icon bắt buộc kiểm ở publish và mọi PATCH của item không còn `DRAFT`; kích thước pixel/alpha do Admin client kiểm (đọc header PNG/WebP), chưa kiểm server-side.
 
 Upload icon/frame dùng flow presign của Storage (SS-16) với purpose `SHOP_ASSET`; asset Shop không chứa dữ liệu cá nhân nên được phục vụ qua URL công khai/CDN dưới prefix `public/shop/` (FR-11.05 chỉ giới hạn media cá nhân).
 
@@ -582,24 +605,25 @@ Upload icon/frame dùng flow presign của Storage (SS-16) với purpose `SHOP_A
 | AVATAR_FRAME | Preview trên avatar của chính user → `Mua · {price}` · đã sở hữu: `Đã sở hữu` / `Đang dùng` | Modal + `Trang bị ngay` |
 | XP_BOOSTER | `Mua · {price}` + "Đang có: n/max" · đạt max: `Đã đạt tối đa` (disabled) | Modal + `Dùng ngay` (ẩn nếu đang có booster active) |
 
-- Thiếu Coin: nút hiển thị mờ nhưng **bấm được** → `OutOfCoinModal` gợi ý làm nhiệm vụ (AF-12.1).
-- Confirm modal: "Mua {name} với {price} Coin?". Mobile sinh `Idempotency-Key` (UUID) khi bấm xác nhận, giữ nguyên khi retry do lỗi mạng/timeout, bỏ sau khi nhận kết quả dứt điểm (2xx hoặc 4xx nghiệp vụ). Lỗi mạng không rõ kết quả → gọi lại purchase cùng key hoặc refetch `/api/me/wallet` + `/api/me/items`.
+- Thiếu Coin: nút hiển thị tone cảnh báo nhưng **bấm được** → `OutOfCoinModal` gợi ý làm nhiệm vụ (AF-12.1). Quy tắc này thắng [design.md](../../snapVocab-frontend/docs/design.md) §10.2 (bản cũ ghi disabled). Không hiện số Coin còn thiếu khi số dư cục bộ chưa khớp server.
+- Confirm modal: "Mua {name} với {price} Coin?". Mobile sinh `Idempotency-Key` (UUID) khi bấm xác nhận, giữ nguyên khi retry do lỗi mạng/timeout/5xx — **kể cả khi người dùng đóng modal hoặc rời màn rồi mở lại cùng item** — bỏ sau khi nhận kết quả dứt điểm (2xx hoặc 4xx nghiệp vụ). Lỗi mạng không rõ kết quả → báo "Chưa xác nhận được kết quả mua", gọi lại purchase cùng key và refetch `/api/me/wallet` + `/api/me/items`. Activation booster theo cùng quy tắc.
+- Sau khi mua, UI dùng `PurchaseResultDTO` (`quantity`, `coinBalance`, `replayed`), không tự cộng số lượng; `replayed = true` hiện là giao dịch đã hoàn tất trước đó. Số dư server được ghi vào mọi nơi hiển thị Coin (Shop, Wallet, Home, Profile).
 - `PRICE_CHANGED` → cập nhật giá trên card, mở lại confirm.
 - Coin giảm: count-down 400ms, không dùng màu đỏ ([design.md](../../snapVocab-frontend/docs/design.md) §6.6).
-- Nhóm lọc: `Tất cả` · `Bổ trợ` (XP_BOOSTER) · `Khung Avatar` · `Chủ đề`.
+- Nhóm lọc: `Tất cả` · `Bổ trợ` (XP_BOOSTER) · `Khung avatar` · `Giao diện cửa hàng` (§6.4).
 
 ### 11.2. Inventory (MH-ECONOMY-03)
 
 - Đầu màn: Booster Chip khi có `activeBooster` (`×2 · mm:ss`, design.md §6.9). Đếm ngược tính từ `expiresAt` và độ lệch `serverNow`; về 0 → refetch.
 - Cosmetic: `Dùng`/`Trang bị` ↔ `Đang dùng` + `Bỏ`/`Tháo`. Item archived vẫn hiển thị và dùng được.
-- XP_BOOSTER: số lượng + `Dùng`; khi có booster active, mọi booster hiện "Chờ booster hiện tại kết thúc" (disabled).
+- XP_BOOSTER: số lượng + `Dùng`; khi có booster active, item đang chạy hiện "Đang chạy", các booster khác hiện "Chờ booster kết thúc" (cả hai disabled). Booster được coi là hết hạn ngay khi đếm ngược về 0 theo giờ server, kể cả trước khi refetch về; refetch một lần, không lặp mỗi giây.
 - Ẩn XP_BOOSTER `quantity = 0` không active. THEME với `themeKey` lạ → "Cần cập nhật ứng dụng".
 - Empty state: CTA `Đến Cửa hàng`.
 
 ### 11.3. Nơi khác
 
 - MH-PROFILE-01: avatar hiển thị frame equipped của chính user.
-- MH-PROFILE-03 Settings: "Giao diện" = Sáng/Tối/Hệ thống; mục "Chủ đề" chỉ là link sang Inventory.
+- MH-PROFILE-03 Settings: "Giao diện" = Sáng/Tối/Hệ thống; mục "Giao diện cửa hàng" chỉ là link sang Inventory.
 - XP Badge hiện hậu tố `×2` khi `activeBooster` tồn tại (design.md §6.5).
 - Mobile cache `equipped.themeKey` cục bộ để áp theme ngay lúc khởi động; server là nguồn đúng sau khi `GET /api/me` trả về.
 
@@ -615,10 +639,10 @@ Upload icon/frame dùng flow presign của Storage (SS-16) với purpose `SHOP_A
 6. Admin đổi giá giữa lúc xem và lúc mua → `PRICE_CHANGED`, coin không đổi.
 7. Equip THEME/AVATAR_FRAME mới → item cũ cùng type tự unequip trong cùng transaction; DB không thể có 2 row equipped cùng type.
 8. Kích hoạt booster khi đang có booster active → `BOOSTER_ALREADY_ACTIVE`, quantity không đổi.
-9. Review/Quiz ghi XP trong thời gian active → `bonusAmount = baseAmount`; Mission/Chest/Save word → `bonusAmount = 0`; XP ghi sau `expiresAt` → không bonus.
+9. Review/Quiz ghi XP trong thời gian active → `bonusAmount = baseAmount`; Mission reward/Save word → `bonusAmount = 0`; XP ghi sau `expiresAt` → không bonus.
 10. Bonus XP xuất hiện trong Weekly XP/Leaderboard.
 11. Booster vẫn hết hạn đúng `expiresAt` khi app bị đóng/khởi động lại.
-12. Weekly/Daily reward cấp cosmetic đã sở hữu → cộng `fallbackCoin` theo reward config.
+12. Mission reward cấp cosmetic đã sở hữu → cộng `fallbackCoin` theo reward config.
 13. Admin không thể publish item thiếu field theo type, `themeKey` ngoài registry, hoặc tham số ngoài giới hạn; không sửa được field khóa sau publish.
 14. Item archived: không xuất hiện trong Shop; người đã sở hữu vẫn equip/activate được.
 
@@ -626,14 +650,15 @@ Upload icon/frame dùng flow presign của Storage (SS-16) với purpose `SHOP_A
 
 ## 13. Code cleanup backlog (giai đoạn implement)
 
-Tài liệu đã đồng bộ; code/mock sau đây **chưa** được sửa và phải chỉnh khi implement:
+Đã xong (kiểm 2026-10-06): `UserInventory` → `UserItem`; `ShopItem.type` là `ShopItemType`; `UserDTO.coin` là `Long`.
+
+Code/mock sau đây **chưa** được sửa và phải chỉnh khi implement:
 
 | Vị trí | Việc cần làm |
 | :--- | :--- |
-| `snap-vocab-backend/.../domain/UserInventory.java` | Thay bằng `UserItem` (`user_items`) theo §9 |
-| `snap-vocab-backend/.../domain/ShopItem.java` | `type` → `ShopItemType`; bổ sung field §9 |
-| `snap-vocab-backend/.../domain/dto/user/UserDTO.java` | `coin: Integer` → `Long` |
 | `snapAdmin/src/domains/economy/*`, `features/shop/*`, `features/settings/components/EconomyGuardrailsTab.tsx`, `domains/settings/*` | Bỏ Gems, rarity, stock, flash sale, discount, `streak_saver`/`chest`/`deck`, Streak Freeze; form theo §8 |
-| `snapAdmin/src/features/missions/*`, `tests/missions.test.ts` | Reward item tham chiếu `shopItem.code` + `fallbackCoin`; bỏ `ITEM_STREAK_FREEZE`/`CONSUMABLE` |
+| `snap-vocab-backend/.../shop/domain/enumeration/CoinSourceType.java`, `.../xp/domain/XpSourceType.java` | Xóa `DAILY_CHEST`, `WEEKLY_CHEST` (scope 2026-10-03) |
+| `snapAdmin/src/features/missions/*`, `domains/missions/*`, `tests/missions.test.ts` | Viết lại theo [daily_mission.md](./daily_mission.md) §8.3: bỏ `isBonus`, `maxBonusCount`, `dailyChestReward`, `CycleAndChestTab`, type `achievement`/`special_event`; reward item tham chiếu `shopItem.code` + `fallbackCoin`; bỏ `ITEM_STREAK_FREEZE`/`CONSUMABLE` |
 | `snapAdmin/src/domains/{analytics,audit,issue-reports,learners}/mock-data.ts` | Bỏ số liệu/nội dung Streak Freeze, Gems |
-| `snapVocab-frontend/app/(tabs)/shop.tsx`, `lib/economyState.ts` | Bỏ item không có runtime (Streak Freeze, Heart Refill, Coin Magnet, Refresh Ticket, Hint Token, Timer Boost, Snapy cosmetic); category theo §11.1; gọi API thật |
+| `snapVocab-frontend/app/(tabs)/shop.tsx`, `lib/economyState.ts` | Prototype lịch sử (app thật `SnapVocab/` đã gọi API). Chỉ dọn item không có runtime (Streak Freeze, Heart Refill, Coin Magnet, Refresh Ticket, Hint Token, Timer Boost, Snapy cosmetic) nếu prototype còn dùng làm tham chiếu |
+| `SnapVocab/src/features/shop/**` | Copy Shop đang hardcode tiếng Việt → chuyển sang i18n (en/vi) theo design.md §13.4 |

@@ -277,7 +277,7 @@ Hệ thống backend được chia thành **18 phân hệ** thuộc 5 lớp ch�
 | **Topic Template** | Template, TemplateElement, TemplateField | Cấu hình giao diện thẻ học theo Topic, semantic role | Đã có |
 | **Quiz** | PLANNED — tên entity chưa chốt ([database.md](../db/database.md) §3A) | Kiểm tra từ vựng | NOT IMPLEMENTED (M3) |
 | **Progress** | LearningProgress, LearningEvent | Streak, accuracy, summary aggregate | Dự kiến M3 |
-| **Gamification** | Level, Mission, UserMission, Badge, UserBadge, ExperienceLog, CoinTransaction, Leaderboard | Cấp độ, nhiệm vụ, huy hiệu, XP, coin, ranking | Level đã có, còn lại M4 |
+| **Gamification** | Level, MissionTemplate, UserDailyMission, UserWordCredit, Badge, UserBadge, ExperienceLog, CoinTransaction, Leaderboard | Cấp độ, nhiệm vụ, huy hiệu, XP, coin, ranking | Level đã có, còn lại M4 |
 | **Economy** | ShopItem, UserItem, BoosterActivation, CoinTransaction | Cửa hàng, vật phẩm sở hữu, XP Booster, ledger Coin | Skeleton entity, chưa implement (M4) |
 | **Media** | StorageMetadata, UploadSession | Object key, owner, MIME, size | Đã có |
 | **Notification** | Notification, UserNotification | In-app notification | Đã có |
@@ -314,7 +314,7 @@ erDiagram
 - `Word` là dữ liệu dictionary gốc; xóa TopicItem không ảnh hưởng Word.
 - `TopicItem/FsrsRecord` là ranh giới giữa dữ liệu từ vựng và tiến trình học tập cá nhân.
 - `FsrsRecord.due/SRS fields` gắn chặt vào cặp `(user_id, topic_item_id)`.
-- `LearningEvent` là nguồn để rebuild progress, mission và leaderboard khi aggregate lệch.
+- `LearningEvent` là nguồn để rebuild progress và leaderboard khi aggregate lệch. Daily Mission **không** rebuild từ `LearningEvent` (purchase/activation không nằm trong đó); progress mission được ghi đồng bộ trong transaction của hành động nên không cần rebuild ([daily_mission.md](../decisions/daily_mission.md) §6).
 - `StorageMetadata` lưu metadata object; binary nằm ở Object Storage.
 - Leaderboard lưu aggregate trong DB và cache/sorted set trong Redis.
 
@@ -615,7 +615,7 @@ Tất cả API public/mobile dùng JSON envelope thống nhất:
 | AI label → Word mapping | Cache mapping label → Word ID | 24h |
 | Shop/catalog | Cache ShopItem public metadata | 1h |
 | Rate limiting | Redis counter cho OTP/login/upload | Window-based |
-| Mission state | Cache tạm thời mission progress | 5 phút |
+| Mission state | Không cache: 5 row/user/ngày đọc thẳng DB; cache sẽ trả progress cũ ngay sau hành động ([daily_mission.md](../decisions/daily_mission.md) §9) | — |
 
 ### 9.2 Quy tắc cache
 
@@ -819,7 +819,7 @@ graph TD
 
 ### Coupling notes
 
-- **Loose coupling qua events:** Phân hệ dùng domain event nội bộ (`TopicItemCreated`, `ReviewCompleted`, `QuizCompleted`, `MissionCompleted`) để giảm coupling trực tiếp.
+- **Loose coupling qua events:** Phân hệ dùng domain event nội bộ (`TopicItemCreated`, `ReviewCompleted`, `QuizCompleted`) để giảm coupling trực tiếp. Ngoại lệ: Daily Mission cập nhật progress đồng bộ trong transaction của producer ([daily_mission.md](../decisions/daily_mission.md) §6); không có event `MissionCompleted`.
 - **Shared entity:** `TopicItem` và `FsrsRecord` được chia sẻ giữa SS-05/SS-08 (Topic & Item), SS-09 (Flashcard & Template) và SS-11 (SRS). Trách nhiệm tách qua service layer.
 - **AI Service tách deploy:** SS-07 là service Python FastAPI độc lập, giao tiếp HTTP nội bộ. **Không** chia sẻ database với backend Spring Boot.
 - **Storage crosscutting:** SS-16 là infrastructure service, nhiều domain sử dụng qua cùng interface (S3Client).

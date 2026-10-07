@@ -483,7 +483,7 @@
 | Mã      | Lỗi                        | Xử lý                                                                 |
 | ------- | -------------------------- | --------------------------------------------------------------------- |
 | EX-09.1 | API lỗi khi check/complete | Trả error code; mobile giữ interaction đang chờ và retry với cùng key. |
-| EX-09.2 | Tương tác với session đã hết hạn | Trả `QUIZ_SESSION_EXPIRED` (HTTP 410 Gone); mobile dừng quiz, báo "Phiên quiz đã hết hạn. Vui lòng tạo bài mới." và điều hướng về Quiz Setup (D17). |
+| EX-09.2 | Thao tác làm bài (resume/check/attempt/complete/cancel) với session đã hết hạn | Trả `QUIZ_SESSION_EXPIRED` (HTTP 410 Gone); mobile dừng quiz, báo "Phiên quiz đã hết hạn. Vui lòng tạo bài mới." và điều hướng về Quiz Setup (D17). |
 
 ### Post-condition
 
@@ -602,17 +602,17 @@
 ### Precondition
 
 - Module gamification đã bật (M4).
-- Admin đã cấu hình Missions, Badges, Shop Items.
+- Mission Pool đã được seed (hoặc Admin cấu hình khi có Admin CRUD — PD-DM-06); Badges, Shop Items đã cấu hình.
 
 ### Happy Path — Nhiệm vụ & Phần thưởng
 
 | Bước | Actor   | Hành động                                                                                                    |
 | ---- | ------- | ------------------------------------------------------------------------------------------------------------ |
-| 1    | Learner | Mở màn hình Missions → xem danh sách nhiệm vụ ngày/tuần/thành tựu.                                        |
-| 2    | System  | Hiển thị tiến độ từng nhiệm vụ (VD: "Ôn 10 từ hôm nay: 7/10").                                             |
-| 3    | Learner | Hoàn thành hoạt động học → hệ thống tự động cập nhật MissionProgress.                                       |
-| 4    | System  | Khi mission hoàn thành → trao reward: XP, Coin, Badge (theo rule). Ghi ExperienceLog, CoinTransaction.     |
-| 5    | System  | Gửi In-app Notification "Bạn đã hoàn thành nhiệm vụ X, nhận Y coin!"                                      |
+| 1    | Learner | Mở màn hình Missions, hoặc thực hiện hành động học/mua đầu tiên trong ngày → hệ thống cấp (nếu chưa có) đúng 5 nhiệm vụ ngày (reset 00:00 GMT+7), xét điều kiện trên trạng thái trước hành động. |
+| 2    | System  | Hiển thị tiến độ và reward riêng của từng nhiệm vụ (VD: "Thêm 5 từ mới có nghĩa: 3/5 · 15 Coin, 25 XP").         |
+| 3    | Learner | Thêm từ / hoàn thành quiz / mua / kích hoạt booster → tiến độ `UserDailyMission` được cập nhật trong **cùng transaction** với hành động; đạt target → `COMPLETED`. |
+| 4    | Learner | Nhấn `Nhận thưởng` trên từng nhiệm vụ → System cộng Coin/XP/item của nhiệm vụ đó, ghi claim log, ExperienceLog, CoinTransaction (idempotent), chuyển `CLAIMED`. |
+| 5    | System  | Không có thưởng thêm khi đủ 5/5, theo tuần hay theo tháng. Nhiệm vụ chưa claim trước reset được coi là hết hạn (suy ra theo ngày, không lưu trạng thái), mất thưởng. |
 
 ### Happy Path — Mua vật phẩm
 
@@ -624,7 +624,7 @@ Chi tiết canonical: [decisions/shop.md](../decisions/shop.md) §7.
 | 2    | Learner | Xác nhận "Mua X với Y Coin?". Mobile gửi `Idempotency-Key` + `expectedPrice`.                                 |
 | 3    | System  | Lock Learner; kiểm tra item đang bán, giá khớp, chưa sở hữu cosmetic / chưa đạt `maxQuantity`, balance ≥ giá. |
 | 4    | System  | Trong một transaction: trừ Coin, ghi `CoinTransaction` (`SHOP_PURCHASE`), tạo `UserItem` hoặc `quantity + 1`. |
-| 5    | System  | Sau commit: phát event `SHOP_ITEM_PURCHASED` (mission `BUY_SHOP_ITEM`). Trả balance + quantity mới.          |
+| 5    | System  | Trong cùng transaction: cập nhật mission `BUY_SHOP_ITEM` (nếu có). Sau commit: phát event `SHOP_ITEM_PURCHASED`. Trả balance + quantity mới. |
 
 ### Happy Path — Trang bị Theme / Avatar Frame
 
@@ -639,7 +639,7 @@ Chi tiết canonical: [decisions/shop.md](../decisions/shop.md) §7.
 | Bước | Actor   | Hành động                                                                                                         |
 | ---- | ------- | ----------------------------------------------------------------------------------------------------------------- |
 | 1    | Learner | Inventory → chọn XP Booster → `Dùng` (mobile gửi `Idempotency-Key`).                                              |
-| 2    | System  | Kiểm tra `quantity ≥ 1` và chưa có XP Booster active. Trừ 1, tạo `BoosterActivation` (`expiresAt = now + duration`). |
+| 2    | System  | Kiểm tra `quantity ≥ 1` và chưa có XP Booster active. Trừ 1, tạo `BoosterActivation` (`expiresAt = now + duration`); cập nhật mission `USE_XP_BOOSTER` trong cùng transaction. |
 | 3    | System  | Trong thời gian active: XP từ Flashcard/SRS Review và Quiz được ×2 tại thời điểm ghi XP; bonus tính Weekly XP.    |
 | 4    | System  | Hết `expiresAt` (server time, kể cả khi app đóng) → booster tự hết hiệu lực.                                      |
 
@@ -656,7 +656,7 @@ Chi tiết canonical: [decisions/shop.md](../decisions/shop.md) §7.
 | Mã      | Điều kiện                        | Xử lý                                                              |
 | ------- | -------------------------------- | ------------------------------------------------------------------- |
 | AF-12.1 | Coin không đủ mua vật phẩm      | Hiển thị "Bạn không đủ Coin", gợi ý hoàn thành nhiệm vụ.          |
-| AF-12.2 | Mission đã hoàn thành            | Trạng thái COMPLETED, không claim lại. Chờ reset (daily/weekly).   |
+| AF-12.2 | Mission đã claim                 | Trạng thái CLAIMED, không claim lại. Chờ reset ngày (00:00 GMT+7). |
 | AF-12.3 | Retry claim reward               | Idempotent — event key đảm bảo không cộng trùng XP/Coin.          |
 | AF-12.4 | Retry mua cùng `Idempotency-Key` (double tap, timeout, mất response) | Trả kết quả cũ (`replayed = true`), không trừ Coin lần 2. |
 | AF-12.5 | Giá đổi giữa lúc xem và lúc mua  | `PRICE_CHANGED` → hiển thị giá mới, Learner xác nhận lại.          |
@@ -750,7 +750,7 @@ Chi tiết canonical: [decisions/shop.md](../decisions/shop.md) §7.
 
 | Bước | Actor | Hành động                                                                            |
 | ---- | ----- | ------------------------------------------------------------------------------------ |
-| 1    | Admin | Cấu hình Missions (ngày/tuần/thành tựu), Badges, điểm XP, vật phẩm Shop.           |
+| 1    | Admin | Cấu hình Mission Pool (template nhiệm vụ ngày, target, reward, weight), Badges, điểm XP, vật phẩm Shop.           |
 | 2    | Admin | Quản lý System Card Template (Classic, Listening, Spelling, Image Vocab...).         |
 
 ### Happy Path — Thống kê

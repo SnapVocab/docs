@@ -149,7 +149,7 @@ Mục tiêu: tăng động lực học tập và chuẩn bị vận hành produc
 
 | Nhóm               | Bao gồm                                                                     |
 | ------------------ | --------------------------------------------------------------------------- |
-| Mission            | Nhiệm vụ ngày/tuần/thành tựu học tập                                        |
+| Mission            | 5 nhiệm vụ ngày, mỗi nhiệm vụ có reward riêng (không thưởng tuần/tháng)    |
 | Reward             | XP, coin, badge được trao theo rule rõ ràng                                 |
 | Shop               | Cửa hàng vật phẩm dùng coin, áp dụng item trong app                         |
 | Leaderboard        | Xếp hạng cá nhân, có cache bằng Redis nếu cần                               |
@@ -158,7 +158,7 @@ Mục tiêu: tăng động lực học tập và chuẩn bị vận hành produc
 
 Done criteria:
 
-1. Hoạt động học tập hợp lệ cộng XP theo bảng cơ sở (review = 2 XP, quiz đúng = 1 XP/câu, lưu từ = 1 XP).
+1. Hoạt động học tập hợp lệ cộng XP theo bảng cơ sở (review = 2 XP, quiz đúng = 10 XP/câu theo [quiz.md](../decisions/quiz.md) §5 và code `QuizService.XP_PER_CORRECT`, lưu từ = 1 XP).
 2. Learner nhận huy hiệu khi đạt điều kiện cụ thể.
 3. Learner mua và sử dụng được vật phẩm bằng coin (nếu Shop được triển khai).
 4. Leaderboard cập nhật đúng và có chiến lược cache phù hợp.
@@ -407,10 +407,10 @@ Business rules:
 | Mã       | Yêu cầu             | Mô tả                                                                | Ưu tiên |
 | -------- | ------------------- | -------------------------------------------------------------------- | ------- |
 | FR-09.01 | XP                  | Learner nhận điểm kinh nghiệm khi hoàn thành hoạt động học           | Should  |
-| FR-09.02 | Coin                | Learner nhận coin theo nhiệm vụ hoặc milestone học tập               | Should  |
-| FR-09.03 | Mission             | Hệ thống cung cấp nhiệm vụ ngày/tuần/thành tựu                       | Should  |
+| FR-09.02 | Coin                | Learner nhận coin khi claim reward nhiệm vụ ngày                     | Should  |
+| FR-09.03 | Mission             | Hệ thống cung cấp 5 nhiệm vụ ngày; Learner claim reward từng nhiệm vụ | Should  |
 | FR-09.04 | Badge               | Learner nhận huy hiệu khi đạt điều kiện cụ thể                       | Should  |
-| FR-09.05 | Leaderboard cá nhân | Learner xem xếp hạng theo XP tuần (Weekly XP). Lượng XP tổng kết từ 00:00 Thứ Hai đến 23:59 Chủ Nhật (theo múi giờ cấu hình của server). | Should  |
+| FR-09.05 | Leaderboard cá nhân | Learner xem xếp hạng theo XP tuần (Weekly XP). Lượng XP tổng kết từ 00:00 Thứ Hai đến 23:59 Chủ Nhật (theo múi giờ cấu hình của server). Có tính XP `MISSION_REWARD` hay không: PD-LB-01 ([daily_mission.md](../decisions/daily_mission.md) §0). | Should  |
 | FR-09.06 | Shop item           | Learner dùng coin mua vật phẩm trong cửa hàng (`THEME`, `AVATAR_FRAME`, `XP_BOOSTER`) | Could   |
 | FR-09.07 | Apply item          | Learner trang bị theme/avatar frame hoặc kích hoạt XP Booster đã sở hữu | Could   |
 
@@ -422,7 +422,7 @@ Business rules:
   - `ShopItemType` = `THEME` | `AVATAR_FRAME` | `XP_BOOSTER` (developer-controlled); Admin chỉ tạo item và cấu hình tham số trong giới hạn của type.
   - Mua 1 đơn vị/request, bắt buộc `Idempotency-Key`; trừ Coin + ghi `CoinTransaction` + cấp `UserItem` trong một transaction; cosmetic không mua trùng; XP Booster giới hạn `maxQuantity` theo item (mặc định 5).
   - Mỗi Learner tối đa 1 `THEME` và 1 `AVATAR_FRAME` equipped; equip item mới tự bỏ item cũ cùng type.
-  - XP Booster: ×2 XP cho Flashcard/SRS Review và Quiz (không áp dụng Mission/Chest/Admin/Save word), mặc định 30 phút theo server time, tối đa 1 active, không stack/queue/extend; bonus XP tính vào Weekly XP.
+  - XP Booster: ×2 XP cho Flashcard/SRS Review và Quiz (không áp dụng Mission reward/Admin/Save word), mặc định 30 phút theo server time, tối đa 1 active, không stack/queue/extend; bonus XP tính vào Weekly XP.
   - Theme chỉ đổi token bề mặt; không đổi màu brand/semantic.
   - Thứ tự ưu tiên khi cắt scope M4: Avatar Frame + XP Booster trước Theme.
 - Leaderboard nên dùng Redis/cache khi dữ liệu tăng hoặc cần cập nhật thường xuyên.
@@ -563,8 +563,11 @@ Business rules:
 
 | Entity đề xuất   | Mục đích                                |
 | ---------------- | --------------------------------------- |
-| Mission          | Nhiệm vụ ngày/tuần/thành tựu            |
-| MissionProgress  | Tiến độ thực hiện nhiệm vụ của Learner  |
+| MissionTemplate  | Template nhiệm vụ ngày (Mission Pool)   |
+| UserDailyMission | Nhiệm vụ ngày đã cấp + tiến độ của Learner |
+| UserDailyMissionProgressLog | Dedupe progress từng nhiệm vụ theo sourceKey |
+| UserDailyMissionClaim | Claim reward từng nhiệm vụ      |
+| UserWordCredit | Từ đã được tính cho `ADD_5_WORDS` (một lần trọn đời tài khoản) |
 | Badge            | Định nghĩa huy hiệu                     |
 | UserBadge        | Huy hiệu Learner đã đạt được            |
 | CoinTransaction  | Ledger cộng/trừ coin (amount có dấu, balanceAfter, eventKey unique) |
@@ -572,7 +575,7 @@ Business rules:
 | ShopItem         | Vật phẩm trong cửa hàng (type `THEME`/`AVATAR_FRAME`/`XP_BOOSTER`)  |
 | UserItem         | Quyền sở hữu: 1 row/(Learner, ShopItem), `quantity`, `equipped`     |
 | BoosterActivation| Một lần kích hoạt XP Booster (`startedAt`, `expiresAt`)             |
-| LeaderboardEntry | Bản ghi xếp hạng cá nhân                                            |
+| LeaderboardEntry | Bản ghi xếp hạng cá nhân — **chưa thiết kế** (không có bảng trong database.md) |
 
 "Inventory" là API resource/màn hình (danh sách `UserItem`), **không** phải entity. Chi tiết: [decisions/shop.md](../decisions/shop.md).
 
@@ -725,9 +728,9 @@ Sử dụng mô hình EAV (Entity-Attribute-Value) để lưu trữ các bộ t�
 | Phân rã phân hệ       | [phan_ra_phan_he_he_thong.md](./phan_ra_phan_he_he_thong.md) | SS — ranh giới module        |
 | Phân rã tính năng     | [phan_ra_tinh_nang.md](./phan_ra_tinh_nang.md)               | F — sub-feature + AC theo FR |
 | Phân rã màn hình      | [phan_ra_man_hinh.md](./phan_ra_man_hinh.md)                 | MH — UI map                  |
-| API Spec              | [../API_SPEC.md](../API_SPEC.md)                             | Contract endpoint (cần viết) |
+| API contract          | Theo từng decision: [daily_mission.md](../decisions/daily_mission.md) §8, [shop.md](../decisions/shop.md) §10, [quiz.md](../decisions/quiz.md); endpoint list ở [phan_ra_phan_he_he_thong.md](./phan_ra_phan_he_he_thong.md) | Không có file API_SPEC riêng |
 | Database Spec         | [../db/database.md](../db/database.md)                       | Entity/index canonical       |
-| Thiết kế UI/UX        | [../design.md](../design.md)                                 | Figma/tokens (cần bổ sung)   |
+| Thiết kế UI/UX        | [design.md](../../snapVocab-frontend/docs/design.md)         | Design tokens/component (nguồn duy nhất hiện có) |
 | System Architecture   | [../sa/sa.md](../sa/sa.md)                                   | Kiến trúc tổng thể           |
 | Tech Stack            | [../sa/techstack.md](../sa/techstack.md)                     | Công nghệ theo lớp           |
 | Server & Deployment   | [../sa/server.md](../sa/server.md)                           | Môi trường, ops, smoke test  |
