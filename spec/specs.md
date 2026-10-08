@@ -159,7 +159,7 @@ Mục tiêu: tăng động lực học tập và chuẩn bị vận hành produc
 Done criteria:
 
 1. Hoạt động học tập hợp lệ cộng XP theo bảng cơ sở (review = 2 XP, quiz đúng = 10 XP/câu theo [quiz.md](../decisions/quiz.md) §5 và code `QuizService.XP_PER_CORRECT`, lưu từ = 1 XP).
-2. Learner nhận huy hiệu khi đạt điều kiện cụ thể.
+2. Learner nhận huy hiệu khi đạt điều kiện cụ thể (catalog và rule: [badges.md](../decisions/badges.md)).
 3. Learner mua và sử dụng được vật phẩm bằng coin (nếu Shop được triển khai).
 4. Leaderboard cập nhật đúng và có chiến lược cache phù hợp.
 5. Media production được lưu qua Cloudflare R2 hoặc S3-compatible storage an toàn.
@@ -409,7 +409,7 @@ Business rules:
 | FR-09.01 | XP                  | Learner nhận điểm kinh nghiệm khi hoàn thành hoạt động học           | Should  |
 | FR-09.02 | Coin                | Learner nhận coin khi claim reward nhiệm vụ ngày                     | Should  |
 | FR-09.03 | Mission             | Hệ thống cung cấp 5 nhiệm vụ ngày; Learner claim reward từng nhiệm vụ | Should  |
-| FR-09.04 | Badge               | Learner nhận huy hiệu khi đạt điều kiện cụ thể                       | Should  |
+| FR-09.04 | Badge               | Learner nhận huy hiệu khi đạt điều kiện cụ thể (12 badge cố định, nhận một lần, không thưởng XP/Coin — [badges.md](../decisions/badges.md)) | Should  |
 | FR-09.05 | Leaderboard cá nhân | Learner xem xếp hạng theo XP tuần (Weekly XP). Lượng XP tổng kết từ 00:00 Thứ Hai đến 23:59 Chủ Nhật (theo múi giờ cấu hình của server). Có tính XP `MISSION_REWARD` hay không: PD-LB-01 ([daily_mission.md](../decisions/daily_mission.md) §0). | Should  |
 | FR-09.06 | Shop item           | Learner dùng coin mua vật phẩm trong cửa hàng (`THEME`, `AVATAR_FRAME`, `XP_BOOSTER`) | Could   |
 | FR-09.07 | Apply item          | Learner trang bị theme/avatar frame hoặc kích hoạt XP Booster đã sở hữu | Could   |
@@ -433,7 +433,7 @@ Business rules:
 | Mã       | Yêu cầu             | Mô tả                                                                 | Ưu tiên |
 | -------- | ------------------- | --------------------------------------------------------------------- | ------- |
 | FR-10.01 | Push Notification   | Gửi thông báo đẩy nhắc nhở Learner vào ôn tập từ vựng (SRS)           | Must    |
-| FR-10.02 | In-app Notification | Hiển thị thông báo trong ứng dụng (tin báo hệ thống, nhận Badge/Coin) | Should  |
+| FR-10.02 | In-app Notification | Hiển thị thông báo trong ứng dụng (tin báo hệ thống). Badge mới không ghi notification trong MVP mà hiện bằng modal riêng ([badges.md](../decisions/badges.md) PD-BDG-08) | Should  |
 | FR-10.03 | Cấu hình thông báo  | Learner có thể bật/tắt nhận thông báo đẩy trong phần Cài đặt          | Must    |
 
 Business rules:
@@ -479,7 +479,7 @@ Business rules:
 | FR-13.01 | Quản lý người dùng     | Admin xem danh sách user, chi tiết tiến độ, có thể ban/unban hoặc reset mật khẩu             | Must    |
 | FR-13.02 | Quản lý từ điển        | Admin thêm, sửa, xóa các từ vựng, định nghĩa, phiên âm và chủ đề học tập                     | Must    |
 | FR-13.03 | Import dữ liệu         | Admin có công cụ import từ vựng hàng loạt qua CSV/Excel hoặc API                             | Should  |
-| FR-13.04 | Quản lý Gamification   | Admin cấu hình điểm XP, thiết lập Missions, Badges và vật phẩm Shop                          | Should  |
+| FR-13.04 | Quản lý Gamification   | Admin cấu hình điểm XP, thiết lập Missions, Badges và vật phẩm Shop (Badges: release đầu chỉ seed/migration, release tiếp theo có Admin xem, sửa hiển thị, Bật/Tắt — [badges.md](../decisions/badges.md) PD-BDG-10, PD-BDG-13a) | Should  |
 | FR-13.05 | Quản lý lỗi / Feedback | Admin xem danh sách các từ vựng bị người dùng báo lỗi để điều chỉnh                          | Could   |
 | FR-13.06 | Thống kê hệ thống      | Dashboard hiển thị biểu đồ người dùng, mức sử dụng AI, độ dài hàng đợi AI, quota scan và dung lượng R2/S3 | Should  |
 | FR-13.07 | Quản lý Card Template  | Admin có thể quản lý, tạo mới và cấu hình các mẫu System Template (Classic, Listening, v.v.) | Must    |
@@ -568,8 +568,9 @@ Business rules:
 | UserDailyMissionProgressLog | Dedupe progress từng nhiệm vụ theo sourceKey |
 | UserDailyMissionClaim | Claim reward từng nhiệm vụ      |
 | UserWordCredit | Từ đã được tính cho `ADD_5_WORDS` (một lần trọn đời tài khoản) |
-| Badge            | Định nghĩa huy hiệu                     |
-| UserBadge        | Huy hiệu Learner đã đạt được            |
+| Badge            | Định nghĩa huy hiệu (metric, ngưỡng)    |
+| UserBadge        | Huy hiệu Learner đã đạt được (earnedAt, seenAt) |
+| UserBadgeWordCredit | Từ khác nhau Learner từng tự thêm, tính cho badge nhóm "từ" (một lần trọn đời) |
 | CoinTransaction  | Ledger cộng/trừ coin (amount có dấu, balanceAfter, eventKey unique) |
 | ExperienceLog    | Lịch sử cộng XP (base + bonus từ XP Booster)                        |
 | ShopItem         | Vật phẩm trong cửa hàng (type `THEME`/`AVATAR_FRAME`/`XP_BOOSTER`)  |

@@ -940,9 +940,12 @@ flowchart TD
 
 **Dữ liệu hiển thị:**
 
-- Badge grid: icon, name, locked/unlocked state
-- Tap badge → detail: điều kiện, date earned, rarity
-- Progress towards locked badges
+- Header: `Đã đạt {earnedCount}/{totalCount}` (từ API, không viết cứng)
+- Kệ theo chuỗi (mỗi metric một kệ): huy chương, tên, trạng thái. Badge chưa đạt vẫn hiện tên + điều kiện; mốc kế tiếp hiện `min(currentValue, threshold)/threshold`, mốc xa hiện ngưỡng. Tổng số huy hiệu lấy từ API, không viết cứng 12
+- Tap badge → detail: điều kiện, date earned hoặc progress. **Không** có rarity/tier
+- Badge mới được giới thiệu ngay trên màn (không modal); modal gộp ở các màn khác, không bật ở quiz, flashcard, kết quả quiz
+
+**Detail:** Xem [badges.md](../decisions/badges.md) §2, §9 và [achievements_ui.md](../ui/achievements_ui.md)
 
 ---
 
@@ -1025,7 +1028,7 @@ flowchart TD
 - Avatar (+ avatar frame nếu equip)
 - Display name, email
 - Streak, learned words count, level/XP
-- Badges nổi bật (3–5 badges)
+- 3 badge đạt gần nhất (theo `earnedAt` giảm dần, rồi `sortOrder`, `id` giảm dần; không ghim — [badges.md](../decisions/badges.md) §2.4); dòng Thành tựu hiện `earnedCount/totalCount` và chấm đỏ khi có badge mới
 - Shortcut: Edit Profile, Settings, Achievements, Inventory, Wallet
 
 ---
@@ -1082,7 +1085,7 @@ flowchart TD
 **Dữ liệu hiển thị:**
 
 - Notification list:
-    - Icon theo type (SRS reminder, Badge, Mission, System)
+    - Icon theo type (SRS reminder, System). Badge và Daily Mission không tạo notification trong MVP
     - Title + body
     - Read/unread state (bold/dimmed)
     - Created time (relative: "2 giờ trước")

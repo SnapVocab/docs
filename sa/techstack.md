@@ -421,7 +421,7 @@ Security Layer
 | **Template & SRS** | `templates`, `template_elements`, `template_fields`, `fsrs_records` | SS-09, SS-11 | M1, M3 |
 | **Quiz** | PLANNED — chưa chốt tên bảng ([database.md](../db/database.md) §3A) | SS-10 | M3 |
 | **Progress** | `learning_events` (aggregate query trực tiếp từ `fsrs_records`, streak trên `users`) | SS-12 | M3 |
-| **Gamification** | `mission_templates`, `user_daily_missions`, `user_daily_mission_progress_logs`, `user_daily_mission_claims`, `experience_logs`, `coin_transactions` (Badges, Leaderboard: chưa thiết kế schema) | SS-13 | M4 |
+| **Gamification** | `mission_templates`, `user_daily_missions`, `user_daily_mission_progress_logs`, `user_daily_mission_claims`, `user_word_credits`, `badges`, `user_badges`, `user_badge_word_credits` ([badges.md](../decisions/badges.md) §7), `experience_logs`, `coin_transactions` (Leaderboard: chưa thiết kế schema) | SS-13 | M4 |
 | **Economy** | `shop_items`, `user_items`, `booster_activations`, `coin_transactions`, `levels` | SS-14 | M4 |
 | **Media** | `storage_metadata` | SS-16 | M1 |
 | **Notification** | `notifications`, `user_notifications` | SS-15 | M3 |
@@ -881,7 +881,7 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 | Storage | upload-init, upload-complete, validation fail, orphan cleanup |
 | Dictionary | Lookup latency, not-found rate, import job result |
 | Learning | Save word, flashcard recall, quiz check / complete, SRS review |
-| Gamification | XP/coin transaction, mission complete, badge award, idempotent duplicate ignored |
+| Gamification | XP/coin transaction, mission complete, badge sync (số badge cấp mỗi lần, lỗi 409/500), idempotent duplicate ignored |
 | Notification | Push sent/fail, device token register/expire |
 | System | DB/Redis/Storage/AI availability, exception rate, unhandled errors |
 

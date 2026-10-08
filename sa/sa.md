@@ -277,7 +277,7 @@ Hệ thống backend được chia thành **18 phân hệ** thuộc 5 lớp ch�
 | **Topic Template** | Template, TemplateElement, TemplateField | Cấu hình giao diện thẻ học theo Topic, semantic role | Đã có |
 | **Quiz** | PLANNED — tên entity chưa chốt ([database.md](../db/database.md) §3A) | Kiểm tra từ vựng | NOT IMPLEMENTED (M3) |
 | **Progress** | LearningProgress, LearningEvent | Streak, accuracy, summary aggregate | Dự kiến M3 |
-| **Gamification** | Level, MissionTemplate, UserDailyMission, UserWordCredit, Badge, UserBadge, ExperienceLog, CoinTransaction, Leaderboard | Cấp độ, nhiệm vụ, huy hiệu, XP, coin, ranking | Level đã có, còn lại M4 |
+| **Gamification** | Level, MissionTemplate, UserDailyMission, UserWordCredit, Badge, UserBadge, UserBadgeWordCredit ([badges.md](../decisions/badges.md)), ExperienceLog, CoinTransaction, Leaderboard | Cấp độ, nhiệm vụ, huy hiệu, XP, coin, ranking | Level đã có, còn lại M4 |
 | **Economy** | ShopItem, UserItem, BoosterActivation, CoinTransaction | Cửa hàng, vật phẩm sở hữu, XP Booster, ledger Coin | Skeleton entity, chưa implement (M4) |
 | **Media** | StorageMetadata, UploadSession | Object key, owner, MIME, size | Đã có |
 | **Notification** | Notification, UserNotification | In-app notification | Đã có |
@@ -447,11 +447,14 @@ flowchart LR
     D --> E["FsrsRecord cập nhật<br>(card_state/due/stability/difficulty)"]
     E --> F["LearningEvent ghi nhận"]
     F --> G["Progress aggregate<br>(streak/accuracy/mastered via learning-state map)"]
-    G --> H["Mission/XP/Coin/Badge<br>evaluation (M4)"]
+    G --> H["Mission/XP/Coin<br>evaluation (M4)"]
     H --> I["Leaderboard update<br>(Redis sorted set)"]
+    J["App đồng bộ<br>POST /api/me/badges/sync"] --> K["BadgeService đọc metric<br>ghi UserBadge còn thiếu"]
 ```
 
 ### 6.5 Quiz flow (BF-09)
+
+Badge là nhánh đồng bộ riêng theo [badges.md](../decisions/badges.md) §6; không cấp trong producer học tập. MVP streak chỉ tính ngày có quiz hoàn thành; scan/mastered/leaderboard badges hoãn (§4.2).
 
 ```text
 Mobile quiz setup (chọn Topic, Mode MCQ/MATCHING/FILL_BLANK, Direction EN_VI/VI_EN, số câu)

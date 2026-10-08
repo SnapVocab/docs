@@ -131,7 +131,7 @@ Web application nội bộ (tách biệt với Mobile App) dành cho Admin quả
 - Quản lý Collection/Topic: cấu trúc chủ đề, TopicItem, thuộc tính EAV
 - Import dữ liệu từ vựng hàng loạt (CSV/Excel)
 - Quản lý Topic Template hệ thống
-- Quản lý gamification: Missions, Badges, Shop Items, XP config
+- Quản lý gamification: Missions, Badges, Shop Items, XP config (Badges: release tiếp theo có Admin xem, sửa hiển thị, Bật/Tắt — [badges.md](../decisions/badges.md) PD-BDG-10, PD-BDG-13a)
 - Xem Feedback/báo lỗi từ người dùng
 - Dashboard thống kê: users active, lượt dùng AI, dung lượng R2/S3
 
@@ -714,8 +714,9 @@ Hệ thống tăng động lực học tập: điểm kinh nghiệm (XP), tiền
 | `UserDailyMissionProgressLog` | Dedupe progress theo `(mission, sourceKey)` |
 | `UserDailyMissionClaim` | Claim reward từng mission (idempotencyKey, reward thực cấp) |
 | `UserWordCredit` | Từ (hash chuẩn hóa) đã được tính cho `ADD_5_WORDS`, một lần trọn đời |
-| `Badge`           | Định nghĩa huy hiệu (name, condition, iconUrl)               |
-| `UserBadge`       | Huy hiệu Learner đã đạt (earnedAt)                           |
+| `Badge`           | Định nghĩa huy hiệu (code, metric, threshold, iconKey, isActive) — [badges.md](../decisions/badges.md) §7.1 |
+| `UserBadge`       | Huy hiệu Learner đã đạt (earnedAt = createdAt, seenAt)       |
+| `UserBadgeWordCredit` | Từ khác nhau (hash chuẩn hóa) Learner từng tự thêm, cho metric `DISTINCT_WORDS_ADDED`; tách khỏi `UserWordCredit` |
 | `ExperienceLog`   | Lịch sử cộng XP (baseAmount, bonusAmount, source, eventKey, boosterActivationId, timestamp) |
 | `CoinTransaction` | Ledger coin (amount có dấu, balanceAfter, sourceType, referenceId, eventKey unique) |
 | `LeaderboardEntry`| Bản ghi xếp hạng — **chưa thiết kế** (database.md chưa có bảng) |
@@ -725,9 +726,9 @@ Hệ thống tăng động lực học tập: điểm kinh nghiệm (XP), tiền
 - **XP:** Cộng XP khi hoàn thành hoạt động học (idempotent — event key)
 - **Coin:** Cộng coin khi claim reward nhiệm vụ ngày; trừ coin khi mua item
 - **Mission:** Đúng 5 nhiệm vụ ngày (reset 00:00 GMT+7); progress cập nhật đồng bộ trong transaction của hành động (quiz complete, thêm từ, purchase, activate booster); manual claim reward từng nhiệm vụ. Không Chest, không thưởng tuần/tháng, không notification khi hoàn thành
-- **Badge:** Trao huy hiệu khi đạt điều kiện cụ thể
+- **Badge:** 12 badge cố định theo 4 metric; ghi nhận khi app gọi sync, nhận một lần, không thu hồi, không thưởng XP/Coin, không notification ([badges.md](../decisions/badges.md))
 - **Leaderboard:** Xếp hạng theo Weekly XP; Redis sorted set / snapshot cache
-- Admin cấu hình missions, badges, XP rules
+- Admin cấu hình missions, XP rules. Badge catalog qua seed/migration trong release đầu (PD-BDG-10); release tiếp theo có Admin xem, sửa hiển thị, Bật/Tắt (PD-BDG-13a)
 
 ### API Endpoints
 
@@ -737,10 +738,11 @@ Hệ thống tăng động lực học tập: điểm kinh nghiệm (XP), tiền
 | GET    | `/me/wallet`                      | Balance coin và lịch sử giao dịch (cursor)   | Learner |
 | GET    | `/me/daily-missions`                  | 5 nhiệm vụ hôm nay + progress + reward       | Learner |
 | POST   | `/me/daily-missions/{id}/claim`       | Claim reward 1 nhiệm vụ (`Idempotency-Key`); contract: [daily_mission.md](../decisions/daily_mission.md) §8 | Learner |
-| GET    | `/gamification/badges`                | Danh sách badges (earned + available)        | Learner |
+| GET    | `/me/badges`                          | Danh sách badges (earned + progress), chỉ đọc; contract: [badges.md](../decisions/badges.md) §8.1 | Learner |
+| POST   | `/me/badges/sync`                     | Ghi nhận badge đủ điều kiện + trả danh sách (§8.2) | Learner |
+| POST   | `/me/badges/seen`                     | Đánh dấu badge mới đã xem (§8.3)             | Learner |
 | GET    | `/leaderboards`                       | Bảng xếp hạng (period, type)                | Learner |
 | GET/POST/PATCH | `/admin/mission-templates` | Admin quản lý Mission Pool; không PUT/DELETE (tắt bằng `isActive`); contract: [daily_mission.md](../decisions/daily_mission.md) §8.3 | Admin   |
-| GET/POST/PUT/DELETE | `/admin/badges`         | Admin CRUD badges                            | Admin   |
 
 Response `GET /gamification/xp` (level = bản ghi `levels` có `required_exp` lớn nhất ≤ `users.exp`):
 
@@ -761,9 +763,9 @@ Gamification
   ├── XpService             — Tính, cộng XP (idempotent event key)
   ├── CoinService           — Cộng/trừ coin, balance tracking (balance ≥ 0)
   ├── MissionService        — Cấp 5 nhiệm vụ/ngày, MissionProgress.apply (gọi đồng bộ từ producer), claim từng nhiệm vụ
-  ├── BadgeService          — Evaluate conditions, grant badges
+  ├── BadgeService          — Sync: tính metric, cấp badge còn thiếu (gọi từ `POST /me/badges/sync`, không hook vào producer)
   ├── LeaderboardService    — Redis sorted set / snapshot cache, ranking
-  └── RewardEventHandler    — Lắng nghe learning events → trigger reward logic (Badge; Daily Mission không dùng event)
+  └── (không có RewardEventHandler: Daily Mission gọi đồng bộ trong transaction, Badge ghi nhận khi sync)
 ```
 
 ### Trace
@@ -841,7 +843,7 @@ Shop
 
 ### Mô tả
 
-Gửi thông báo đẩy (Push) và thông báo trong ứng dụng (In-app) cho Learner: nhắc nhở ôn SRS, thông báo badge/coin, tin hệ thống.
+Gửi thông báo đẩy (Push) và thông báo trong ứng dụng (In-app) cho Learner: nhắc nhở ôn SRS, tin hệ thống. Badge mới hiện bằng modal riêng, không qua Notification trong MVP ([badges.md](../decisions/badges.md) PD-BDG-08).
 
 ### Entities
 
@@ -1117,9 +1119,9 @@ graph TD
 | SRS → Progress         | SS-11 → SS-12         | FsrsRecord state/due → aggregate progress                                                  |
 | Quiz → Progress        | SS-10 → SS-12         | Quiz complete (finalize) → aggregate accuracy, XP                                          |
 | Flashcard → Progress   | SS-09 → SS-12         | Study session → cập nhật streak, learned count                                             |
-| Progress → Gamification | SS-12 → SS-13       | Learning events trigger XP/badge rules; Daily Mission progress gọi đồng bộ trong transaction của hành động |
+| Progress → Gamification | SS-12 → SS-13       | Daily Mission progress gọi đồng bộ trong transaction của hành động; Badge đọc `users.longest_streak_days`, `quizzes`, `user_badge_word_credits` khi sync |
 | Gamification → Shop    | SS-13 → SS-14         | Coin balance; item purchase                                                                |
-| Gamification → Notification | SS-13 → SS-15   | Badge earned → in-app + push notification (không có notification khi hoàn thành Daily Mission) |
+| Gamification → Notification | SS-13 → SS-15   | Không có trong MVP: không notification khi hoàn thành Daily Mission hay đạt badge |
 | SRS → Notification     | SS-11 → SS-15         | Due review → push notification nhắc nhở                                                   |
 | Identity → Storage     | SS-03 → SS-16         | Avatar upload/access                                                                       |
 | Flashcard → Storage    | SS-09 → SS-16         | Ảnh crop flashcard từ AI                                                                    |

@@ -602,7 +602,7 @@
 ### Precondition
 
 - Module gamification đã bật (M4).
-- Mission Pool đã được seed (hoặc Admin cấu hình khi có Admin CRUD — PD-DM-06); Badges, Shop Items đã cấu hình.
+- Mission Pool đã được seed (hoặc Admin cấu hình khi có Admin CRUD — PD-DM-06); Badge catalog đã seed ([badges.md](../decisions/badges.md) §7.4); Shop Items đã cấu hình.
 
 ### Happy Path — Nhiệm vụ & Phần thưởng
 
@@ -647,9 +647,12 @@ Chi tiết canonical: [decisions/shop.md](../decisions/shop.md) §7.
 
 | Bước | Actor   | Hành động                                                                                |
 | ---- | ------- | ---------------------------------------------------------------------------------------- |
-| 1    | System  | Khi Learner đạt điều kiện cụ thể (VD: streak 30 ngày, 100 lượt scan có lưu từ) → trao Badge.      |
-| 2    | System  | Tạo UserBadge. Gửi In-app Notification.                                                  |
-| 3    | Learner | Xem danh sách Badge đã đạt trong Profile / Badge Gallery.                                |
+| 1    | Learner | Mở app, quay lại app, hoặc hoàn thành quiz / thêm từ → app gọi đồng bộ badge (`POST /api/me/badges/sync`).    |
+| 2    | System  | Tính 4 metric (streak dài nhất, số quiz hoàn thành, số quiz 100%, số từ khác nhau tự thêm); tạo UserBadge cho mỗi badge đã đủ ngưỡng mà chưa có. Không thưởng XP/Coin, không gửi notification. |
+| 3    | Learner | Thấy modal "badge mới" (gộp nếu nhiều badge), không bật giữa lúc đang làm quiz/flashcard; đóng modal → đánh dấu đã xem. |
+| 4    | Learner | Xem gallery (đã đạt + điều kiện và tiến độ của badge chưa đạt) và 3 badge gần nhất trên Profile.          |
+
+Chi tiết canonical: [decisions/badges.md](../decisions/badges.md).
 
 ### Alternative Flow
 
@@ -669,7 +672,7 @@ Chi tiết canonical: [decisions/shop.md](../decisions/shop.md) §7.
 ### Post-condition
 
 - XP/Coin đã được cập nhật theo rule.
-- Badge/UserItem/BoosterActivation đã được ghi nhận.
+- UserBadge/UserItem/BoosterActivation đã được ghi nhận.
 - CoinTransaction và ExperienceLog đã được log.
 
 ### Business Rules
@@ -696,7 +699,7 @@ Chi tiết canonical: [decisions/shop.md](../decisions/shop.md) §7.
 
 | Bước | Actor   | Hành động                                                                                               |
 | ---- | ------- | ------------------------------------------------------------------------------------------------------- |
-| 1    | System  | Khi có sự kiện cần thông báo (SRS due, Badge mới, Mission hoàn thành):                                 |
+| 1    | System  | Khi có sự kiện cần thông báo (SRS due, tin hệ thống). Không gửi thông báo khi hoàn thành Daily Mission ([daily_mission.md](../decisions/daily_mission.md) §1.2) hay đạt badge ([badges.md](../decisions/badges.md) PD-BDG-08) trong MVP: |
 | 2    | System  | **Push Notification:** Gửi qua Expo Push / Firebase FCM nếu Learner bật nhận thông báo.                |
 | 3    | System  | **In-app Notification:** Lưu vào database để Learner xem lại khi mở app.                               |
 | 4    | Learner | Mở app → xem danh sách In-app Notification. Đánh dấu đã đọc.                                          |
@@ -750,7 +753,7 @@ Chi tiết canonical: [decisions/shop.md](../decisions/shop.md) §7.
 
 | Bước | Actor | Hành động                                                                            |
 | ---- | ----- | ------------------------------------------------------------------------------------ |
-| 1    | Admin | Cấu hình Mission Pool (template nhiệm vụ ngày, target, reward, weight), Badges, điểm XP, vật phẩm Shop.           |
+| 1    | Admin | Cấu hình Mission Pool (template nhiệm vụ ngày, target, reward, weight), điểm XP, vật phẩm Shop. Badges: release đầu chỉ seed/migration; release tiếp theo có Admin xem, sửa hiển thị, Bật/Tắt — [badges.md](../decisions/badges.md) PD-BDG-10, PD-BDG-13a. |
 | 2    | Admin | Quản lý System Card Template (Classic, Listening, Spelling, Image Vocab...).         |
 
 ### Happy Path — Thống kê

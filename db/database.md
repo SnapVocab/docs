@@ -695,12 +695,55 @@ Quyền sở hữu vật phẩm: 1 row / (user, shop item). "Inventory" là API/
 | `expires_at` | DATETIME(6) | NOT NULL | `started_at + boost_duration_minutes`; active ⇔ `now < expires_at` |
 | `idempotency_key` | VARCHAR(128) | NOT NULL | Anchor chống kích hoạt trùng |
 
+### Bảng `badges`
+Canonical: [badges.md](../decisions/badges.md) §7. Catalog cố định, seed bằng `BadgeCatalogSeeder` (chỉ chèn `code` chưa có, không cập nhật row cũ); sửa `name`/`description`/`icon_key`/`sort_order`/`is_active` qua migration SQL, hoặc Admin khi P2 phát hành (PD-BDG-13b). Môi trường quản lý schema thủ công: `snap-vocab-backend/migration_badges_v1.sql`. Không thưởng XP/Coin, không ghi ledger.
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | |
+| `code` | VARCHAR(64) | UNIQUE, NOT NULL, bất biến | VD `STREAK_7` |
+| `name` | VARCHAR(100) | NOT NULL | Tên UI |
+| `description` | VARCHAR(255) | NOT NULL | Điều kiện đạt |
+| `metric` | VARCHAR(30) | NOT NULL, CHECK IN (`LONGEST_STREAK_DAYS`, `QUIZ_COMPLETED`, `PERFECT_QUIZ`, `DISTINCT_WORDS_ADDED`), bất biến | Metric so với ngưỡng |
+| `threshold` | INT | NOT NULL, CHECK `>= 1`, bất biến | Ngưỡng đạt |
+| `icon_key` | VARCHAR(50) | NOT NULL | Tên icon `lucide-react-native` |
+| `sort_order` | INT | NOT NULL | Thứ tự hiển thị |
+| `is_active` | BOOLEAN | NOT NULL, DEFAULT TRUE | Tắt = không cấp mới; người đã nhận vẫn thấy |
+| `version` | BIGINT | NOT NULL, DEFAULT 0 | Optimistic lock Admin. **Chưa có:** thêm bằng `migration_badges_v2.sql` trước khi phát hành Admin P2 ([badges.md](../decisions/badges.md) §7.1) |
+| `created_at` | DATETIME(6) | NOT NULL | |
+| `updated_at` | DATETIME(6) | NOT NULL | |
+
+### Bảng `user_badges`
+Append-only trừ `seen_at`. Mỗi badge cấp tối đa một lần, không thu hồi ([badges.md](../decisions/badges.md) §5).
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | |
+| `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | |
+| `badge_id` | BIGINT | FK -> `badges(id)`, NOT NULL | |
+| `seen_at` | DATETIME(6) | NULL | NULL = badge mới, chưa xem |
+| `created_at` | DATETIME(6) | NOT NULL | = `earnedAt` (thời điểm sync ghi nhận) |
+
+### Bảng `user_badge_word_credits`
+Append-only, tồn tại suốt đời tài khoản. Mỗi từ (chuẩn hóa, cùng hàm hash với `user_word_credits`) tính một lần cho metric `DISTINCT_WORDS_ADDED`, ghi trong transaction add-item khi item quiz-ready nằm trong collection `USER` của chính Learner ([badges.md](../decisions/badges.md) §6.2). Tách khỏi `user_word_credits` vì bảng đó chỉ ghi khi mission `ADD_5_WORDS` tăng.
+
+| Field | Type | Quan hệ / Ràng buộc | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | |
+| `user_id` | BIGINT | FK -> `users(id)`, NOT NULL | |
+| `word_hash` | BINARY(32) | NOT NULL, UNIQUE cùng `user_id` | SHA-256 của `TARGET_WORD` chuẩn hóa |
+| `created_at` | DATETIME(6) | NOT NULL | `actionInstant` của add-item |
+
 ### Ràng buộc & Indexes (Gamification & Shop)
 - `mission_templates`: Unique `code`.
 - `user_daily_missions`: Unique `(user_id, mission_date, slot)`, Unique `(user_id, mission_date, mission_template_id)`, index `(mission_template_id)`; snapshot `code` không unique. CHECK: `IN_PROGRESS` ⇔ `completed_at IS NULL`; `COMPLETED`/`CLAIMED` ⇒ `current_progress = target_value`; `CLAIMED` ⇔ `claimed_at IS NOT NULL`; snapshot reward cùng CHECK như `mission_templates`.
 - `user_daily_mission_progress_logs`: Unique `(user_daily_mission_id, source_key)`.
 - `user_daily_mission_claims`: Unique `user_daily_mission_id`, Unique `(user_id, idempotency_key)`; CHECK các cột số `>= 0`.
 - `user_word_credits`: Unique `(user_id, word_hash)`, index `(user_daily_mission_id)`.
+- `badges`: Unique `code`, Unique `(metric, threshold)`.
+- `user_badges`: Unique `(user_id, badge_id)`, index `(badge_id)`.
+- `user_badge_word_credits`: Unique `(user_id, word_hash)`; không FK tới `topic_items`.
+- FK của các bảng badge: không cascade (RESTRICT); không purge theo tuổi.
 - FK của các bảng mission: không cascade (RESTRICT).
 - `experience_logs`: Unique `event_key`; index `(user_id, created_at)`.
 - `levels`: Unique index trên `level_number`.

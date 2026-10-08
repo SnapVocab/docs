@@ -242,12 +242,12 @@
 | F-GAME-02 | Coin transaction      | S   | Cộng/trừ Coin; balance ≥ 0 mọi lúc; CoinTransaction ghi amount có dấu + balanceAfter + sourceType + eventKey unique |
 | F-GAME-03 | Daily mission         | S   | Đúng 5 nhiệm vụ/ngày từ pool (cân bằng theo slot + weighted random; personalization `missionProfile` để sau MVP); progress đồng bộ → manual claim → reward riêng từng nhiệm vụ |
 | ~~F-GAME-04~~ | ~~Weekly mission/stamps~~ | — | **Đã loại khỏi scope (2026-10-03):** không có Activity Stamp, Daily/Weekly Chest, thưởng tuần/tháng |
-| F-GAME-05 | Badges                | S   | Huy hiệu khi đạt điều kiện cụ thể (streak 30 ngày, 100 lượt scan có lưu từ…); UserBadge + notification |
+| F-GAME-05 | Badges                | S   | 12 huy hiệu cố định theo 4 metric (streak dài nhất, quiz hoàn thành, quiz 100%, từ khác nhau tự thêm); ghi nhận khi app đồng bộ, nhận một lần, không thưởng; báo bằng modal, không notification. Badge scan hoãn. Canonical: [badges.md](../decisions/badges.md) |
 | F-GAME-06 | Leaderboard           | S   | Xếp hạng theo Weekly XP; Redis sorted set hoặc snapshot cache; hiển thị top N + vị trí user |
 | F-GAME-07 | Shop browse + buy     | C   | Catalog `THEME`/`AVATAR_FRAME`/`XP_BOOSTER`; mua 1 đơn vị, `Idempotency-Key` + `expectedPrice`; trừ Coin + CoinTransaction + UserItem cùng transaction; cosmetic không mua trùng; XP Booster ≤ `maxQuantity` |
 | F-GAME-08a | Equip cosmetic       | C   | Trang bị/bỏ Theme, Avatar Frame; `UserItem.equipped`; tối đa 1 equipped/type, equip mới tự bỏ item cũ trong cùng transaction |
 | F-GAME-08b | Activate XP Booster  | C   | ×2 XP Review/Quiz, mặc định 30 phút server time; tối đa 1 active; không stack/queue/extend; `BoosterActivation` |
-| F-GAME-09 | Admin config          | S   | Admin CRUD: Mission templates (nhiệm vụ ngày), Badges, Shop Items, XP reward rules              |
+| F-GAME-09 | Admin config          | S   | Admin CRUD: Mission templates (nhiệm vụ ngày), Badges, Shop Items, XP reward rules (Badges: release đầu chỉ seed/migration, release tiếp theo có Admin xem, sửa hiển thị, Bật/Tắt — [badges.md](../decisions/badges.md) PD-BDG-10, PD-BDG-13a) |
 | F-GAME-10 | Mission reset cycle   | S   | Daily missions reset 00:00 Asia/Ho_Chi_Minh (xem ../decisions/daily_mission.md §3.1); progress không cộng dồn sang ngày sau    |
 | F-GAME-11 | Anti-cheat            | S   | Không cộng progress cho action spam; lượt scan hợp lệ phải có "≥ 1 từ được lưu thành công"      |
 
@@ -271,7 +271,7 @@
 | ID         | Tính năng             | P   | AC tóm tắt                                                                              |
 | ---------- | --------------------- | --- | --------------------------------------------------------------------------------------- |
 | F-NOTIF-01 | Push SRS reminder     | M   | Push notification nhắc nhở ôn SRS daily; qua Expo Push / Firebase FCM; respect settings |
-| F-NOTIF-02 | In-app notification   | S   | Lưu notification trong DB; badge/coin earned, system announcement (không có notification khi hoàn thành Daily Mission)     |
+| F-NOTIF-02 | In-app notification   | S   | Lưu notification trong DB; system announcement (không có notification khi hoàn thành Daily Mission hay đạt badge trong MVP)     |
 | F-NOTIF-03 | Mark as read          | S   | Learner đánh dấu đã đọc từng notification hoặc read all                                 |
 | F-NOTIF-04 | Device token register | M   | Đăng ký/cập nhật device token khi mở app; hết hạn → re-register                         |
 | F-NOTIF-05 | Notification settings | M   | Learner bật/tắt push; cấu hình giờ nhận (nếu hỗ trợ); Settings screen                   |
@@ -345,7 +345,7 @@
 | F-ADM-05 | Collection/Topic CRUD         | M   | Quản lý cấu trúc chủ đề; CRUD TopicItem + thuộc tính EAV                              |
 | F-ADM-06 | Import batch dictionary       | S   | Import từ vựng hàng loạt CSV/Excel; validate + dedup; báo cáo kết quả import          |
 | F-ADM-07 | System template management    | M   | Admin CRUD System Templates; Learner không sửa/xóa system template                    |
-| F-ADM-08 | Gamification config           | S   | Admin CRUD: Missions, Badges, Shop Items, XP reward rules                             |
+| F-ADM-08 | Gamification config           | S   | Admin CRUD: Missions, Badges, Shop Items, XP reward rules (Badges: release đầu chỉ seed/migration, release tiếp theo có Admin xem, sửa hiển thị, Bật/Tắt — [badges.md](../decisions/badges.md) PD-BDG-10, PD-BDG-13a) |
 | F-ADM-09 | Feedback queue                | C   | Xem báo lỗi từ Learner (từ vựng sai, nhận diện sai); cập nhật trạng thái xử lý        |
 | F-ADM-10 | Stats dashboard               | S   | Biểu đồ: users active, lượt dùng AI service, dung lượng R2/S3, tổng quan hệ thống     |
 
