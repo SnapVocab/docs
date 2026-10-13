@@ -158,7 +158,8 @@ Quản lý toàn bộ vòng đời tài khoản: đăng ký, xác thực email/O
 | -------------- | ---------------------------------------------------------------------------- |
 | `User`         | Tài khoản người dùng (name, email, hashedPassword, avatarUrl, status, role)  |
 | `Authority`    | Quyền/vai trò: ROLE_LEARNER, ROLE_ADMIN                                     |
-| `RefreshToken` | Token làm mới phiên đăng nhập (token, userId, expiresAt, revoked)            |
+| `RefreshToken` | Token làm mới phiên đăng nhập; lưu trong Redis (`refresh_token:<token>` → email), thu hồi bằng cách xóa key |
+| `UserSettings` | Cài đặt của Learner: uiLanguage, theme, dailyGoal, srsReminderAt, pushEnabled (bảng `user_settings`) |
 | `OtpToken`     | Mã OTP xác thực (code, userId, type, expiresAt, used, attemptCount)          |
 
 ### Chức năng chính
@@ -187,7 +188,10 @@ Quản lý toàn bộ vòng đời tài khoản: đăng ký, xác thực email/O
 | POST   | `/auth/forgot-password`     | Yêu cầu reset mật khẩu                   | Public   |
 | POST   | `/auth/reset-password`      | Đặt mật khẩu mới                          | Public   |
 | GET    | `/users/me`                 | Xem hồ sơ cá nhân                         | Learner  |
-| PUT    | `/users/me`                 | Cập nhật hồ sơ                             | Learner  |
+| PUT    | `/users/me`                 | Cập nhật hồ sơ (firstName, lastName, bio) | Learner  |
+| GET    | `/users/me/settings`        | Cài đặt cá nhân (MH-PROFILE-03)           | Learner  |
+| PUT    | `/users/me/settings`        | Cập nhật cài đặt (partial update)         | Learner  |
+| POST   | `/auth/change-password`     | Đổi mật khẩu; đăng xuất thiết bị khác     | Learner  |
 
 ### Business Rules
 
