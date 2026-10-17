@@ -131,7 +131,7 @@ Web application nội bộ (tách biệt với Mobile App) dành cho Admin quả
 - Quản lý Collection/Topic: cấu trúc chủ đề, TopicItem, thuộc tính EAV
 - Import dữ liệu từ vựng hàng loạt (CSV/Excel)
 - Quản lý Topic Template hệ thống
-- Quản lý gamification: Missions, Badges, Shop Items, XP config
+- Quản lý gamification: Missions, Badges, Shop Items, XP config (Badges: release tiếp theo có Admin xem, sửa hiển thị, Bật/Tắt — [badges.md](../decisions/badges.md) PD-BDG-10, PD-BDG-13a)
 - Xem Feedback/báo lỗi từ người dùng
 - Dashboard thống kê: users active, lượt dùng AI, dung lượng R2/S3
 
@@ -349,12 +349,12 @@ Phân hệ backend phía Spring Boot chịu trách nhiệm orchestrate luồng n
 
 | Method | Endpoint | Mô tả | Auth |
 | ------ | -------- | ----- | ---- |
-| POST | `/api/scan/upload-url` | Body `{contentType}` → `{uploadUrl, objectName, contentType, expiredAt}` | Learner |
-| POST | `/api/scan` (`application/json`) | Body `{objectKey}` → `202 {requestId, status: PENDING}` | Learner |
-| GET | `/api/scan/{requestId}` | `{requestId, status, errorCode, createdAt, finishedAt, result}`; `result = {imageWidth, imageHeight, items[]}` khi `DONE`. Scan của người khác trả 404 | Learner |
-| GET | `/api/scan/quota` | `{limit, used, remaining, resetAt}` | Learner |
-| POST | `/api/scan` (`multipart/form-data`) | **Deprecated** — endpoint đồng bộ cũ, field `file`, trả kết quả ngay (kèm ảnh vẽ sẵn box nếu AI bật). Vẫn tính quota | Learner |
-| GET | `/api/scan/history` | Lịch sử scan của Learner (Should — chưa triển khai) | Learner |
+| POST | `/scan/upload-url` | Body `{contentType}` → `{uploadUrl, objectName, contentType, expiredAt}` | Learner |
+| POST | `/scan` (`application/json`) | Body `{objectKey}` → `202 {requestId, status: PENDING}` | Learner |
+| GET | `/scan/{requestId}` | `{requestId, status, errorCode, createdAt, finishedAt, result}`; `result = {imageWidth, imageHeight, items[]}` khi `DONE`. Scan của người khác trả 404 | Learner |
+| GET | `/scan/quota` | `{limit, used, remaining, resetAt}` | Learner |
+| POST | `/scan` (`multipart/form-data`) | **Deprecated** — endpoint đồng bộ cũ, field `file`, trả kết quả ngay (kèm ảnh vẽ sẵn box nếu AI bật). Vẫn tính quota | Learner |
+| GET | `/scan/history` | Lịch sử scan của Learner (Should — chưa triển khai) | Learner |
 
 Mỗi phần tử `items[]`: `label`, `score`, `source`, `reliability`, `box {x1, y1, x2, y2}`, `word` (LookupResult, `null` nếu không có trong từ điển). Mã lỗi trả trong `RestResponse.error`; riêng `QUOTA_EXCEEDED` kèm `data = {limit, used, remaining, resetAt}`.
 
@@ -580,7 +580,7 @@ Sinh Quiz session từ TopicItem trong Topic, chấm **incremental** từng inte
 
 - **Generation:** resolve dữ liệu TopicItem qua `Topic.activeTemplate → TemplateField.semanticRole → SchemaAttribute → TopicItemAttributeValue`; không phụ thuộc tên `SchemaAttribute`. Sinh câu hỏi/cặp và đáp án nhiễu (cùng Topic, không trùng nghĩa); số câu ∈ {5, 10, 20}; item hợp lệ < số câu → lỗi `QUIZ_INSUFFICIENT_ELIGIBLE_ITEMS`, không tạo Quiz nhỏ hơn.
 - **Grading:** chấm từng câu (MCQ, FILL_BLANK) và từng cặp (MATCHING) ngay khi nhận; ghi nhận kết quả; không tiết lộ đáp án trước khi chấm.
-- **Finalize:** `complete` tổng hợp summary từ kết quả đã chấm, phát sự kiện cho Progress / Gamification / Mission.
+- **Finalize:** `complete` tổng hợp summary từ kết quả đã chấm, phát sự kiện cho Progress / Gamification; cập nhật progress Daily Mission đồng bộ trong cùng transaction ([daily_mission.md](../decisions/daily_mission.md) §6).
 - **Idempotency:** check / pair attempt / complete dùng `Idempotency-Key`; retry không chấm hoặc cộng trùng.
 - `QuizMode` = `MCQ | MATCHING | FILL_BLANK`; `QuizDirection` = `EN_VI | VI_EN`. `LISTENING` là Template flashcard, không phải Quiz Mode.
 - **Duration (D15):** khi COMPLETED, tính `durationSeconds = completedAt - createdAt` server-side và trả trong `QuizResultDTO`; không nhận duration từ client.
@@ -632,7 +632,7 @@ Quản lý hàng đợi ôn tập theo thuật toán FSRS (Free Spaced Repetitio
 
 - SRS logic tích hợp chặt với SS-09 (FsrsRecord entity + FsrsService). Tách SS vì trách nhiệm nghiệp vụ khác nhau: SS-09 quản lý study session / template, SS-11 quản lý review scheduling.
 - FSRS parameters: card_state (NEW/LEARNING/REVIEW/RELEARNING/SUSPENDED), due, stability, difficulty, reps, lapses.
-- UI/progress state dùng map chuẩn FR-04: NEW→new; LEARNING/RELEARNING→learning; REVIEW interval <21 ngày→reviewing; REVIEW interval ≥21 ngày→mastered.
+- UI/progress state dùng map chuẩn FR-04: NEW→new; LEARNING/RELEARNING→learning; REVIEW `stability` <21 ngày→reviewing; REVIEW `stability` ≥21 ngày→mastered.
 
 ### Trace
 
@@ -653,8 +653,8 @@ Tổng hợp và hiển thị tiến độ học tập cá nhân: số từ, str
 
 | Entity             | Mô tả                                                                     |
 | ------------------ | -------------------------------------------------------------------------- |
-| `LearningProgress` | Aggregate: totalWords, learnedCount, dueCount, masteredCount, streak, accuracy theo learning-state map |
-| `LearningEvent`    | Sự kiện học (type, timestamp, metadata) — rebuild từ review event / Quiz complete |
+| `LearningProgress` | DTO aggregate (không phải bảng): totalWords, learnedCount, reviewingCount, masteredCount, dueCount, accuracy — query trực tiếp từ `fsrs_records` + `topic_items` |
+| `LearningEvent`    | Bảng `learning_events` (append-only): sự kiện học hợp lệ (type, learningDate, metadata) — nguồn cho activity history ([database.md](../db/database.md) §3B) |
 
 ### Chức năng chính
 
@@ -666,20 +666,33 @@ Tổng hợp và hiển thị tiến độ học tập cá nhân: số từ, str
 - Goal tracking (Could)
 - Cập nhật sau mỗi hoạt động: lưu từ, flashcard review, quiz complete
 
-Quy tắc aggregate:
+Quy tắc aggregate (theo learning-state map, [specs.md](./specs.md) FR-04):
 
-- `learnedCount` = số TopicItem có UI state khác `new` (`learning + reviewing + mastered`).
-- `dueCount` / đang ôn = số FsrsRecord có `due <= now`.
-- `masteredCount` = số FsrsRecord có `card_state = REVIEW` và interval ≥ 21 ngày.
+- `learnedCount` = số FsrsRecord có `state <> NEW` (`learning + reviewing + mastered`).
+- `reviewingCount` = số FsrsRecord có UI state `reviewing` (`REVIEW`, `stability` < 21 ngày). UI label "Đang ôn" **chỉ** dùng số này.
+- `masteredCount` = số FsrsRecord có UI state `mastered` (`REVIEW`, `stability` ≥ 21 ngày).
+- `dueCount` = số FsrsRecord có `due <= now` — là **workload hiện tại**, không phải learning state; UI label "Cần ôn hôm nay".
+- Ngày học tính theo `Asia/Ho_Chi_Minh` (GMT+7), cùng quy ước với Daily Mission.
+
+Source of truth theo số liệu (không tính lại streak từ event khi gọi API):
+
+| Số liệu | Source of truth |
+| ------- | --------------- |
+| Tổng số từ / learning state / due | `topic_items` + `fsrs_records` |
+| Streak hiện tại / dài nhất | `users.streak_days`, `users.longest_streak_days`, `users.last_studied_at` |
+| Activity chart ngày/tuần/tháng, lịch ngày học | `learning_events` (group theo `learning_date`) |
+| Accuracy, số quiz đã hoàn thành | Quiz session đã complete + review event |
 
 ### API Endpoints
 
-| Method | Endpoint                      | Mô tả                                     | Auth    |
-| ------ | ----------------------------- | ------------------------------------------ | ------- |
-| GET    | `/progress/summary`           | Tổng quan tiến độ                          | Learner |
-| GET    | `/progress/streak`            | Chi tiết streak                             | Learner |
-| GET    | `/progress/history`           | Lịch sử hoạt động (daily/weekly/monthly)   | Learner |
-| GET    | `/progress/home-widget`       | Summary ngắn gọn cho Home screen           | Learner |
+| Method | Endpoint                      | Mô tả                                     | Màn hình | Auth    |
+| ------ | ----------------------------- | ------------------------------------------ | -------- | ------- |
+| GET    | `/progress/summary`           | Learning state counts, dueCount, accuracy, số quiz đã hoàn thành | MH-STATS-01 | Learner |
+| GET    | `/progress/streak`            | Streak hiện tại + dài nhất + `lastStudiedDate` | MH-STATS-01 | Learner |
+| GET    | `/progress/history`           | Activity theo ngày/tuần/tháng (`?period=day\|week\|month&from&to`) | MH-STATS-01 | Learner |
+| GET    | `/progress/home-widget`       | Summary ngắn gọn: saved/learned/mastered, dueCount, streak | MH-MAIN-01 | Learner |
+
+XP và Level **không** thuộc Progress — xem `/gamification/xp` (SS-13).
 
 ### Trace
 
@@ -700,35 +713,52 @@ Hệ thống tăng động lực học tập: điểm kinh nghiệm (XP), tiền
 
 | Entity            | Mô tả                                                        |
 | ----------------- | ------------------------------------------------------------- |
-| `Mission`         | Nhiệm vụ ngày/tuần/thành tựu (type, target, reward, period)  |
-| `MissionProgress` | Tiến độ nhiệm vụ của Learner (current, completed, claimedAt) |
-| `Badge`           | Định nghĩa huy hiệu (name, condition, iconUrl)               |
-| `UserBadge`       | Huy hiệu Learner đã đạt (earnedAt)                           |
-| `ExperienceLog`   | Lịch sử cộng XP (amount, source, eventKey, timestamp)        |
-| `CoinTransaction` | Lịch sử cộng/trừ coin (amount, type, eventKey, balance)      |
-| `LeaderboardEntry`| Bản ghi xếp hạng (userId, score, period, rank)               |
+| `MissionTemplate` | Template nhiệm vụ ngày trong Mission Pool (category, triggerEvent, target, reward, weight, eligibility) |
+| `UserDailyMission` | Nhiệm vụ ngày đã cấp cho Learner (slot 1–5, progress, status, claimedAt) |
+| `UserDailyMissionProgressLog` | Dedupe progress theo `(mission, sourceKey)` |
+| `UserDailyMissionClaim` | Claim reward từng mission (idempotencyKey, reward thực cấp) |
+| `UserWordCredit` | Từ (hash chuẩn hóa) đã được tính cho `ADD_5_WORDS`, một lần trọn đời |
+| `Badge`           | Định nghĩa huy hiệu (code, metric, threshold, iconKey, isActive) — [badges.md](../decisions/badges.md) §7.1 |
+| `UserBadge`       | Huy hiệu Learner đã đạt (earnedAt = createdAt, seenAt)       |
+| `UserBadgeWordCredit` | Từ khác nhau (hash chuẩn hóa) Learner từng tự thêm, cho metric `DISTINCT_WORDS_ADDED`; tách khỏi `UserWordCredit` |
+| `ExperienceLog`   | Lịch sử cộng XP (baseAmount, bonusAmount, source, eventKey, boosterActivationId, timestamp) |
+| `CoinTransaction` | Ledger coin (amount có dấu, balanceAfter, sourceType, referenceId, eventKey unique) |
+| `LeaderboardEntry`| Bản ghi xếp hạng — **chưa thiết kế** (database.md chưa có bảng) |
 
 ### Chức năng chính
 
 - **XP:** Cộng XP khi hoàn thành hoạt động học (idempotent — event key)
-- **Coin:** Cộng coin theo mission/milestone; trừ coin khi mua item
-- **Mission:** Nhiệm vụ ngày/tuần/thành tựu; tự động cập nhật progress; claim reward
-- **Badge:** Trao huy hiệu khi đạt điều kiện cụ thể
+- **Coin:** Cộng coin khi claim reward nhiệm vụ ngày; trừ coin khi mua item
+- **Mission:** Đúng 5 nhiệm vụ ngày (reset 00:00 GMT+7); progress cập nhật đồng bộ trong transaction của hành động (quiz complete, thêm từ, purchase, activate booster); manual claim reward từng nhiệm vụ. Không Chest, không thưởng tuần/tháng, không notification khi hoàn thành
+- **Badge:** 12 badge cố định theo 4 metric; ghi nhận khi app gọi sync, nhận một lần, không thu hồi, không thưởng XP/Coin, không notification ([badges.md](../decisions/badges.md))
 - **Leaderboard:** Xếp hạng theo Weekly XP; Redis sorted set / snapshot cache
-- Admin cấu hình missions, badges, XP rules
+- Admin cấu hình missions, XP rules. Badge catalog qua seed/migration trong release đầu (PD-BDG-10); release tiếp theo có Admin xem, sửa hiển thị, Bật/Tắt (PD-BDG-13a)
 
 ### API Endpoints
 
 | Method | Endpoint                              | Mô tả                                       | Auth    |
 | ------ | ------------------------------------- | -------------------------------------------- | ------- |
-| GET    | `/gamification/xp`                    | Tổng XP và lịch sử                           | Learner |
-| GET    | `/gamification/coins`                 | Balance coin và lịch sử giao dịch            | Learner |
-| GET    | `/gamification/missions`              | Danh sách missions + progress                | Learner |
-| POST   | `/gamification/missions/{id}/claim`   | Claim reward nhiệm vụ (idempotent)           | Learner |
-| GET    | `/gamification/badges`                | Danh sách badges (earned + available)        | Learner |
+| GET    | `/gamification/xp`                    | Tổng XP, level hiện tại (derive từ `users.exp` + `levels`), XP tới level kế, recent `ExperienceLog` — phục vụ MH-STATS-02 và Home. Không có endpoint `/levels/current` riêng | Learner |
+| GET    | `/me/wallet`                      | Balance coin và lịch sử giao dịch (cursor)   | Learner |
+| GET    | `/me/daily-missions`                  | 5 nhiệm vụ hôm nay + progress + reward       | Learner |
+| POST   | `/me/daily-missions/{id}/claim`       | Claim reward 1 nhiệm vụ (`Idempotency-Key`); contract: [daily_mission.md](../decisions/daily_mission.md) §8 | Learner |
+| GET    | `/me/badges`                          | Danh sách badges (earned + progress), chỉ đọc; contract: [badges.md](../decisions/badges.md) §8.1 | Learner |
+| POST   | `/me/badges/sync`                     | Ghi nhận badge đủ điều kiện + trả danh sách (§8.2) | Learner |
+| POST   | `/me/badges/seen`                     | Đánh dấu badge mới đã xem (§8.3)             | Learner |
 | GET    | `/leaderboards`                       | Bảng xếp hạng (period, type)                | Learner |
-| GET/POST/PUT/DELETE | `/admin/missions`       | Admin CRUD missions                          | Admin   |
-| GET/POST/PUT/DELETE | `/admin/badges`         | Admin CRUD badges                            | Admin   |
+| GET/POST/PATCH | `/admin/mission-templates` | Admin quản lý Mission Pool; không PUT/DELETE (tắt bằng `isActive`); contract: [daily_mission.md](../decisions/daily_mission.md) §8.3 | Admin   |
+
+Response `GET /gamification/xp` (level = bản ghi `levels` có `required_exp` lớn nhất ≤ `users.exp`):
+
+```json
+{
+  "totalXp": 2450,
+  "level": { "levelNumber": 7, "title": "Explorer", "minXp": 2000, "nextLevelXp": 3000, "progress": 0.45 },
+  "recentEvents": [{ "sourceType": "QUIZ", "amount": 30, "createdAt": "2026-10-02T08:00:00+07:00" }]
+}
+```
+
+Level cao nhất: `nextLevelXp = null`, `progress = 1`.
 
 ### Sub-components
 
@@ -736,17 +766,17 @@ Hệ thống tăng động lực học tập: điểm kinh nghiệm (XP), tiền
 Gamification
   ├── XpService             — Tính, cộng XP (idempotent event key)
   ├── CoinService           — Cộng/trừ coin, balance tracking (balance ≥ 0)
-  ├── MissionService        — CRUD mission, auto-update progress, claim
-  ├── BadgeService          — Evaluate conditions, grant badges
+  ├── MissionService        — Cấp 5 nhiệm vụ/ngày, MissionProgress.apply (gọi đồng bộ từ producer), claim từng nhiệm vụ
+  ├── BadgeService          — Sync: tính metric, cấp badge còn thiếu (gọi từ `POST /me/badges/sync`, không hook vào producer)
   ├── LeaderboardService    — Redis sorted set / snapshot cache, ranking
-  └── RewardEventHandler    — Lắng nghe learning events → trigger reward logic
+  └── (không có RewardEventHandler: Daily Mission gọi đồng bộ trong transaction, Badge ghi nhận khi sync)
 ```
 
 ### Trace
 
 - FR: FR-09
 - BF: BF-11, BF-12
-- Detail: [daily_mission.md](./daily_mission.md)
+- Detail: [daily_mission.md](../decisions/daily_mission.md), [shop.md](../decisions/shop.md) (CoinTransaction, XP Booster bonus)
 
 ### Milestone: M4
 
@@ -756,36 +786,58 @@ Gamification
 
 ### Mô tả
 
-Cửa hàng vật phẩm ảo trong ứng dụng. Learner dùng Coin mua vật phẩm (theme, avatar frame, booster). Không xử lý thanh toán tiền thật.
+Cửa hàng vật phẩm ảo trong ứng dụng. Learner dùng Coin mua `THEME`, `AVATAR_FRAME`, `XP_BOOSTER`. Không xử lý thanh toán tiền thật. Canonical: [decisions/shop.md](../decisions/shop.md).
 
 ### Entities
 
-| Entity     | Mô tả                                                           |
-| ---------- | ---------------------------------------------------------------- |
-| `ShopItem` | Vật phẩm trong cửa hàng (name, price, type, iconUrl, status)    |
-| `UserItem` | Vật phẩm Learner sở hữu/đang sử dụng (purchasedAt, equipped)   |
+| Entity              | Mô tả                                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------- |
+| `ShopItem`          | Vật phẩm (code, type, name, iconKey, status DRAFT/PUBLISHED/ARCHIVED, purchasable, price, sale window, field theo type) |
+| `UserItem`          | Sở hữu: 1 row/(Learner, ShopItem) — itemType, quantity, equipped, acquiredAt                            |
+| `BoosterActivation` | Một lần kích hoạt XP Booster (startedAt, expiresAt, idempotencyKey)                                     |
+
+"Inventory" là API resource/màn hình, không phải entity.
 
 ### Chức năng chính
 
-- Duyệt danh sách vật phẩm
-- Mua vật phẩm bằng Coin (balance ≥ price)
-- Áp dụng vật phẩm (đổi theme, avatar frame, booster)
-- Admin CRUD vật phẩm
+- Duyệt catalog đang bán (trạng thái sở hữu, `canPurchase`, `blockReason` do server tính)
+- Mua 1 đơn vị bằng Coin, idempotent (`Idempotency-Key`), kiểm tra `expectedPrice`
+- Trang bị/bỏ Theme, Avatar Frame (tối đa 1/type)
+- Kích hoạt XP Booster (×2 XP Review/Quiz, tối đa 1 active)
+- Cấp item từ reward (fallback Coin khi không cấp được)
+- Admin: tạo DRAFT, sửa, publish, archive, xóa DRAFT
 
 ### API Endpoints
 
-| Method    | Endpoint                        | Mô tả                               | Auth    |
-| --------- | ------------------------------- | ------------------------------------ | ------- |
-| GET       | `/shop/items`                   | Danh sách vật phẩm                   | Learner |
-| POST      | `/shop/items/{id}/buy`          | Mua vật phẩm                         | Learner |
-| POST      | `/shop/inventory/{id}/equip`    | Áp dụng vật phẩm                     | Learner |
-| GET       | `/shop/inventory`               | Danh sách vật phẩm sở hữu           | Learner |
-| GET/POST/PUT/DELETE | `/admin/shop-items`   | Admin CRUD vật phẩm                  | Admin   |
+| Method    | Endpoint                                  | Mô tả                                     | Auth    |
+| --------- | ----------------------------------------- | ----------------------------------------- | ------- |
+| GET       | `/shop/items`                         | Catalog + trạng thái theo Learner         | Learner |
+| POST      | `/shop/items/{itemId}/purchase`       | Mua (header `Idempotency-Key`)            | Learner |
+| GET       | `/me/items`                           | Inventory + equipped + activeBooster      | Learner |
+| PUT/DELETE | `/me/equipment/{type}`               | Trang bị / bỏ Theme, Avatar Frame         | Learner |
+| POST      | `/me/items/{itemId}/activate`         | Kích hoạt XP Booster (`Idempotency-Key`)  | Learner |
+| GET       | `/admin/shop/item-types`              | Metadata dynamic form                     | Admin   |
+| GET/POST  | `/admin/shop/items`                   | Danh sách / tạo DRAFT                     | Admin   |
+| GET/PATCH/DELETE | `/admin/shop/items/{id}`       | Chi tiết / sửa (có `version`) / xóa DRAFT | Admin   |
+| POST      | `/admin/shop/items/{id}/publish`      | DRAFT → PUBLISHED                         | Admin   |
+| POST      | `/admin/shop/items/{id}/archive`      | PUBLISHED → ARCHIVED                      | Admin   |
+
+### Sub-components
+
+```text
+Shop
+  ├── ShopCatalogService    — catalog, trạng thái theo Learner
+  ├── PurchaseService       — lock user → idempotency → validate → trừ Coin → cấp UserItem
+  ├── InventoryService      — inventory, equip/unequip, grant từ reward (fallback Coin)
+  ├── BoosterService        — activate, tra booster active cho XpService
+  └── AdminShopItemService  — DRAFT/PUBLISHED/ARCHIVED, validation, field khóa
+```
 
 ### Trace
 
 - FR: FR-09.06, FR-09.07
-- BF: BF-12
+- BF: BF-12, BF-14
+- Detail: [shop.md](../decisions/shop.md)
 
 ### Milestone: M4 (Could)
 
@@ -795,7 +847,7 @@ Cửa hàng vật phẩm ảo trong ứng dụng. Learner dùng Coin mua vật p
 
 ### Mô tả
 
-Gửi thông báo đẩy (Push) và thông báo trong ứng dụng (In-app) cho Learner: nhắc nhở ôn SRS, thông báo badge/coin, tin hệ thống.
+Gửi thông báo đẩy (Push) và thông báo trong ứng dụng (In-app) cho Learner: nhắc nhở ôn SRS, tin hệ thống. Badge mới hiện bằng modal riêng, không qua Notification trong MVP ([badges.md](../decisions/badges.md) PD-BDG-08).
 
 ### Entities
 
@@ -1071,9 +1123,9 @@ graph TD
 | SRS → Progress         | SS-11 → SS-12         | FsrsRecord state/due → aggregate progress                                                  |
 | Quiz → Progress        | SS-10 → SS-12         | Quiz complete (finalize) → aggregate accuracy, XP                                          |
 | Flashcard → Progress   | SS-09 → SS-12         | Study session → cập nhật streak, learned count                                             |
-| Progress → Gamification | SS-12 → SS-13       | Learning events trigger XP/coin/mission/badge rules                                       |
+| Progress → Gamification | SS-12 → SS-13       | Daily Mission progress gọi đồng bộ trong transaction của hành động; Badge đọc `users.longest_streak_days`, `quizzes`, `user_badge_word_credits` khi sync |
 | Gamification → Shop    | SS-13 → SS-14         | Coin balance; item purchase                                                                |
-| Gamification → Notification | SS-13 → SS-15   | Badge/mission complete → in-app + push notification                                       |
+| Gamification → Notification | SS-13 → SS-15   | Không có trong MVP: không notification khi hoàn thành Daily Mission hay đạt badge |
 | SRS → Notification     | SS-11 → SS-15         | Due review → push notification nhắc nhở                                                   |
 | Identity → Storage     | SS-03 → SS-16         | Avatar upload/access                                                                       |
 | Flashcard → Storage    | SS-09 → SS-16         | Ảnh crop flashcard từ AI                                                                    |
@@ -1082,7 +1134,7 @@ graph TD
 
 ### Ghi chú coupling
 
-- **Loose coupling qua events:** Các phân hệ nên dùng domain event nội bộ (VD: `TopicItemCreated`, `ReviewCompleted`, `QuizCompleted`, `MissionCompleted`) để tránh coupling trực tiếp.
+- **Loose coupling qua events:** Các phân hệ nên dùng domain event nội bộ (VD: `TopicItemCreated`, `ReviewCompleted`, `QuizCompleted`) để tránh coupling trực tiếp. Ngoại lệ: Daily Mission cập nhật progress đồng bộ trong transaction của producer để không mất progress ([daily_mission.md](../decisions/daily_mission.md) §6); không có event `MissionCompleted`.
 - **Shared entities:** `TopicItem` và `FsrsRecord` được chia sẻ giữa SS-05/SS-08 (Topic & Item), SS-09 (Flashcard & Template) và SS-11 (SRS). Trách nhiệm tách rõ qua service layer.
 - **AI Service tách deploy:** SS-07 là service độc lập (Python FastAPI), giao tiếp HTTP. Không chia sẻ database với backend Spring Boot.
 - **Storage crosscutting:** SS-16 là infrastructure service, được nhiều domain sử dụng qua cùng interface.
@@ -1125,7 +1177,7 @@ vn.ptit.snapvocab
 │   ├── Word, Definition, Translation, Pronunciation, WordDefinition, WordRelation
 │   ├── Collection, Topic, TopicItem, Schema, SchemaAttributeGroup, SchemaAttribute, TopicItemAttributeGroup, TopicItemAttributeValue
 │   ├── Template, TemplateElement, TemplateField
-│   ├── FsrsRecord, Level, ShopItem, UserInventory, Notification, UserNotification
+│   ├── FsrsRecord, Level, ShopItem, UserItem, BoosterActivation, Notification, UserNotification
 │   ├── common/                    (BaseTimeEntity, BaseCreatedAtEntity)
 │   ├── enumeration/               (CardState, ReviewRating, SemanticRole, CardSide, TemplateElementType, CollectionType...)
 │   └── mapper/                    (Entity mappers & DTO converters)

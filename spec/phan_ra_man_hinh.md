@@ -356,6 +356,8 @@ flowchart TD
 - **Quick actions:** Camera Scan, Search, Flashcard, Quiz, SRS Review
 - **Recently learned:** 3–5 từ gần nhất
 
+**API:** Progress widget + SRS due + Streak → `GET /api/progress/home-widget` (M3); XP/Level → `GET /api/gamification/xp` (M4).
+
 **Hành động điều hướng:**
 
 | Hành động     | Đích         |
@@ -781,7 +783,7 @@ flowchart TD
 
 **Empty state:** "Chưa có bài Quiz nào."
 
-> **Resume/expire (D17):** thoát qua modal → `CANCELLED`. Bị ngắt ngoài ý muốn (app đóng, back cứng) → giữ `IN_PROGRESS`, resume được trong 24h kể từ `createdAt`; quá hạn Backend chuyển `EXPIRED` và mọi tương tác trả `QUIZ_SESSION_EXPIRED` (410). Khi đang làm bài mà nhận lỗi này, mobile dừng quiz, báo "Phiên quiz đã hết hạn" và điều hướng về Quiz Setup.
+> **Resume/expire (D17):** thoát qua modal → `CANCELLED`. Bị ngắt ngoài ý muốn (app đóng, back cứng) → giữ `IN_PROGRESS`, resume được trong 24h kể từ `createdAt`; quá hạn Backend chuyển `EXPIRED` và mọi thao tác làm bài (resume/check/attempt/complete/cancel) trả `QUIZ_SESSION_EXPIRED` (410); xem Result vẫn trả 200 với `status = EXPIRED`, không có điểm. Khi đang làm bài mà nhận lỗi này, mobile dừng quiz, báo "Phiên quiz đã hết hạn" và điều hướng về Quiz Setup.
 
 ---
 
@@ -852,6 +854,10 @@ flowchart TD
 - Review count, số Quiz đã hoàn thành
 - Daily goal progress (Could)
 
+> "Đang ôn" = `reviewingCount` (learning state). "Cần ôn hôm nay" = `dueCount` (workload). Hai số không dùng thay nhau.
+
+**API (M3):** `GET /api/progress/summary`, `GET /api/progress/streak`, `GET /api/progress/history`.
+
 ---
 
 ### MH-STATS-02 — Level Progress
@@ -871,6 +877,8 @@ flowchart TD
 - XP progress bar
 - Recent XP events (source + amount)
 - Level benefits (nếu có)
+
+**API (M4):** `GET /api/gamification/xp` — trả totalXp, level (current / next / progress), recentEvents. Không có `/api/levels/current`.
 
 ---
 
@@ -900,20 +908,23 @@ flowchart TD
 | Thuộc tính | Mô tả                                 |
 | ---------- | ------------------------------------- |
 | Actor      | Learner                               |
-| Feature    | F-GAME-03, F-GAME-04, F-GAME-10       |
+| Feature    | F-GAME-03, F-GAME-10                  |
 | BF         | BF-12                                 |
 | FR         | FR-09.03                              |
-| Mục tiêu   | Xem nhiệm vụ ngày/tuần và nhận thưởng |
+| Mục tiêu   | Xem nhiệm vụ ngày và nhận thưởng từng nhiệm vụ |
 
 **Dữ liệu hiển thị:**
 
-- **Daily missions** (3–5 missions): tên, progress bar (VD: 7/10), reward (coin + XP)
-- **Weekly stamps** (hoàn thành all daily → stamp → rương tuần)
-- Claim button (COMPLETED → CLAIMED)
-- Go-to-task CTA (deep link tới hoạt động liên quan)
+- **Daily missions** (đúng 5 missions): tên, mô tả, progress bar (VD: 7/10), reward riêng (coin + XP, item nếu có), trạng thái `Đang làm` / `Hoàn thành` / `Đã nhận thưởng`
+- Claim button trên từng mission (COMPLETED → CLAIMED); không có rương/thưởng tổng khi đủ 5/5, không có thưởng tuần/tháng
+- Cảnh báo mission đã hoàn thành nhưng chưa claim sẽ hết hạn lúc reset
+- Lỗi `503 MISSION_POOL_INSUFFICIENT`: trạng thái lỗi tạm thời, không hiển thị danh sách thiếu
+- Contract render/claim/invalidation: [daily_mission.md](../decisions/daily_mission.md) §9
+- Go-to-task CTA theo `triggerEvent` ([daily_mission.md](../decisions/daily_mission.md) §9): thêm từ → `/collections` (chọn collection, FAB "Thêm từ" truyền `topicId`); quiz → `/study/quiz-setup`; mua → Shop; booster → Inventory
+- Phụ thuộc DEP-DM-01: màn thêm từ (`/collections/add-word`) điền `main.translation` từ Quick Lookup khi field còn trống, để từ dùng được cho quiz
 - Reset countdown (thời gian đến 00:00)
 
-**Detail:** Xem [daily_mission.md](./daily_mission.md)
+**Detail:** Xem [daily_mission.md](../decisions/daily_mission.md)
 
 ---
 
@@ -929,9 +940,12 @@ flowchart TD
 
 **Dữ liệu hiển thị:**
 
-- Badge grid: icon, name, locked/unlocked state
-- Tap badge → detail: điều kiện, date earned, rarity
-- Progress towards locked badges
+- Header: `Đã đạt {earnedCount}/{totalCount}` (từ API, không viết cứng)
+- Kệ theo chuỗi (mỗi metric một kệ): huy chương, tên, trạng thái. Badge chưa đạt vẫn hiện tên + điều kiện; mốc kế tiếp hiện `min(currentValue, threshold)/threshold`, mốc xa hiện ngưỡng. Tổng số huy hiệu lấy từ API, không viết cứng 12
+- Tap badge → detail: điều kiện, date earned hoặc progress. **Không** có rarity/tier
+- Badge mới được giới thiệu ngay trên màn (không modal); modal gộp ở các màn khác, không bật ở quiz, flashcard, kết quả quiz
+
+**Detail:** Xem [badges.md](../decisions/badges.md) §2, §9 và [achievements_ui.md](../ui/achievements_ui.md)
 
 ---
 
@@ -961,13 +975,17 @@ flowchart TD
 | FR         | FR-09.06               |
 | Mục tiêu   | Mua vật phẩm bằng Coin |
 
-**Dữ liệu hiển thị:**
+**Dữ liệu hiển thị** (từ `GET /api/shop/items`, xem [shop.md](../decisions/shop.md) §10–§11):
 
-- ShopItem list: icon, name, price, category (theme/avatar frame/booster)
-- Coin balance (header)
-- Owned badge (nếu đã sở hữu)
-- Buy button (disabled nếu balance < price)
-- Confirm modal: "Mua X với Y Coin?"
+- Card: icon, name, description, price, type, `config` (themeKey / frameUrl / ×2 · duration · maxQuantity), `owned`, `quantity`, `equipped`, `canPurchase`, `blockReason`
+- Coin balance (header); bộ lọc `Tất cả` · `Bổ trợ` · `Khung Avatar` · `Chủ đề`
+- CTA theo type:
+  - THEME: `Xem trước` (bắt buộc) → `Mua · price` → `Đã sở hữu` / `Đang dùng`; sau mua: `Dùng ngay`
+  - AVATAR_FRAME: preview trên avatar của Learner → `Mua · price` → `Đã sở hữu` / `Đang dùng`; sau mua: `Trang bị ngay`
+  - XP_BOOSTER: `Mua · price` + "Đang có n/max"; đạt max → `Đã đạt tối đa` (disabled); sau mua: `Dùng ngay` (nếu chưa có booster active)
+- Thiếu Coin: nút mờ nhưng bấm được → Out-of-coin modal gợi ý nhiệm vụ
+- Confirm modal: "Mua X với Y Coin?"; `PRICE_CHANGED` → cập nhật giá, xác nhận lại
+- Ẩn THEME có `themeKey` mà bản app chưa hỗ trợ
 
 ---
 
@@ -976,12 +994,18 @@ flowchart TD
 | Thuộc tính | Mô tả                             |
 | ---------- | --------------------------------- |
 | Actor      | Learner                           |
-| Feature    | F-GAME-08                         |
+| Feature    | F-GAME-08a, F-GAME-08b            |
 | BF         | BF-12                             |
 | FR         | FR-09.07                          |
 | Mục tiêu   | Xem và áp dụng vật phẩm đã sở hữu |
 
-**Dữ liệu:** UserItem list, active/equipped state, expiry (nếu có), Apply/Remove CTA.
+**Dữ liệu** (từ `GET /api/me/items`):
+
+- Booster Chip đầu màn khi có `activeBooster` (`×2 · mm:ss`, đếm theo `expiresAt` + `serverNow`)
+- Cosmetic: `Dùng`/`Trang bị` ↔ `Đang dùng` + `Bỏ`/`Tháo`; item đã ngừng bán vẫn dùng được
+- XP Booster: số lượng + `Dùng`; khi đang có booster active → "Chờ booster hiện tại kết thúc" (disabled); ẩn khi `quantity = 0` và không active
+- THEME với `themeKey` app chưa hỗ trợ → "Cần cập nhật ứng dụng"
+- Empty state: CTA `Đến Cửa hàng`
 
 > **Ghi chú:** MVP không xử lý thanh toán tiền thật. Premium screen (nếu có) chỉ mô tả quyền lợi, không tích hợp payment gateway.
 
@@ -1004,7 +1028,7 @@ flowchart TD
 - Avatar (+ avatar frame nếu equip)
 - Display name, email
 - Streak, learned words count, level/XP
-- Badges nổi bật (3–5 badges)
+- 3 badge đạt gần nhất (theo `earnedAt` giảm dần, rồi `sortOrder`, `id` giảm dần; không ghim — [badges.md](../decisions/badges.md) §2.4); dòng Thành tựu hiện `earnedCount/totalCount` và chấm đỏ khi có badge mới
 - Shortcut: Edit Profile, Settings, Achievements, Inventory, Wallet
 
 ---
@@ -1042,7 +1066,7 @@ flowchart TD
 - **Account:** Change password, Biometric login toggle
 - **Notifications:** Push on/off, quiet hours (nếu hỗ trợ)
 - **Learning:** Daily goal (Could), SRS reminder time
-- **App:** Language, Theme (nếu có shop theme)
+- **App:** Language, Giao diện (Sáng/Tối/Hệ thống), mục "Chủ đề" chỉ là link sang Inventory (Theme equip ở MH-ECONOMY-03)
 - **Logout** button
 - App version
 
@@ -1061,7 +1085,7 @@ flowchart TD
 **Dữ liệu hiển thị:**
 
 - Notification list:
-    - Icon theo type (SRS reminder, Badge, Mission, System)
+    - Icon theo type (SRS reminder, System). Badge và Daily Mission không tạo notification trong MVP
     - Title + body
     - Read/unread state (bold/dimmed)
     - Created time (relative: "2 giờ trước")

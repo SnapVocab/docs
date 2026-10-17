@@ -420,9 +420,9 @@ Security Layer
 | **Recognition** | `image_recognition_requests`, `recognition_results`, `detected_objects`, `scan_histories` | SS-06 | M2 |
 | **Template & SRS** | `templates`, `template_elements`, `template_fields`, `fsrs_records` | SS-09, SS-11 | M1, M3 |
 | **Quiz** | PLANNED — chưa chốt tên bảng ([database.md](../db/database.md) §3A) | SS-10 | M3 |
-| **Progress** | `learning_events`, `learning_progress` | SS-12 | M3 |
-| **Gamification** | `missions`, `mission_progress`, `badges`, `user_badges`, `experience_logs`, `coin_transactions`, `leaderboard_entries` | SS-13 | M4 |
-| **Economy** | `shop_items`, `user_inventories`, `levels` | SS-14 | M4 |
+| **Progress** | `learning_events` (aggregate query trực tiếp từ `fsrs_records`, streak trên `users`) | SS-12 | M3 |
+| **Gamification** | `mission_templates`, `user_daily_missions`, `user_daily_mission_progress_logs`, `user_daily_mission_claims`, `user_word_credits`, `badges`, `user_badges`, `user_badge_word_credits` ([badges.md](../decisions/badges.md) §7), `experience_logs`, `coin_transactions` (Leaderboard: chưa thiết kế schema) | SS-13 | M4 |
+| **Economy** | `shop_items`, `user_items`, `booster_activations`, `coin_transactions`, `levels` | SS-14 | M4 |
 | **Media** | `storage_metadata` | SS-16 | M1 |
 | **Notification** | `notifications`, `user_notifications` | SS-15 | M3 |
 
@@ -478,7 +478,7 @@ Security Layer
 | Dictionary cache | Key-value (word detail/translation) | 1–24h | Cache từ phổ biến, giảm DB query |
 | Leaderboard | Sorted set (ZADD/ZRANGEBYSCORE) | 5–15m | Ranking global/period — không full-scan aggregate |
 | Home dashboard summary | Key-value aggregate cache | 1–5m | Giảm query nặng progress/stats |
-| Mission state | Key-value tạm thời | 5m | Không thay thế DB |
+| Mission state | Không cache (đọc thẳng DB, [daily_mission.md](../decisions/daily_mission.md) §9) | — | — |
 | AI label → Word mapping | Key-value | 24h | Cache mapping label → Word ID |
 | Rate limiting | Counter (INCR/EXPIRE) | Window-based | OTP, login, upload nếu triển khai |
 | Distributed lock | Redisson lock | Auto-release | Tránh cộng reward trùng concurrent |
@@ -688,7 +688,7 @@ Bảng map đổi được qua `RELIABILITY_BY_SOURCE`. Backend lọc lần cu�
 | **Buttons** | Primary, secondary, ghost, disabled, loading |
 | **Inputs** | Text, password, OTP (digit), search, error state |
 | **Cards** | Vocabulary card, quiz card, mission card, topic card |
-| **Badges/Chips** | Learning state badge (new/learning/reviewing/mastered suy từ FSRS + interval), source tag (SCAN/DICT/TOPIC), reliability badge |
+| **Badges/Chips** | Learning state badge (new/learning/reviewing/mastered suy từ FSRS `state` + `stability`), source tag (SCAN/DICT/TOPIC), reliability badge |
 | **Navigation** | Tab bar, header, back button |
 | **Gamification** | XP bar, Coin badge, Streak flame, Level badge, Progress bar, Mission progress |
 | **Leaderboard** | Leaderboard row, rank indicator, avatar |
@@ -881,7 +881,7 @@ Danh sách dưới đây ưu tiên thư viện phổ biến, dễ thay thế và
 | Storage | upload-init, upload-complete, validation fail, orphan cleanup |
 | Dictionary | Lookup latency, not-found rate, import job result |
 | Learning | Save word, flashcard recall, quiz check / complete, SRS review |
-| Gamification | XP/coin transaction, mission complete, badge award, idempotent duplicate ignored |
+| Gamification | XP/coin transaction, mission complete, badge sync (số badge cấp mỗi lần, lỗi 409/500), idempotent duplicate ignored |
 | Notification | Push sent/fail, device token register/expire |
 | System | DB/Redis/Storage/AI availability, exception rate, unhandled errors |
 

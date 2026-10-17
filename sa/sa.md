@@ -255,7 +255,7 @@ Hệ thống backend được chia thành **18 phân hệ** thuộc 5 lớp ch�
 | Module | SS | Trách nhiệm | Milestone |
 | --- | --- | --- | --- |
 | Gamification | SS-13 | Level, XP, Coin, Mission, Badge, Leaderboard (Redis sorted set) — idempotent event key | M4 |
-| Shop | SS-14 | ShopItem, UserInventory, buy/equip vật phẩm bằng Coin | M4 |
+| Shop | SS-14 | ShopItem, UserItem, BoosterActivation; mua/equip/kích hoạt XP Booster bằng Coin ([shop.md](../decisions/shop.md)) | M4 |
 | Notification | SS-15 | Push (Expo/FCM), In-app notification, device token, UserNotification, settings | M3 |
 | Storage | SS-16 | Presigned upload/download, MIME/size validation, orphan cleanup, private bucket | M1, M2, M4 |
 | Admin (Backend) | SS-17 | API quản trị: user mgmt, dict CRUD, topic, template, game config, dashboard stats | M4 |
@@ -277,8 +277,8 @@ Hệ thống backend được chia thành **18 phân hệ** thuộc 5 lớp ch�
 | **Topic Template** | Template, TemplateElement, TemplateField | Cấu hình giao diện thẻ học theo Topic, semantic role | Đã có |
 | **Quiz** | PLANNED — tên entity chưa chốt ([database.md](../db/database.md) §3A) | Kiểm tra từ vựng | NOT IMPLEMENTED (M3) |
 | **Progress** | LearningProgress, LearningEvent | Streak, accuracy, summary aggregate | Dự kiến M3 |
-| **Gamification** | Level, Mission, UserMission, Badge, UserBadge, ExperienceLog, CoinTransaction, Leaderboard | Cấp độ, nhiệm vụ, huy hiệu, XP, coin, ranking | Level đã có, còn lại M4 |
-| **Economy** | ShopItem, UserInventory | Cửa hàng, túi đồ người dùng | Đã có |
+| **Gamification** | Level, MissionTemplate, UserDailyMission, UserWordCredit, Badge, UserBadge, UserBadgeWordCredit ([badges.md](../decisions/badges.md)), ExperienceLog, CoinTransaction, Leaderboard | Cấp độ, nhiệm vụ, huy hiệu, XP, coin, ranking | Level đã có, còn lại M4 |
+| **Economy** | ShopItem, UserItem, BoosterActivation, CoinTransaction | Cửa hàng, vật phẩm sở hữu, XP Booster, ledger Coin | Skeleton entity, chưa implement (M4) |
 | **Media** | StorageMetadata, UploadSession | Object key, owner, MIME, size | Đã có |
 | **Notification** | Notification, UserNotification | In-app notification | Đã có |
 
@@ -314,7 +314,7 @@ erDiagram
 - `Word` là dữ liệu dictionary gốc; xóa TopicItem không ảnh hưởng Word.
 - `TopicItem/FsrsRecord` là ranh giới giữa dữ liệu từ vựng và tiến trình học tập cá nhân.
 - `FsrsRecord.due/SRS fields` gắn chặt vào cặp `(user_id, topic_item_id)`.
-- `LearningEvent` là nguồn để rebuild progress, mission và leaderboard khi aggregate lệch.
+- `LearningEvent` là nguồn để rebuild progress và leaderboard khi aggregate lệch. Daily Mission **không** rebuild từ `LearningEvent` (purchase/activation không nằm trong đó); progress mission được ghi đồng bộ trong transaction của hành động nên không cần rebuild ([daily_mission.md](../decisions/daily_mission.md) §6).
 - `StorageMetadata` lưu metadata object; binary nằm ở Object Storage.
 - Leaderboard lưu aggregate trong DB và cache/sorted set trong Redis.
 
@@ -447,11 +447,14 @@ flowchart LR
     D --> E["FsrsRecord cập nhật<br>(card_state/due/stability/difficulty)"]
     E --> F["LearningEvent ghi nhận"]
     F --> G["Progress aggregate<br>(streak/accuracy/mastered via learning-state map)"]
-    G --> H["Mission/XP/Coin/Badge<br>evaluation (M4)"]
+    G --> H["Mission/XP/Coin<br>evaluation (M4)"]
     H --> I["Leaderboard update<br>(Redis sorted set)"]
+    J["App đồng bộ<br>POST /api/me/badges/sync"] --> K["BadgeService đọc metric<br>ghi UserBadge còn thiếu"]
 ```
 
 ### 6.5 Quiz flow (BF-09)
+
+Badge là nhánh đồng bộ riêng theo [badges.md](../decisions/badges.md) §6; không cấp trong producer học tập. MVP streak chỉ tính ngày có quiz hoàn thành; scan/mastered/leaderboard badges hoãn (§4.2).
 
 ```text
 Mobile quiz setup (chọn Topic, Mode MCQ/MATCHING/FILL_BLANK, Direction EN_VI/VI_EN, số câu)
@@ -615,7 +618,7 @@ Tất cả API public/mobile dùng JSON envelope thống nhất:
 | AI label → Word mapping | Cache mapping label → Word ID | 24h |
 | Shop/catalog | Cache ShopItem public metadata | 1h |
 | Rate limiting | Redis counter cho OTP/login/upload | Window-based |
-| Mission state | Cache tạm thời mission progress | 5 phút |
+| Mission state | Không cache: 5 row/user/ngày đọc thẳng DB; cache sẽ trả progress cũ ngay sau hành động ([daily_mission.md](../decisions/daily_mission.md) §9) | — |
 
 ### 9.2 Quy tắc cache
 
@@ -819,7 +822,7 @@ graph TD
 
 ### Coupling notes
 
-- **Loose coupling qua events:** Phân hệ dùng domain event nội bộ (`TopicItemCreated`, `ReviewCompleted`, `QuizCompleted`, `MissionCompleted`) để giảm coupling trực tiếp.
+- **Loose coupling qua events:** Phân hệ dùng domain event nội bộ (`TopicItemCreated`, `ReviewCompleted`, `QuizCompleted`) để giảm coupling trực tiếp. Ngoại lệ: Daily Mission cập nhật progress đồng bộ trong transaction của producer ([daily_mission.md](../decisions/daily_mission.md) §6); không có event `MissionCompleted`.
 - **Shared entity:** `TopicItem` và `FsrsRecord` được chia sẻ giữa SS-05/SS-08 (Topic & Item), SS-09 (Flashcard & Template) và SS-11 (SRS). Trách nhiệm tách qua service layer.
 - **AI Service tách deploy:** SS-07 là service Python FastAPI độc lập, giao tiếp HTTP nội bộ. **Không** chia sẻ database với backend Spring Boot.
 - **Storage crosscutting:** SS-16 là infrastructure service, nhiều domain sử dụng qua cùng interface (S3Client).
@@ -837,7 +840,7 @@ vn.ptit.snapvocab
 │   ├── Word, Definition, Translation, Pronunciation, WordDefinition, WordRelation
 │   ├── Collection, Topic, TopicItem, Schema, SchemaAttributeGroup, SchemaAttribute, TopicItemAttributeGroup, TopicItemAttributeValue
 │   ├── Template, TemplateElement, TemplateField
-│   ├── FsrsRecord, Level, ShopItem, UserInventory, Notification, UserNotification
+│   ├── FsrsRecord, Level, ShopItem, UserItem, BoosterActivation, Notification, UserNotification
 │   ├── common/                    (BaseTimeEntity, BaseCreatedAtEntity)
 │   ├── enumeration/               (CardState, ReviewRating, SemanticRole, TemplateElementType, CollectionType...)
 │   └── mapper/                    (Entity mappers & DTO converters)
