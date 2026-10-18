@@ -1,11 +1,11 @@
 # Architecture Decision: Shop — ShopItem, UserItem, Equip, XP Booster, Coin Purchase
 
 > **Trạng thái:** APPROVED (Product decisions 2026-09-24; audit Shop/Inventory 2026-09-24).
-> **Implementation (cập nhật 2026-10-06):**
+> **Implementation (cập nhật 2026-10-18):**
 > - Backend learner API (§10.1) IMPLEMENTED 2026-09-24 — `shop/` (ShopController, ShopService, InventoryService, WalletService, ShopRewardService) + `xp/XpService`. Backend Admin API (§10.2) IMPLEMENTED 2026-09-25 — `AdminShopController`, `AdminShopService`.
-> - Caller thật: Quiz (`QuizService` → XpService, nguồn `QUIZ`) và Daily Mission (`DailyMissionService` → XpService/ShopRewardService) đã nối. **Review/FSRS chưa có producer** `FLASHCARD_REVIEW` — chưa quảng cáo Booster cho Review.
-> - Mobile `SnapVocab/src/features/shop` gọi API thật cho Shop/Inventory/Wallet (§11); Profile hiển thị frame equipped và hậu tố `×2` từ `GET /api/me/items` (§11.3). Admin Shop (`snapAdmin/src/domains/shop`) gọi API thật.
-> - Chưa có: `GET /api/me` bổ sung `equipped`/`activeBooster` (mobile hiện đọc từ `GET /api/me/items`, không chặn release). Enum `CoinSourceType`/`XpSourceType` vẫn còn `DAILY_CHEST`/`WEEKLY_CHEST`; các mock Admin khác còn nội dung ngoài scope (§13).
+> - Caller thật: Quiz (`QuizService` → XpService, nguồn `QUIZ`), Daily Mission (`DailyMissionService` → XpService/ShopRewardService) và Review/FSRS (`StudyService` → XpService, nguồn `FLASHCARD_REVIEW`, 2026-10-18; §5 bước 7) đã nối.
+> - Mobile `SnapVocab/src/features/shop` gọi API thật cho Shop/Inventory/Wallet (§11), copy qua i18n (`shop.*` trong `translations/{vi,en}.json`). `GET /api/users/me` trả `equipped`/`activeBooster` (2026-10-18); mobile lưu cùng user nên theme, frame và hậu tố `×2` ở Profile có ngay khi mở app (§11.3). Admin Shop (`snapAdmin/src/domains/shop`) gọi API thật.
+> - Đã xóa `DAILY_CHEST`/`WEEKLY_CHEST` khỏi `CoinSourceType`/`XpSourceType` và mobile (2026-10-18; DB local clone 0 row). Cột MySQL `source_type` (ENUM do Hibernate tạo) vẫn còn 2 giá trị cũ, vô hại. Còn lại: các mock Admin còn nội dung ngoài scope (§13).
 > - Audit mobile Shop: [mobile_shop_audit_2026-10-06.md](../reviews/mobile_shop_audit_2026-10-06.md).
 > **Traceability:** FR-09.06, FR-09.07 ([specs.md](../spec/specs.md)) → BF-12 ([buss_mainflow.md](../spec/buss_mainflow.md)) → SS-13, SS-14 ([phan_ra_phan_he_he_thong.md](../spec/phan_ra_phan_he_he_thong.md)) → F-GAME-02, F-GAME-07, F-GAME-08a, F-GAME-08b, F-GAME-09 ([phan_ra_tinh_nang.md](../spec/phan_ra_tinh_nang.md)) → DB ([database.md](../db/database.md) §Gamification & Shop) → Screen MH-ECONOMY-01/02/03, MH-PROFILE-01/03 ([phan_ra_man_hinh.md](../spec/phan_ra_man_hinh.md)).
 > **Source of truth:** Nếu tài liệu khác mâu thuẫn với file này về Shop/Item/Inventory/Coin purchase/XP Booster, file này thắng; [specs.md](../spec/specs.md) chỉ giữ requirement tóm tắt và trỏ về đây.
@@ -228,6 +228,7 @@ Expire (lazy, now ≥ expiresAt)
 4. Thời điểm xét là thời điểm ghi XP, không phải thời điểm bắt đầu hoạt động. Quiz ghi XP khi `complete` ([quiz.md](./quiz.md) D7): bắt đầu khi booster còn hạn nhưng complete sau `expiresAt` → không bonus.
 5. Idempotency của XP theo `eventKey` hiện có (FR-09); replay không tính bonus lần nữa.
 6. Mobile chỉ hiển thị `bonusAmount` do Backend trả; không tự nhân.
+7. Review (PO 2026-10-18): chỉ lần chấm **đầu tiên** của mỗi thẻ trong ngày học (múi giờ học `Asia/Ho_Chi_Minh`, cùng cách đếm mục tiêu ngày) ghi 2 XP base, `eventKey = FLASHCARD_REVIEW:{userId}:{topicItemId}:{studyDate}`; chấm lại cùng thẻ trong ngày không ghi XP (chống cày XP bằng cách chấm lặp).
 
 ---
 
@@ -266,7 +267,7 @@ Design tokens (snapVocab-frontend/docs/design.md §03)
 | Preview | Màn mẫu dùng token thật của theme theo chế độ Sáng/Tối hiện tại: header, card có chữ + chữ phụ + nút, dòng giao dịch. Không có tab bar. |
 | Sáng/Tối | Luôn theo lựa chọn của người dùng trên toàn app; theme chỉ đổi bề mặt (`background`, `surface`, `surfaceMuted`, `border`, `headerBg`); `text`/`textMuted` cố định theo chế độ. |
 | Nền tảng mở rộng | Component dùng chung đọc token vai trò qua `useSurface()` (`components/ui/surface.tsx`); mặc định là `DEFAULT_SURFACE`. Mở rộng theme sang khu vực khác = bọc khu vực đó bằng `SurfaceProvider`, không sửa mã màu từng component. |
-| Quyền lợi người mua | Tại 2026-10-06 chưa có ShopItem `THEME` nào (DB clone từ remote), nên chưa ai mua theo phạm vi cũ. Nếu sau này mở rộng/thu hẹp phạm vi khi đã có người mua, phải xử lý quyền lợi trước khi đổi mô tả. |
+| Quyền lợi người mua | Tại 2026-10-06 DB clone từ remote có 1 ShopItem `THEME` (`THEME_MIDNIGHT_NEON`, 150 Coin) nhưng chưa ai sở hữu, nên chưa ai mua theo phạm vi cũ. Nếu sau này mở rộng/thu hẹp phạm vi khi đã có người mua, phải xử lý quyền lợi trước khi đổi mô tả. |
 
 ### 6.3. Tương thích phiên bản app
 
@@ -508,7 +509,7 @@ Envelope/error theo NFR API Standard ([specs.md](../spec/specs.md) §8). Mọi e
 | POST | `/api/me/items/{itemId}/activate` | Kích hoạt XP Booster. Header `Idempotency-Key` |
 | GET | `/api/me/wallet?cursor=&size=` | Balance + CoinTransaction mới nhất trước (cursor) |
 
-`GET /api/me` bổ sung `equipped: { themeKey, avatarFrameUrl }` và `activeBooster` để mobile áp theme/frame ngay khi mở app.
+`GET /api/users/me` (và response của `PUT /api/users/me`) bổ sung `equipped: { themeKey, avatarFrameUrl }` (field `null` = slot dùng mặc định) và `activeBooster` (shape như `GET /api/me/items`, `null` khi không có) để mobile áp theme/frame ngay khi mở app. Response đăng nhập không có hai field này.
 
 Response `GET /api/shop/items` (mỗi phần tử):
 
@@ -625,7 +626,7 @@ Upload icon/frame dùng flow presign của Storage (SS-16) với purpose `SHOP_A
 - MH-PROFILE-01: avatar hiển thị frame equipped của chính user.
 - MH-PROFILE-03 Settings: "Giao diện" = Sáng/Tối/Hệ thống; mục "Giao diện cửa hàng" chỉ là link sang Inventory.
 - XP Badge hiện hậu tố `×2` khi `activeBooster` tồn tại (design.md §6.5).
-- Mobile cache `equipped.themeKey` cục bộ để áp theme ngay lúc khởi động; server là nguồn đúng sau khi `GET /api/me` trả về.
+- Mobile cache `equipped.themeKey` cục bộ để áp theme ngay lúc khởi động; server là nguồn đúng sau khi `GET /api/users/me` trả về.
 
 ---
 
@@ -650,15 +651,13 @@ Upload icon/frame dùng flow presign của Storage (SS-16) với purpose `SHOP_A
 
 ## 13. Code cleanup backlog (giai đoạn implement)
 
-Đã xong (kiểm 2026-10-06): `UserInventory` → `UserItem`; `ShopItem.type` là `ShopItemType`; `UserDTO.coin` là `Long`.
+Đã xong (kiểm 2026-10-06): `UserInventory` → `UserItem`; `ShopItem.type` là `ShopItemType`; `UserDTO.coin` là `Long`. (2026-10-18): xóa `DAILY_CHEST`/`WEEKLY_CHEST` khỏi `CoinSourceType`/`XpSourceType`; copy `SnapVocab/src/features/shop/**` và `components/shop/**` chuyển sang i18n (en/vi).
 
 Code/mock sau đây **chưa** được sửa và phải chỉnh khi implement:
 
 | Vị trí | Việc cần làm |
 | :--- | :--- |
 | `snapAdmin/src/domains/economy/*`, `features/shop/*`, `features/settings/components/EconomyGuardrailsTab.tsx`, `domains/settings/*` | Bỏ Gems, rarity, stock, flash sale, discount, `streak_saver`/`chest`/`deck`, Streak Freeze; form theo §8 |
-| `snap-vocab-backend/.../shop/domain/enumeration/CoinSourceType.java`, `.../xp/domain/XpSourceType.java` | Xóa `DAILY_CHEST`, `WEEKLY_CHEST` (scope 2026-10-03) |
 | `snapAdmin/src/features/missions/*`, `domains/missions/*`, `tests/missions.test.ts` | Viết lại theo [daily_mission.md](./daily_mission.md) §8.3: bỏ `isBonus`, `maxBonusCount`, `dailyChestReward`, `CycleAndChestTab`, type `achievement`/`special_event`; reward item tham chiếu `shopItem.code` + `fallbackCoin`; bỏ `ITEM_STREAK_FREEZE`/`CONSUMABLE` |
 | `snapAdmin/src/domains/{analytics,audit,issue-reports,learners}/mock-data.ts` | Bỏ số liệu/nội dung Streak Freeze, Gems |
 | `snapVocab-frontend/app/(tabs)/shop.tsx`, `lib/economyState.ts` | Prototype lịch sử (app thật `SnapVocab/` đã gọi API). Chỉ dọn item không có runtime (Streak Freeze, Heart Refill, Coin Magnet, Refresh Ticket, Hint Token, Timer Boost, Snapy cosmetic) nếu prototype còn dùng làm tham chiếu |
-| `SnapVocab/src/features/shop/**` | Copy Shop đang hardcode tiếng Việt → chuyển sang i18n (en/vi) theo design.md §13.4 |

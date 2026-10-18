@@ -158,7 +158,7 @@ Mục tiêu: tăng động lực học tập và chuẩn bị vận hành produc
 
 Done criteria:
 
-1. Hoạt động học tập hợp lệ cộng XP theo bảng cơ sở (review = 2 XP, quiz đúng = 10 XP/câu theo [quiz.md](../decisions/quiz.md) §5 và code `QuizService.XP_PER_CORRECT`, lưu từ = 1 XP).
+1. Hoạt động học tập hợp lệ cộng XP theo bảng cơ sở (review = 2 XP cho lần chấm đầu tiên của mỗi thẻ trong ngày học — [shop.md](../decisions/shop.md) §5 bước 7, quiz đúng = 10 XP/câu theo [quiz.md](../decisions/quiz.md) §5 và code `QuizService.XP_PER_CORRECT`, lưu từ = 1 XP).
 2. Learner nhận huy hiệu khi đạt điều kiện cụ thể (catalog và rule: [badges.md](../decisions/badges.md)).
 3. Learner mua và sử dụng được vật phẩm bằng coin (nếu Shop được triển khai).
 4. Leaderboard cập nhật đúng và có chiến lược cache phù hợp.

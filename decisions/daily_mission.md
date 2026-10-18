@@ -435,7 +435,7 @@ Unique `(user_id, idempotency_key)`. CHECK mọi cột số `>= 0`. `user_id` ph
 | `coin_transactions` | `MISSION_REWARD` | `MISSION_REWARD:{userDailyMissionId}` | `reference_id = userDailyMissionId`, `description = name` snapshot; bỏ qua khi `reward_coin = 0` |
 | `user_items` + fallback coin | `MISSION_REWARD` | `MISSION_REWARD:{userDailyMissionId}:ITEM` (+`:FALLBACK` do `ShopRewardService`) | Chỉ khi có `reward_item_code` |
 
-`XpSourceType` và `CoinSourceType` chỉ cần `MISSION_REWARD` cho Daily Mission; `DAILY_CHEST`, `WEEKLY_CHEST` là legacy, xóa khỏi code ([shop.md](./shop.md) §13) sau khi kiểm tra DB không còn row dùng các giá trị này.
+`XpSourceType` và `CoinSourceType` chỉ cần `MISSION_REWARD` cho Daily Mission; `DAILY_CHEST`, `WEEKLY_CHEST` là legacy, đã xóa khỏi code 2026-10-18 ([shop.md](./shop.md) §13; DB local clone 0 row dùng các giá trị này).
 
 ### 7.6. `user_word_credits` (append-only)
 
