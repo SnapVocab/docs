@@ -43,27 +43,27 @@
 | F-RECOG-01 | Camera capture                        | M   | Request permission UX; fallback gallery nếu từ chối camera                               |
 | F-RECOG-02 | Gallery pick                          | M   | MIME/size validate client (ảnh, ≤ 10MB) + server                                         |
 | F-RECOG-03 | Android overlay bubble                | C   | Floating widget chụp/quét từ app khác; stretch feature, không chặn MVP                   |
-| F-RECOG-04 | Submit recognition                    | M   | requestId trả ngay; kiểm tra quota trước khi nhận job; UX loading/cancel                 |
-| F-RECOG-05 | AI Florence-2 pipeline                | M   | label ∈ dict path; detectionSource; clipScore; bbox; cropUrl (opt.)  |
-| F-RECOG-06 | Backend recognition filter            | M   | Lọc bằng cặp (source allowlist, clipScore floor) cấu hình được (lớp bảo vệ cuối) |
+| F-RECOG-04 | Submit recognition                    | M   | `POST /api/scan` trả `202` + requestId ngay; kiểm tra key/size rồi quota trước khi nhận job; UX loading/cancel |
+| F-RECOG-05 | AI Florence-2 pipeline                | M   | OD + self-grounding; trả label, headword, source, reliability, box; không SAM/crop |
+| F-RECOG-06 | Backend recognition filter            | M   | Lọc theo `scan.min-reliability` cấu hình được (lớp bảo vệ cuối) |
 | F-RECOG-07 | Multi-object result UI                | S   | Hiển thị nhiều object; Learner chọn từng object để lưu                                   |
-| F-RECOG-08 | Label deduplication                   | M   | Gom nhiều box cùng label → 1 từ duy nhất; tránh trả từ vựng lặp                          |
+| F-RECOG-08 | Label deduplication                   | M   | AI giữ 1 box / label (box điểm cao nhất); tránh trả từ vựng lặp                          |
 | F-RECOG-09 | No-object / low-reliability / AI error | M   | error.code + message thân thiện + CTA retry/thử ảnh khác; app không crash                |
-| F-RECOG-10 | Word mapping                          | M   | Ánh xạ label AI → Word dictionary (tra cứu + mapping/synonym); đánh dấu nếu thiếu mục    |
+| F-RECOG-10 | Word mapping                          | M   | Ánh xạ label → Word: tra nguyên nhãn, rồi `headword`; `word = null` nếu thiếu mục; tra lúc đọc kết quả |
 | F-RECOG-11 | Save from scan                        | M   | Tạo TopicItem + FsrsRecord trong Topic cá nhân (source=SCAN); xem BF-07, F-VOCAB         |
-| F-RECOG-12 | Scan history                          | S   | Lưu metadata request (bảng ScanRequest); lịch sử scan của Learner query từ ScanRequest; retention 30 ngày (ARC-13) |
-| F-RECOG-13 | Daily scan quota                      | M   | Mặc định 20 scan/ngày/Learner, cấu hình được; response có remaining/resetAt; hết lượt trả `QUOTA_EXCEEDED` |
-| F-RECOG-14 | Recognition queue                     | M   | Job vào in-process queue (Spring @Async); trạng thái PENDING→PROCESSING→DONE; timeout giao diện 90s |
+| F-RECOG-12 | Scan history                          | S   | Metadata đã lưu trong `scan_requests`; API lịch sử (`GET /api/scan/history`) và retention 30 ngày (ARC-13) chưa triển khai |
+| F-RECOG-13 | Daily scan quota                      | M   | Mặc định 20 scan/ngày/Learner, đếm từ `scan_requests` (status ≠ FAILED); `GET /api/scan/quota`; hết lượt trả `QUOTA_EXCEEDED` kèm remaining/resetAt |
+| F-RECOG-14 | Recognition queue                     | M   | Hàng đợi trong bộ nhớ (1 worker, tối đa 3 job chờ); PENDING→PROCESSING→DONE/FAILED; poll `GET /api/scan/{requestId}`; timeout giao diện 90s |
 | F-RECOG-15 | Báo cáo thiếu từ                      | S   | Gửi nhãn từ chưa có trong từ điển vào Feedback queue cho Admin xử lý                     |
 
 **Business rules:**
 
-1. Nhãn từ AI service đã được chuẩn hóa và bảo đảm thuộc từ điển ngay trong pipeline; backend chỉ cần tra cứu trực tiếp, dùng bảng mapping/synonym cho trường hợp từ điển Anh-Việt thiếu mục tương ứng.
-2. Mỗi Learner có quota scan/ngày mặc định 20 lượt, cấu hình được; ảnh không hợp lệ không trừ lượt.
-3. Khi hết lượt, Recognition API trả `QUOTA_EXCEEDED`, `remainingScansToday = 0`, `resetAt`; mobile hiển thị trạng thái hết lượt và không retry tự động.
-4. Request hợp lệ được đưa vào in-process queue (Spring `@Async`), xử lý giới hạn theo GPU (mặc định 1 worker/GPU); client poll theo dõi `PENDING`/`PROCESSING` thay vì giữ kết nối treo quá timeout.
+1. Nhãn từ AI service đã qua lọc từ điển (WordNet) trong pipeline; backend tra nguyên nhãn trước, không có thì tra `headword` (từ cuối, số ít). Bảng mapping/synonym chưa triển khai.
+2. Mỗi Learner có quota scan/ngày mặc định 20 lượt, cấu hình được, đếm từ `scan_requests`: mọi scan không `FAILED` tính 1 lượt, nên ảnh không hợp lệ, hàng đợi đầy hay lỗi AI đều không trừ lượt.
+3. Khi hết lượt, API trả `429 QUOTA_EXCEEDED` với `data = {limit, used, remaining = 0, resetAt}`; mobile hiển thị trạng thái hết lượt và không retry tự động.
+4. Request hợp lệ được đưa vào hàng đợi trong bộ nhớ (executor riêng, không phải `@Async`), 1 worker/GPU; client poll theo dõi `PENDING`/`PROCESSING` thay vì giữ kết nối treo. Hàng đợi đầy → `AI_QUEUE_FULL`.
 5. Không tự động lưu kết quả scan nếu Learner chưa xác nhận.
-6. Ảnh scan chỉ lưu khi cần; bucket private, presigned URL TTL ≤ 15 phút.
+6. Ảnh scan lưu dưới `scans/{userId}/` trong bucket private, presigned URL TTL 5 phút; chưa có job dọn ảnh cũ.
 7. Log: requestId, status, queuePosition/estimatedWaitMs, processing time, object count, errors.
 
 ---
@@ -104,7 +104,7 @@
 
 **Business rules:**
 
-1. Mô hình EAV: TopicAttributeGroup → TopicAttribute → TopicItemAttributeValue.
+1. Mô hình EAV: Schema → SchemaAttributeGroup → SchemaAttribute; giá trị lưu ở TopicItemAttributeGroup → TopicItemAttributeValue.
 2. Soft-delete collection/topic không xóa TopicItem đã lưu của Learner.
 
 ---
@@ -119,7 +119,7 @@
 | F-VOCAB-02 | Add TopicItem from word/scan/top | M   | Tạo TopicItem + khởi tạo FsrsRecord vào Topic đích; unique per Topic (không trùng từ trong cùng Topic); trùng → thông báo lỗi thân thiện |
 | F-VOCAB-03 | List/filter/sort TopicItems      | M   | Lọc theo UI state (new/learning/reviewing/mastered) suy từ FSRS, ngày lưu, độ khó, ngày due |
 | F-VOCAB-04 | Delete/archive TopicItem         | M   | Không xóa Word gốc trong từ điển; FsrsRecord gắn từ → xóa/ẩn; soft operation      |
-| F-VOCAB-05 | Learning state surface           | S   | Hiển thị state UI theo map chuẩn: NEW→new; LEARNING/RELEARNING→learning; REVIEW interval <21d→reviewing; REVIEW interval ≥21d→mastered |
+| F-VOCAB-05 | Learning state surface           | S   | Hiển thị state UI theo map chuẩn: NEW→new; LEARNING/RELEARNING→learning; REVIEW `stability` <21d→reviewing; REVIEW `stability` ≥21d→mastered |
 | F-VOCAB-06 | Source tag                       | C   | Gắn nguồn từ: SCAN / DICT / TOPIC; hiển thị filter theo source                    |
 | F-VOCAB-07 | EAV attribute values             | M   | Lưu các giá trị thuộc tính động: nghĩa, POS, ví dụ, IPA, audio, hình ảnh           |
 | F-VOCAB-08 | Empty state UX                   | M   | Chưa có từ → CTA "Tra cứu / Scan để thêm từ mới"; chưa có Topic → tạo Topic nhanh |
@@ -143,14 +143,14 @@
 | ID         | Tính năng                  | P   | AC tóm tắt                                                                                |
 | ---------- | -------------------------- | --- | ----------------------------------------------------------------------------------------- |
 | F-FLASH-01 | Auto FsrsRecord per Item   | M   | 1 TopicItem gắn 1 FsrsRecord duy nhất; FsrsRecord khởi tạo card_state=NEW, FSRS params init |
-| F-FLASH-02 | System templates (seed)    | M   | CLASSIC, REVERSE, LISTENING, IMAGE_VOCAB, SPELLING, CONTEXT; seeded khi init DB           |
-| F-FLASH-03 | Topic template config      | S   | Cấu hình TemplateElement (FIELD, DIVIDER, BUTTON) và TemplateField (SemanticRole) cho Topic |
+| F-FLASH-02 | System templates (seed)    | M   | Đã seed theo `code`: `STANDARD`, `LISTENING`, `REVERSE`. IMAGE_VOCAB, SPELLING, CONTEXT: PLANNED. Các template này là chế độ hiển thị flashcard, không phải Quiz Mode |
+| F-FLASH-03 | Topic template config      | S   | Cấu hình TemplateElement (`FIELD`, `SECTION_BREAK`, `COLUMN_BREAK`; `side` = `CardSide`) và TemplateField (SemanticRole) |
 | F-FLASH-04 | Assign template → Topic    | M   | Đổi template không mất TopicItem, chỉ đổi render; FsrsRecord giữ nguyên                   |
-| F-FLASH-05 | Mobile render by config    | M   | Render front/back theo cấu hình TemplateElement và SemanticRole; ẩn field thiếu dữ liệu, không vỡ layout |
+| F-FLASH-05 | Mobile render by config    | M   | Render front/back theo `TemplateElement.side` (`CardSide`); SemanticRole quyết định hành vi field; ẩn field thiếu dữ liệu, không vỡ layout |
 | F-FLASH-06 | Submit FSRS rating         | M   | Learner chọn Again/Hard/Good/Easy; cập nhật FsrsRecord (card_state/due/stability/difficulty) |
 | F-FLASH-07 | Study session              | M   | Build queue new + due TopicItems; session → card → interact → rate → next → summary       |
 | F-FLASH-08 | Interaction types          | M   | FLIP (lật thẻ), TYPE_IN (gõ từ), TAP_TO_REVEAL (chạm lộ dần)                             |
-| F-FLASH-09 | Template field config      | S   | SemanticRole: FRONT, BACK, EXAMPLE, AUDIO, IMAGE, PHONETIC, TRANSLATION, HINT, TAG, EXTRA |
+| F-FLASH-09 | Template field config      | S   | SemanticRole: `TARGET_WORD`, `DEFINITION`, `NATIVE_TRANSLATION`, `EXAMPLE_SENTENCE`, `AUDIO`, `IMAGE` (nullable) |
 | F-FLASH-11 | Delete custom template     | S   | Soft-delete; Topic đang dùng → fallback template SYSTEM mặc định; FsrsRecord giữ nguyên   |
 
 **Business rules:**
@@ -169,21 +169,22 @@
 
 | ID        | Tính năng                | P   | AC tóm tắt                                                                            |
 | --------- | ------------------------ | --- | ------------------------------------------------------------------------------------- |
-| F-QUIZ-01 | Generate quiz from Topic | M   | Sinh quiz từ TopicItem trong Topic; yêu cầu min words ≥ 4; else empty CTA             |
-| F-QUIZ-02 | Multiple choice (MCQ)    | M   | Chọn nghĩa/từ đúng từ nhiều đáp án; đáp án nhiễu lấy cùng Topic/POS                    |
-| F-QUIZ-03 | Matching                 | S   | Ghép từ tiếng Anh ↔ nghĩa tiếng Việt; hiển thị N cặp                                  |
-| F-QUIZ-04 | Fill blank               | C   | Điền từ còn thiếu trong câu/gợi ý; so khớp case-insensitive + trim                    |
-| F-QUIZ-05 | Score + attempt          | M   | Tính điểm, correctCount, wrongCount, accuracy, duration; lưu QuizAttempt              |
-| F-QUIZ-06 | Idempotent submit        | M   | Event key đảm bảo retry không cộng trùng điểm/XP; quiz submit chỉ ghi 1 lần           |
-| F-QUIZ-07 | Progress/XP hook         | S   | Hoàn thành quiz → event trigger cập nhật Progress, XP, Mission (nếu gamification bật) |
-| F-QUIZ-08 | Quiz history             | S   | Learner xem lịch sử QuizAttempt: điểm, thời gian, accuracy; filter theo Topic          |
+| F-QUIZ-01 | Generate quiz from Topic | M   | Sinh quiz từ TopicItem trong Topic, resolve dữ liệu theo SemanticRole của active Template; chọn Mode (`MCQ`/`MATCHING`/`FILL_BLANK`) và Direction (`EN_VI`/`VI_EN`); số câu ∈ {5, 10, 20}, item hợp lệ ≥ số câu; else lỗi + CTA |
+| F-QUIZ-02 | Multiple choice (MCQ)    | M   | Chọn nghĩa/từ đúng từ nhiều đáp án; check từng câu, feedback ngay; đáp án nhiễu cùng Topic |
+| F-QUIZ-03 | Matching                 | S   | Ghép từ tiếng Anh ↔ nghĩa tiếng Việt; check **từng cặp** (per-pair attempt), feedback ngay; cặp đúng bị khóa |
+| F-QUIZ-04 | Fill blank               | C   | Điền từ còn thiếu trong câu/gợi ý; submit từng câu, feedback ngay; so khớp case-insensitive + trim |
+| F-QUIZ-05 | Grade + finalize         | M   | Backend chấm từng interaction khi nhận; `complete` finalize session: correctCount, incorrectCount, accuracy |
+| F-QUIZ-06 | Idempotent check/complete | M  | `Idempotency-Key` đảm bảo retry check/pair attempt/complete không chấm hoặc cộng trùng điểm/XP |
+| F-QUIZ-07 | Progress/XP hook         | S   | Hoàn thành quiz → cập nhật Progress, XP và progress Daily Mission trong cùng transaction |
+| F-QUIZ-08 | Quiz history             | S   | Learner xem lịch sử Quiz session: điểm, thời gian, accuracy; filter theo Topic         |
 
 **Business rules:**
 
-1. Đáp án nhiễu lấy từ TopicItem cùng Topic/POS, không trùng nghĩa.
+1. Đáp án nhiễu lấy từ TopicItem cùng Topic, không trùng nghĩa.
 2. Số từ chưa đủ → CTA "Lưu thêm từ trước khi tạo quiz."
-3. Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP).
-4. Submit idempotent (event key).
+3. Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận kết quả Quiz, progress, XP).
+4. Incremental grading: không submit toàn bộ bài; không check Matching theo cả round.
+5. `LISTENING` là Template flashcard, không phải Quiz Mode.
 
 ---
 
@@ -225,7 +226,7 @@
 
 **Business rules:**
 
-1. Progress cập nhật sau mọi hoạt động học: lưu từ, flashcard review, quiz submit.
+1. Progress cập nhật sau mọi hoạt động học: lưu từ, flashcard review, quiz complete.
 2. Streak rule: min activity threshold mỗi ngày (≥ 1 review hoặc ≥ 1 quiz).
 3. Dữ liệu progress cá nhân không công khai, ngoại trừ thông tin trên Leaderboard (`displayName`, `avatar`, `Weekly XP`).
 
@@ -238,18 +239,19 @@
 | ID        | Tính năng             | P   | AC tóm tắt                                                                                      |
 | --------- | --------------------- | --- | ----------------------------------------------------------------------------------------------- |
 | F-GAME-01 | XP log                | S   | Cộng XP khi hoàn thành activity; idempotent event key; ExperienceLog ghi source + amount        |
-| F-GAME-02 | Coin transaction      | S   | Cộng/trừ Coin; balance ≥ 0 mọi lúc; CoinTransaction ghi type (earn/spend) + eventKey            |
-| F-GAME-03 | Daily mission         | S   | 3–5 nhiệm vụ/ngày từ pool (context-aware + weighted random); tracking → claim → reward          |
-| F-GAME-04 | Weekly mission/stamps | C   | Hoàn thành tất cả daily → Activity Stamp; 3/5/7 stamps → Rương Đồng/Bạc/Vàng                    |
-| F-GAME-05 | Badges                | S   | Huy hiệu khi đạt điều kiện cụ thể (streak 30 ngày, 100 lượt scan có lưu từ…); UserBadge + notification |
+| F-GAME-02 | Coin transaction      | S   | Cộng/trừ Coin; balance ≥ 0 mọi lúc; CoinTransaction ghi amount có dấu + balanceAfter + sourceType + eventKey unique |
+| F-GAME-03 | Daily mission         | S   | Đúng 5 nhiệm vụ/ngày từ pool (cân bằng theo slot + weighted random; personalization `missionProfile` để sau MVP); progress đồng bộ → manual claim → reward riêng từng nhiệm vụ |
+| ~~F-GAME-04~~ | ~~Weekly mission/stamps~~ | — | **Đã loại khỏi scope (2026-10-03):** không có Activity Stamp, Daily/Weekly Chest, thưởng tuần/tháng |
+| F-GAME-05 | Badges                | S   | 12 huy hiệu cố định theo 4 metric (streak dài nhất, quiz hoàn thành, quiz 100%, từ khác nhau tự thêm); ghi nhận khi app đồng bộ, nhận một lần, không thưởng; báo bằng modal, không notification. Badge scan hoãn. Canonical: [badges.md](../decisions/badges.md) |
 | F-GAME-06 | Leaderboard           | S   | Xếp hạng theo Weekly XP; Redis sorted set hoặc snapshot cache; hiển thị top N + vị trí user |
-| F-GAME-07 | Shop browse + buy     | C   | Duyệt vật phẩm; mua bằng Coin (balance ≥ price); trừ Coin → tạo UserItem                        |
-| F-GAME-08 | Apply item            | C   | Áp dụng vật phẩm: theme, avatar frame, booster (x2 XP…); UserItem.equipped                      |
-| F-GAME-09 | Admin config          | S   | Admin CRUD: Missions, Badges, Shop Items, XP reward rules                                       |
+| F-GAME-07 | Shop browse + buy     | C   | Catalog `THEME`/`AVATAR_FRAME`/`XP_BOOSTER`; mua 1 đơn vị, `Idempotency-Key` + `expectedPrice`; trừ Coin + CoinTransaction + UserItem cùng transaction; cosmetic không mua trùng; XP Booster ≤ `maxQuantity` |
+| F-GAME-08a | Equip cosmetic       | C   | Trang bị/bỏ Theme, Avatar Frame; `UserItem.equipped`; tối đa 1 equipped/type, equip mới tự bỏ item cũ trong cùng transaction |
+| F-GAME-08b | Activate XP Booster  | C   | ×2 XP Review/Quiz, mặc định 30 phút server time; tối đa 1 active; không stack/queue/extend; `BoosterActivation` |
+| F-GAME-09 | Admin config          | S   | Admin CRUD: Mission templates (nhiệm vụ ngày), Badges, Shop Items, XP reward rules (Badges: release đầu chỉ seed/migration, release tiếp theo có Admin xem, sửa hiển thị, Bật/Tắt — [badges.md](../decisions/badges.md) PD-BDG-10, PD-BDG-13a) |
 | F-GAME-10 | Mission reset cycle   | S   | Daily missions reset 00:00 Asia/Ho_Chi_Minh (xem ../decisions/daily_mission.md §3.1); progress không cộng dồn sang ngày sau    |
 | F-GAME-11 | Anti-cheat            | S   | Không cộng progress cho action spam; lượt scan hợp lệ phải có "≥ 1 từ được lưu thành công"      |
 
-**Detail:** Xem [daily_mission.md](../decisions/daily_mission.md) — MissionTemplate, UserDailyMission, reset cycle, activity stamps.
+**Detail:** Xem [daily_mission.md](../decisions/daily_mission.md) — MissionTemplate, UserDailyMission, reset cycle, claim reward theo từng nhiệm vụ.
 
 **Business rules:**
 
@@ -258,6 +260,7 @@
 3. Balance Coin ≥ 0 mọi thời điểm.
 4. Mission claim: COMPLETED → CLAIMED → cộng reward; chỉ cộng 1 lần.
 5. Leaderboard: Redis cache, không full-scan aggregate mỗi request.
+6. Shop/Inventory/XP Booster: [decisions/shop.md](../decisions/shop.md) là canonical.
 
 ---
 
@@ -268,7 +271,7 @@
 | ID         | Tính năng             | P   | AC tóm tắt                                                                              |
 | ---------- | --------------------- | --- | --------------------------------------------------------------------------------------- |
 | F-NOTIF-01 | Push SRS reminder     | M   | Push notification nhắc nhở ôn SRS daily; qua Expo Push / Firebase FCM; respect settings |
-| F-NOTIF-02 | In-app notification   | S   | Lưu notification trong DB; badge/coin earned, mission complete, system announcement     |
+| F-NOTIF-02 | In-app notification   | S   | Lưu notification trong DB; system announcement (không có notification khi hoàn thành Daily Mission hay đạt badge trong MVP)     |
 | F-NOTIF-03 | Mark as read          | S   | Learner đánh dấu đã đọc từng notification hoặc read all                                 |
 | F-NOTIF-04 | Device token register | M   | Đăng ký/cập nhật device token khi mở app; hết hạn → re-register                         |
 | F-NOTIF-05 | Notification settings | M   | Learner bật/tắt push; cấu hình giờ nhận (nếu hỗ trợ); Settings screen                   |
@@ -293,8 +296,8 @@
 | F-STOR-03 | Private access URL         | S   | Presigned GET URL; TTL ≤ 15 phút; bucket private mặc định                               |
 | F-STOR-04 | Avatar upload flow         | M   | Upload avatar ≤ 5MB; validate MIME (image/\*); cập nhật user avatarUrl                  |
 | F-STOR-05 | Scan image storage         | S   | Lưu ảnh scan nếu cần (lịch sử/debug); tuân thủ privacy; bucket private                  |
-| F-STOR-06 | Crop image storage         | S   | Lưu ảnh cắt nền (RGBA) từ SAM cho flashcard; gắn cropKey vào DetectedObject             |
-| F-STOR-07 | Orphan cleanup             | S   | Scheduled job xóa object type=CROP, state=TEMP quá 24h                                  |
+| F-STOR-06 | Crop image storage         | S   | **Đã bỏ** — SAM gỡ khỏi pipeline; app tự vẽ box trên ảnh gốc                            |
+| F-STOR-07 | Orphan cleanup             | S   | Scheduled job xóa object không còn tham chiếu (vd. ảnh scan cũ) — chưa triển khai       |
 | F-STOR-08 | Storage metadata           | M   | DB lưu: object key, owner, MIME, size, type, state (TEMP/PERMANENT), timestamp          |
 
 **Công nghệ:**
@@ -342,7 +345,7 @@
 | F-ADM-05 | Collection/Topic CRUD         | M   | Quản lý cấu trúc chủ đề; CRUD TopicItem + thuộc tính EAV                              |
 | F-ADM-06 | Import batch dictionary       | S   | Import từ vựng hàng loạt CSV/Excel; validate + dedup; báo cáo kết quả import          |
 | F-ADM-07 | System template management    | M   | Admin CRUD System Templates; Learner không sửa/xóa system template                    |
-| F-ADM-08 | Gamification config           | S   | Admin CRUD: Missions, Badges, Shop Items, XP reward rules                             |
+| F-ADM-08 | Gamification config           | S   | Admin CRUD: Missions, Badges, Shop Items, XP reward rules (Badges: release đầu chỉ seed/migration, release tiếp theo có Admin xem, sửa hiển thị, Bật/Tắt — [badges.md](../decisions/badges.md) PD-BDG-10, PD-BDG-13a) |
 | F-ADM-09 | Feedback queue                | C   | Xem báo lỗi từ Learner (từ vựng sai, nhận diện sai); cập nhật trạng thái xử lý        |
 | F-ADM-10 | Stats dashboard               | S   | Biểu đồ: users active, lượt dùng AI service, dung lượng R2/S3, tổng quan hệ thống     |
 
@@ -448,10 +451,10 @@ gantt
 ## 18. Checklist
 
 - [x] FR IDs khớp specs: Auth=01, Recog=02, Dict=03, Vocab=04, Flash=05, Quiz=06, SRS=07, Progress=08, Game=09, Noti=10, Storage=11, OpenAPI=12, Admin=13
-- [x] Không YOLO — AI pipeline Florence-2 + SAM + CLIP
+- [x] AI pipeline: Florence-2 zero-shot (CLIP tùy chọn). Không YOLO, không SAM.
 - [x] Không `SavedWord`/`UserWord` — Canonical: Collection → Topic → TopicItem + Template + FsrsRecord
 - [x] SRS: FSRS trên FsrsRecord gắn cặp (user_id, topic_item_id)
 - [x] Milestone M1–M4 mapping đầy đủ
 - [x] Mỗi F có: ID, tên, priority, AC tóm tắt
 - [x] Business rules per area
-- [x] Idempotency: quiz submit, reward claim, XP/Coin dùng event key
+- [x] Idempotency: quiz check/complete, reward claim, XP/Coin dùng idempotency key

@@ -5,7 +5,7 @@
 > Quyết định canonical: xem bảng §66–76 trong specs.md.
 
 **Quy ước ID:** `SS-{nn}` — mỗi SS là một phân hệ/module trong kiến trúc backend hoặc hệ thống.
-**Quy ước Endpoint (REST API Naming Convention):** Tất cả các public API đều ngầm định có **Base Path là `/api/v1`**. Luôn sử dụng danh từ số nhiều (plural nouns) và gom nhóm theo prefix (VD: `/api/v1/quizzes`, `/api/v1/reviews`). Tài liệu này là Single Source of Truth cho toàn bộ URL của hệ thống.
+**Quy ước Endpoint (REST API Naming Convention):** Tất cả các public API của Backend có **Base Path là `/api`** (không dùng `/api/v1`; khớp các controller hiện có như `/api/auth`, `/api/collections`, `/api/topics`). Endpoint trong các bảng dưới ghi tương đối so với base path. Luôn dùng danh từ số nhiều và gom nhóm theo prefix (VD: `/api/me/quizzes`). Tài liệu này mô tả trách nhiệm phân hệ; contract chi tiết xem controller thực tế (VD: `QuizController`). Route `/api/v1/detect` là route nội bộ của Python AI service, không thuộc public API Backend.
 
 ---
 
@@ -131,7 +131,7 @@ Web application nội bộ (tách biệt với Mobile App) dành cho Admin quả
 - Quản lý Collection/Topic: cấu trúc chủ đề, TopicItem, thuộc tính EAV
 - Import dữ liệu từ vựng hàng loạt (CSV/Excel)
 - Quản lý Topic Template hệ thống
-- Quản lý gamification: Missions, Badges, Shop Items, XP config
+- Quản lý gamification: Missions, Badges, Shop Items, XP config (Badges: release tiếp theo có Admin xem, sửa hiển thị, Bật/Tắt — [badges.md](../decisions/badges.md) PD-BDG-10, PD-BDG-13a)
 - Xem Feedback/báo lỗi từ người dùng
 - Dashboard thống kê: users active, lượt dùng AI, dung lượng R2/S3
 
@@ -158,7 +158,8 @@ Quản lý toàn bộ vòng đời tài khoản: đăng ký, xác thực email/O
 | -------------- | ---------------------------------------------------------------------------- |
 | `User`         | Tài khoản người dùng (name, email, hashedPassword, avatarUrl, status, role)  |
 | `Authority`    | Quyền/vai trò: ROLE_LEARNER, ROLE_ADMIN                                     |
-| `RefreshToken` | Token làm mới phiên đăng nhập (token, userId, expiresAt, revoked)            |
+| `RefreshToken` | Token làm mới phiên đăng nhập; lưu trong Redis (`refresh_token:<token>` → email), thu hồi bằng cách xóa key |
+| `UserSettings` | Cài đặt của Learner: uiLanguage, theme, dailyGoal, srsReminderAt, pushEnabled (bảng `user_settings`) |
 | `OtpToken`     | Mã OTP xác thực (code, userId, type, expiresAt, used, attemptCount)          |
 
 ### Chức năng chính
@@ -187,7 +188,10 @@ Quản lý toàn bộ vòng đời tài khoản: đăng ký, xác thực email/O
 | POST   | `/auth/forgot-password`     | Yêu cầu reset mật khẩu                   | Public   |
 | POST   | `/auth/reset-password`      | Đặt mật khẩu mới                          | Public   |
 | GET    | `/users/me`                 | Xem hồ sơ cá nhân                         | Learner  |
-| PUT    | `/users/me`                 | Cập nhật hồ sơ                             | Learner  |
+| PUT    | `/users/me`                 | Cập nhật hồ sơ (firstName, lastName, bio) | Learner  |
+| GET    | `/users/me/settings`        | Cài đặt cá nhân (MH-PROFILE-03)           | Learner  |
+| PUT    | `/users/me/settings`        | Cập nhật cài đặt (partial update)         | Learner  |
+| POST   | `/auth/change-password`     | Đổi mật khẩu; đăng xuất thiết bị khác     | Learner  |
 
 ### Business Rules
 
@@ -280,9 +284,11 @@ Quản lý bộ sưu tập (Collections) và chủ đề (Topics) từ vựng th
 | `Collection`              | Tập hợp chủ đề lớn (VD: TOEIC Words, Animals)                                 |
 | `Topic`                   | Chủ đề cụ thể, hỗ trợ phân cấp (parent_id), thuộc Collection                  |
 | `TopicItem`               | Phần tử nội dung (từ vựng/cụm từ) thuộc Topic                                 |
-| `TopicAttributeGroup`     | Nhóm thuộc tính cho một Topic                                                  |
-| `TopicAttribute`          | Định nghĩa thuộc tính (VD: Nghĩa tiếng Việt, Phiên âm, Ví dụ, Audio)         |
-| `TopicItemAttributeValue` | Giá trị thực tế của thuộc tính cho từng TopicItem                              |
+| `Schema`                  | Data contract thuộc tính mà Topic sử dụng (`topics.schema_id`)                 |
+| `SchemaAttributeGroup`    | Nhóm thuộc tính của Schema                                                     |
+| `SchemaAttribute`         | Định nghĩa thuộc tính (VD: Nghĩa tiếng Việt, Phiên âm, Ví dụ, Audio)         |
+| `TopicItemAttributeGroup` | Instance nhóm thuộc tính của một TopicItem                                     |
+| `TopicItemAttributeValue` | Giá trị thực tế của `SchemaAttribute` cho từng TopicItem                       |
 
 ### Chức năng chính
 
@@ -317,46 +323,54 @@ Quản lý bộ sưu tập (Collections) và chủ đề (Topics) từ vựng th
 
 ### Mô tả
 
-Phân hệ backend phía Spring Boot chịu trách nhiệm orchestrate luồng nhận diện ảnh: nhận ảnh từ mobile, chuyển tới AI service, lọc kết quả, ánh xạ sang từ vựng và trả kết quả cho mobile. **Không** chạy model AI trực tiếp.
+Phân hệ backend phía Spring Boot chịu trách nhiệm orchestrate luồng nhận diện ảnh: cấp URL upload, kiểm tra quota, xếp hàng job, gọi AI service, lọc kết quả, ánh xạ sang từ vựng và trả kết quả khi mobile poll. **Không** chạy model AI trực tiếp.
 
 ### Entities
 
-| `ScanRequest`             | Lưu request xử lý ảnh (userId, objectKey, status, timestamps, processingTime, error) thay thế ImageRecognitionRequest + RecognitionResult |
-| `DetectedObject`          | Từng đối tượng: label, detectionSource, clipScore, boundingBox, cropUrl                      |
+| Entity | Mô tả |
+| ------ | ----- |
+| `ScanRequest` (`scan_requests`) | Một lượt scan: user, objectKey, status, errorCode, result_json (box từ AI), modelVersion, detectionCount, processingTimeMs, startedAt/finishedAt, version. Cũng là nguồn đếm quota. Xem [database.md §5](../db/database.md). |
+| `ScanDetectionsDTO` | Nội dung `result_json`: `imageWidth`, `imageHeight`, `detections[]` (label, headword, source, reliability, box). Không phải bảng riêng. |
 
 ### Chức năng chính
 
-- Nhận thông tin ảnh từ mobile (chỉ dùng presigned URL flow, gửi objectKey lên)
-- Gọi FastAPI AI service qua HTTP nội bộ (timeout cấu hình, mặc định 60s)
-- Nhận danh sách detected objects từ AI
-- Lọc theo ngưỡng confidence (cấu hình được — lớp bảo vệ cuối)
-- Gom trùng label (nhiều box cùng label → 1 từ)
-- Ánh xạ label → Word trong dictionary (qua SS-04 ObjectWordMappingService)
-- Trả cho mobile danh sách từ vựng + metadata nhận diện
-- Lưu metadata request, kết quả, log requestId/processingTime/objectCount
-- Xử lý lỗi: timeout, AI unavailable, invalid image, no-object, low-confidence
+- Cấp presigned URL upload dưới `scans/{userId}/` (chỉ jpeg/png/webp)
+- Kiểm tra `objectKey` thuộc Learner, ảnh đã upload, ≤ 10MB — **trước** khi tính quota
+- Kiểm tra quota/ngày bằng cách đếm `scan_requests` (status ≠ FAILED) dưới khóa Redisson theo user
+- Xếp hàng job (1 worker, tối đa 3 job chờ); đầy → `AI_QUEUE_FULL`
+- Gọi FastAPI AI service qua HTTP nội bộ (`X-Request-Id`, `X-Service-Token`, timeout 60s)
+- Ánh xạ lỗi AI thành mã lỗi scan (`INVALID_IMAGE`, `AI_UNAVAILABLE`, `AI_TIMEOUT`, `AI_ERROR`)
+- Lọc lần cuối theo `scan.min-reliability`; lưu box vào `result_json`
+- Khi poll: ánh xạ label → Word (tra nhãn, rồi `headword`) và trả kết quả
+- Bộ quét: đánh dấu `INTERRUPTED` job mất khi restart hoặc quá thời gian tối đa
+- Log `requestId` (MDC), `modelVersion`, số object, thời gian xử lý
 
 ### API Endpoints
 
-| Method | Endpoint                           | Mô tả                                      | Auth    |
-| ------ | ---------------------------------- | ------------------------------------------- | ------- |
-| POST   | `/recognition/scan`                | Gửi ảnh nhận diện (truyền objectKey)       | Learner |
-| GET    | `/recognition/results/{requestId}` | Lấy kết quả nhận diện                       | Learner |
-| GET    | `/recognition/history`             | Lịch sử scan của Learner (Should)           | Learner |
+| Method | Endpoint | Mô tả | Auth |
+| ------ | -------- | ----- | ---- |
+| POST | `/scan/upload-url` | Body `{contentType}` → `{uploadUrl, objectName, contentType, expiredAt}` | Learner |
+| POST | `/scan` (`application/json`) | Body `{objectKey}` → `202 {requestId, status: PENDING}` | Learner |
+| GET | `/scan/{requestId}` | `{requestId, status, errorCode, createdAt, finishedAt, result}`; `result = {imageWidth, imageHeight, items[]}` khi `DONE`. Scan của người khác trả 404 | Learner |
+| GET | `/scan/quota` | `{limit, used, remaining, resetAt}` | Learner |
+| POST | `/scan` (`multipart/form-data`) | **Deprecated** — endpoint đồng bộ cũ, field `file`, trả kết quả ngay (kèm ảnh vẽ sẵn box nếu AI bật). Vẫn tính quota | Learner |
+| GET | `/scan/history` | Lịch sử scan của Learner (Should — chưa triển khai) | Learner |
+
+Mỗi phần tử `items[]`: `label`, `score`, `source`, `reliability`, `box {x1, y1, x2, y2}`, `word` (LookupResult, `null` nếu không có trong từ điển). Mã lỗi trả trong `RestResponse.error`; riêng `QUOTA_EXCEEDED` kèm `data = {limit, used, remaining, resetAt}`.
 
 ### Sub-components
 
 ```text
 Recognition (Backend)
-  ├── RecognitionOrchestrator   — Điều phối: quota → enqueue → trả 202 Accepted + requestId
-  ├── ScanQuotaService          — Kiểm tra/trừ quota scan/ngày theo Learner
-  ├── RecognitionQueueService   — In-process queue (Spring @Async + Bounded Executor), trạng thái PENDING/PROCESSING
-  ├── RecognitionWorker         — Background worker lấy job và gọi AI service
-  ├── AiServiceClient           — HTTP client gọi FastAPI AI service (timeout, retry, error handling)
-  ├── RecognitionFilterService  — Lọc kết quả theo cặp (source, clipScore)
-  ├── LabelDeduplicationService — Gom trùng label (nhiều box → 1 từ)
-  ├── WordMappingService        — Ánh xạ label → Word (delegate SS-04)
-  └── ScanRequestService        — Lưu/truy vấn lịch sử scan (query từ bảng ScanRequest)
+  ├── ScanController        — /api/scan: upload-url, submit, poll, quota, endpoint đồng bộ cũ
+  ├── ScanServiceImpl       — Điều phối: kiểm tra key/size → quota → enqueue → 202 + requestId
+  ├── ScanQuotaService      — Đếm scan_requests trong ngày dưới khóa Redisson; tạo ScanRequest
+  ├── ScanJobQueue          — ThreadPoolTaskExecutor riêng (không phải Spring bean, để @Async mail không bị ảnh hưởng)
+  ├── ScanWorker            — PENDING → PROCESSING → DONE/FAILED, mỗi bước một transaction ngắn
+  ├── AiDetectionService    — HTTP client gọi AI, ánh xạ lỗi AI → ScanErrorCode
+  ├── ScanResultAssembler   — Lọc theo reliability; ánh xạ label/headword → Word (delegate SS-04)
+  ├── ScanRequestSweeper    — @Scheduled + lúc khởi động: đánh dấu INTERRUPTED job kẹt
+  └── ScanObjectKeys        — Quy ước key scans/{userId}/{uuid}.{ext}, kiểm tra quyền sở hữu
 ```
 
 ### Trace
@@ -372,69 +386,74 @@ Recognition (Backend)
 
 ### Mô tả
 
-Service **độc lập** (Python FastAPI) chạy pipeline nhận diện từ vựng mở (open-vocabulary) dựa trên mô hình Florence-2 kết hợp SAM + CLIP ở chế độ zero-shot. Nhận ảnh, trả danh sách đối tượng đã lọc và đảm bảo label thuộc từ điển.
+Service **độc lập** (Python FastAPI) chạy pipeline nhận diện từ vựng mở (open-vocabulary) dựa trên Florence-2 ở chế độ zero-shot. Nhận ảnh từ backend, trả danh sách đối tượng đã lọc theo từ điển. CLIP chỉ dùng khi bật bước từ vựng nền; SAM đã gỡ bỏ.
 
 ### Công nghệ
 
-| Thành phần   | Công nghệ                                                       |
-| ------------ | ---------------------------------------------------------------- |
-| Framework    | Python FastAPI                                                   |
-| Models       | Florence-2-large (zero-shot) + SAM (ViT-H) + CLIP (ViT-B/32)   |
-| Pipeline     | F2-v13: Tiled OD, Self-grounding, chuỗi lọc ngôn ngữ, cửa CLIP |
-| Phần cứng    | GPU T4 trở lên                                                   |
-| Latency      | ~15–30s/ảnh xử lý thực tế/ảnh (full mode); thời gian chờ phụ thuộc queue depth |
+| Thành phần | Công nghệ |
+| ---------- | --------- |
+| Framework | Python FastAPI, Uvicorn 1 process |
+| Models | Florence-2-base (CPU/dev) hoặc Florence-2-large (GPU); CLIP ViT-B/32 tùy chọn |
+| Pipeline mặc định | `<OD>` + self-grounding; tiled OD / dense caption / từ vựng nền bật qua env |
+| Phần cứng | CPU chạy được (~35–45s/ảnh với base); GPU ≥ 4GB VRAM cho large |
+| Đồng thời | 1 ảnh tại một thời điểm (semaphore) |
 
 ### Chức năng chính
 
-- Nhận ảnh (file hoặc object URL) từ worker nội bộ, không nhận trực tiếp từ mobile
-- Florence-2: OD (`<OD>`) + Dense Region Caption + Self-grounding + Tiled OD
-- Lọc ngôn ngữ: WordNet (từ điển + danh từ chỉ vật cụ thể)
-- Xác thực CLIP: sàn 0,23 + biên độ 0,02
-- Xác thực hình học SAM: mask quá nhỏ → loại
-- Cắt nền (RGBA) bằng SAM cho ảnh flashcard
-- Trả: `label` (bảo đảm thuộc từ điển), `detectionSource`, `clipScore`, `boundingBox`, `cropUrl`
-- 1 thẻ / từ (max 1 entry per unique label)
-- Giới hạn đồng thời bằng số worker/GPU do backend vận hành cấu hình; mặc định 1 worker/GPU
-- Error handling: invalid image, model error, no-object → response có cấu trúc
-- Logging: requestId, processing time, object count, errors
+- Nhận ảnh multipart từ backend (không nhận trực tiếp từ mobile); kiểm tra `X-Service-Token` nếu đặt `SERVICE_TOKEN`
+- Xoay ảnh theo EXIF, resize
+- Florence-2: `<OD>` + self-grounding
+- Loại box quá nhỏ/quá lớn; lọc nhãn theo từ điển (WordNet); NMS 2 tầng; 1 box / nhãn
+- Gắn `headword` (từ cuối, dạng số ít) và `reliability` (theo `source`)
+- Không có vật thể → danh sách rỗng, **không** phải lỗi
+- Lỗi có cấu trúc: `INVALID_REQUEST`, `INVALID_IMAGE`, `UNAUTHORIZED`, `MODEL_NOT_READY`, `MODEL_ERROR`
+- Logging: `request_id`, `model_version`, số object, thời gian xử lý
 
 ### API Endpoints (Internal)
 
-| Method | Endpoint          | Mô tả                                              |
-| ------ | ----------------- | --------------------------------------------------- |
-| POST   | `/api/recognize`  | Nhận ảnh, trả danh sách detected objects            |
-| GET    | `/api/health`     | Health check                                        |
+| Method | Endpoint | Mô tả |
+| ------ | -------- | ----- |
+| POST | `/api/v1/detect` | Nhận ảnh (field `file`), trả danh sách detected objects |
+| GET | `/health` | Trạng thái nạp model, `model_version`, `gpu_available` |
 
 ### Output Schema
 
 ```json
 {
-  "requestId": "string",
-  "processingTimeMs": 18500,
-  "objects": [
+  "request_id": "3f2a9c1e-...",
+  "model_version": "Florence-2-base/od+self",
+  "processing_time_ms": 21450,
+  "detections": [
     {
-      "label": "cup",
-      "detectionSource": "OD",
-      "clipScore": 0.28,
-      "boundingBox": [120, 80, 350, 420],
-      "cropUrl": "https://..."
+      "label": "coffee mug",
+      "headword": "mug",
+      "score": 0.9,
+      "source": "od",
+      "reliability": "HIGH",
+      "box": { "x1": 120, "y1": 80, "x2": 350, "y2": 420 }
     }
   ],
-  "error": null
+  "labels": ["coffee mug"],
+  "annotated_image_base64": null,
+  "annotated_image_mime": null,
+  "image_width": 900,
+  "image_height": 1200
 }
 ```
+
+Lỗi: `{"error": {"code": "INVALID_IMAGE", "message": "..."}}`. Chi tiết contract ở [server.md §5.3](../sa/server.md).
 
 ### Trace
 
 - FR: FR-02.05, FR-02.06
-- BF: BF-06 (bước 6–7)
+- BF: BF-06 (bước 8–10)
 - Phụ lục A (specs.md §12)
 
 ### Milestone: M2
 
 ### Ghi chú
 
-- AI service nằm trong mạng nội bộ hoặc có xác thực riêng nếu public.
+- AI service nằm trong mạng nội bộ; dùng `SERVICE_TOKEN` nếu cổng ra được mạng ngoài.
 - Endpoint nội bộ tách rõ với endpoint public/mobile.
 - MVP dùng zero-shot; fine-tune LoRA là hướng mở rộng (ngoài phạm vi MVP).
 
@@ -493,21 +512,21 @@ Phân hệ quản lý từ vựng cá nhân của Learner theo mô hình `Collec
 
 ### Mô tả
 
-Quản lý cấu hình hiển thị thẻ học thông qua `Template` gắn với `Topic` (loại `TOPIC_CUSTOM` hoặc kế thừa từ hệ thống `SYSTEM`), bao gồm các phần tử giao diện `TemplateElement` và trường dữ liệu `TemplateField` với vai trò ngữ nghĩa `SemanticRole` (FRONT, BACK, EXAMPLE, AUDIO, IMAGE, PHONETIC, TRANSLATION, HINT, TAG, EXTRA). Phiên học flashcard nạp các TopicItem và cập nhật FsrsRecord theo đánh giá của Learner.
+Quản lý cấu hình hiển thị thẻ học thông qua `Template` thuộc `Schema`; `Topic` chọn template qua `active_template_id` (chi tiết: [decisions/custom_card.md](../decisions/custom_card.md)). Template gồm các phần tử `TemplateElement` (mặt thẻ `side`: `CardSide` `FRONT`/`BACK`) và trường dữ liệu `TemplateField` với vai trò ngữ nghĩa `SemanticRole` (`TARGET_WORD`, `DEFINITION`, `NATIVE_TRANSLATION`, `EXAMPLE_SENTENCE`, `AUDIO`, `IMAGE`). Phiên học flashcard nạp các TopicItem và cập nhật FsrsRecord theo đánh giá của Learner.
 
 ### Entities
 
 | Entity            | Mô tả                                                                             |
 | ----------------- | ---------------------------------------------------------------------------------- |
-| `Template`        | Mẫu thẻ học gắn theo Topic (`topic_id`), loại SYSTEM hoặc TOPIC_CUSTOM             |
-| `TemplateElement` | Phần tử giao diện (type: FIELD, DIVIDER, BUTTON; order_index, flex, alignment)    |
-| `TemplateField`   | Trường dữ liệu ánh xạ TopicAttribute với SemanticRole và cấu hình hiển thị         |
+| `Template`        | Mẫu thẻ học thuộc Schema (`schema_id`, `code`, `is_default`); Topic chọn qua `active_template_id` |
+| `TemplateElement` | Phần tử bố cục (type: `FIELD`, `SECTION_BREAK`, `COLUMN_BREAK`; `position`; `side`: `CardSide`) |
+| `TemplateField`   | Trường dữ liệu ánh xạ `SchemaAttribute` với `SemanticRole` và cấu hình hiển thị    |
 | `FsrsRecord`      | Trạng thái và tham số SRS của từ học (card_state, due, stability, difficulty...)  |
 
 ### Chức năng chính
 
 - Khởi tạo FsrsRecord (card_state=NEW) khi TopicItem được tạo trong Topic
-- System Templates: Classic, Listening, Spelling, Image Vocab... (seeded, không sửa/xóa)
+- System Templates: đã seed `STANDARD`, `LISTENING`, `REVERSE` (theo `code`); các template khác trong backlog (Spelling, Image Vocab...) là PLANNED
 - Custom Templates: Cấu hình phần tử giao diện (TemplateElement) và trường dữ liệu (TemplateField) với SemanticRole gắn cho Topic
 - Render thẻ học linh hoạt theo cấu hình template của Topic (ẩn field thiếu dữ liệu, không vỡ layout)
 - Study session: hiển thị TopicItem theo template → Learner tương tác → submit FSRS rating
@@ -518,12 +537,17 @@ Quản lý cấu hình hiển thị thẻ học thông qua `Template` gắn vớ
 
 | Method | Endpoint                                  | Mô tả                                        | Auth    |
 | ------ | ----------------------------------------- | -------------------------------------------- | ------- |
-| GET    | `/topics/{id}/templates`                  | Lấy cấu hình template gắn với Topic          | Learner |
-| PUT    | `/topics/{id}/templates`                  | Cập nhật cấu hình template cho Topic         | Learner |
-| GET    | `/topics/{id}/items/study-session`        | Lấy danh sách TopicItem cần học (new + due)  | Learner |
-| POST   | `/topic-items/{id}/review`                | Submit FSRS rating cho TopicItem             | Learner |
-| POST   | `/reviews/batch`                          | Sync batch rating từ local queue             | Learner |
-| GET    | `/admin/templates`                        | Admin quản lý System Templates               | Admin   |
+| Method | Endpoint                                              | Mô tả                                        | Auth    | Trạng thái |
+| ------ | ----------------------------------------------------- | -------------------------------------------- | ------- | ---------- |
+| PUT    | `/topics/{topicId}/active-template/{templateId}`      | Đổi template (chế độ học) cho Topic          | Learner | Đã implement |
+| POST   | `/topics/{topicId}/schema/fork`                       | Fork Schema + Templates cho Topic            | Learner | Đã implement |
+| GET/PUT | `/templates/{id}`, `/schemas/{schemaId}/templates`   | Xem / cập nhật layout template               | Learner | PLANNED |
+| GET    | `/topics/{topicId}/study-session`                     | Lấy TopicItem cần học (new + due)            | Learner | PLANNED |
+| POST   | `/fsrs-records/{id}/review`                           | Submit FSRS rating                           | Learner | PLANNED |
+| POST   | `/reviews/batch`                                      | Sync batch rating từ local queue             | Learner | PLANNED |
+| GET    | `/admin/templates`                                    | Admin quản lý System Templates               | Admin   | PLANNED |
+
+Chi tiết: [decisions/custom_card.md](../decisions/custom_card.md) §7.
 
 ### Sub-components
 
@@ -546,37 +570,29 @@ Flashcard & Template
 
 ## SS-10: Quiz — Kiểm tra từ vựng
 
+> **Canonical:** [decisions/quiz.md](../decisions/quiz.md) · API: `QuizController` · DB: [database.md](../db/database.md) §Quiz.
+
 ### Mô tả
 
-Sinh bài kiểm tra từ vựng từ TopicItem trong Topic của Learner hoặc Topic hệ thống. Hỗ trợ nhiều dạng câu hỏi, chấm điểm và lưu lịch sử attempt.
+Sinh Quiz session từ TopicItem trong Topic, chấm **incremental** từng interaction (MCQ/FILL_BLANK: từng câu; MATCHING: từng cặp), finalize session khi complete và lưu lịch sử.
+
+### Trách nhiệm
+
+- **Generation:** resolve dữ liệu TopicItem qua `Topic.activeTemplate → TemplateField.semanticRole → SchemaAttribute → TopicItemAttributeValue`; không phụ thuộc tên `SchemaAttribute`. Sinh câu hỏi/cặp và đáp án nhiễu (cùng Topic, không trùng nghĩa); số câu ∈ {5, 10, 20}; item hợp lệ < số câu → lỗi `QUIZ_INSUFFICIENT_ELIGIBLE_ITEMS`, không tạo Quiz nhỏ hơn.
+- **Grading:** chấm từng câu (MCQ, FILL_BLANK) và từng cặp (MATCHING) ngay khi nhận; ghi nhận kết quả; không tiết lộ đáp án trước khi chấm.
+- **Finalize:** `complete` tổng hợp summary từ kết quả đã chấm, phát sự kiện cho Progress / Gamification; cập nhật progress Daily Mission đồng bộ trong cùng transaction ([daily_mission.md](../decisions/daily_mission.md) §6).
+- **Idempotency:** check / pair attempt / complete dùng `Idempotency-Key`; retry không chấm hoặc cộng trùng.
+- `QuizMode` = `MCQ | MATCHING | FILL_BLANK`; `QuizDirection` = `EN_VI | VI_EN`. `LISTENING` là Template flashcard, không phải Quiz Mode.
+- **Duration (D15):** khi COMPLETED, tính `durationSeconds = completedAt - createdAt` server-side và trả trong `QuizResultDTO`; không nhận duration từ client.
+- **Session TTL (D17):** `IN_PROGRESS` resume được 24h kể từ `createdAt`; quá hạn chuyển `EXPIRED` bằng lazy expiration (kiểm tra trong request, không cron) và trả `QUIZ_SESSION_EXPIRED` (HTTP 410) cho mọi resume/check/attempt/complete/cancel. History expire batch trước khi map DTO.
 
 ### Entities
 
-| Entity         | Mô tả                                                                                   |
-| -------------- | ---------------------------------------------------------------------------------------- |
-| `Quiz`         | Bài kiểm tra (topicId, type, questionCount, createdAt)                                  |
-| `Question`     | Câu hỏi trong quiz (type, topicItemId, correctAnswer, distractors)                      |
-| `QuizAttempt`  | Lượt làm quiz (quizId, userId, score, correctCount, wrongCount, duration, completedAt) |
-| `QuizAnswer`   | Chi tiết câu trả lời của người dùng trong lượt làm                                      |
-
-### Chức năng chính
-
-- Sinh quiz từ TopicItem trong Topic
-- Dạng câu hỏi: Multiple choice (Must), Matching (Should), Fill blank (Could)
-- Sinh đáp án nhiễu (lấy từ TopicItem cùng Topic/POS, không trùng nghĩa)
-- Yêu cầu số từ tối thiểu để sinh quiz
-- Chấm điểm: score, correctCount, wrongCount, accuracy
-- Lưu QuizAttempt (idempotent — event key, retry không cộng trùng)
-- Cập nhật Progress, XP nếu gamification bật (qua event)
+PLANNED — tên entity/bảng chưa chốt; persistence contract ở [database.md](../db/database.md) §Quiz.
 
 ### API Endpoints
 
-| Method | Endpoint                             | Mô tả                                    | Auth    |
-| ------ | ------------------------------------ | ----------------------------------------- | ------- |
-| POST   | `/topics/{id}/quizzes/generate`      | Sinh quiz mới từ Topic                   | Learner |
-| GET    | `/quizzes/{id}`                      | Lấy quiz + câu hỏi                        | Learner |
-| POST   | `/quizzes/{id}/submit`               | Nộp bài, chấm điểm (idempotent)          | Learner |
-| GET    | `/quizzes/history`                   | Lịch sử quiz attempts                     | Learner |
+Xem `QuizController` (base `/api`: `/api/me/quizzes`, `/api/questions/{questionId}/check`, `/api/me/quizzes/{quizId}/rounds/{roundNo}/attempts`).
 
 ### Trace
 
@@ -616,7 +632,7 @@ Quản lý hàng đợi ôn tập theo thuật toán FSRS (Free Spaced Repetitio
 
 - SRS logic tích hợp chặt với SS-09 (FsrsRecord entity + FsrsService). Tách SS vì trách nhiệm nghiệp vụ khác nhau: SS-09 quản lý study session / template, SS-11 quản lý review scheduling.
 - FSRS parameters: card_state (NEW/LEARNING/REVIEW/RELEARNING/SUSPENDED), due, stability, difficulty, reps, lapses.
-- UI/progress state dùng map chuẩn FR-04: NEW→new; LEARNING/RELEARNING→learning; REVIEW interval <21 ngày→reviewing; REVIEW interval ≥21 ngày→mastered.
+- UI/progress state dùng map chuẩn FR-04: NEW→new; LEARNING/RELEARNING→learning; REVIEW `stability` <21 ngày→reviewing; REVIEW `stability` ≥21 ngày→mastered.
 
 ### Trace
 
@@ -631,14 +647,14 @@ Quản lý hàng đợi ôn tập theo thuật toán FSRS (Free Spaced Repetitio
 
 ### Mô tả
 
-Tổng hợp và hiển thị tiến độ học tập cá nhân: số từ, streak, accuracy, lịch sử hoạt động. Dữ liệu aggregate từ FsrsRecord, QuizAttempt, TopicItem count.
+Tổng hợp và hiển thị tiến độ học tập cá nhân: số từ, streak, accuracy, lịch sử hoạt động. Dữ liệu aggregate từ FsrsRecord, Quiz session đã complete, TopicItem count.
 
 ### Entities
 
 | Entity             | Mô tả                                                                     |
 | ------------------ | -------------------------------------------------------------------------- |
-| `LearningProgress` | Aggregate: totalWords, learnedCount, dueCount, masteredCount, streak, accuracy theo learning-state map |
-| `LearningEvent`    | Sự kiện học (type, timestamp, metadata) — rebuild từ review event / QuizAttempt |
+| `LearningProgress` | DTO aggregate (không phải bảng): totalWords, learnedCount, reviewingCount, masteredCount, dueCount, accuracy — query trực tiếp từ `fsrs_records` + `topic_items` |
+| `LearningEvent`    | Bảng `learning_events` (append-only): sự kiện học hợp lệ (type, learningDate, metadata) — nguồn cho activity history ([database.md](../db/database.md) §3B) |
 
 ### Chức năng chính
 
@@ -648,22 +664,35 @@ Tổng hợp và hiển thị tiến độ học tập cá nhân: số từ, str
 - Lịch sử hoạt động: ngày/tuần/tháng
 - Home summary widget (progress ngắn gọn)
 - Goal tracking (Could)
-- Cập nhật sau mỗi hoạt động: lưu từ, flashcard review, quiz submit
+- Cập nhật sau mỗi hoạt động: lưu từ, flashcard review, quiz complete
 
-Quy tắc aggregate:
+Quy tắc aggregate (theo learning-state map, [specs.md](./specs.md) FR-04):
 
-- `learnedCount` = số TopicItem có UI state khác `new` (`learning + reviewing + mastered`).
-- `dueCount` / đang ôn = số FsrsRecord có `due <= now`.
-- `masteredCount` = số FsrsRecord có `card_state = REVIEW` và interval ≥ 21 ngày.
+- `learnedCount` = số FsrsRecord có `state <> NEW` (`learning + reviewing + mastered`).
+- `reviewingCount` = số FsrsRecord có UI state `reviewing` (`REVIEW`, `stability` < 21 ngày). UI label "Đang ôn" **chỉ** dùng số này.
+- `masteredCount` = số FsrsRecord có UI state `mastered` (`REVIEW`, `stability` ≥ 21 ngày).
+- `dueCount` = số FsrsRecord có `due <= now` — là **workload hiện tại**, không phải learning state; UI label "Cần ôn hôm nay".
+- Ngày học tính theo `Asia/Ho_Chi_Minh` (GMT+7), cùng quy ước với Daily Mission.
+
+Source of truth theo số liệu (không tính lại streak từ event khi gọi API):
+
+| Số liệu | Source of truth |
+| ------- | --------------- |
+| Tổng số từ / learning state / due | `topic_items` + `fsrs_records` |
+| Streak hiện tại / dài nhất | `users.streak_days`, `users.longest_streak_days`, `users.last_studied_at` |
+| Activity chart ngày/tuần/tháng, lịch ngày học | `learning_events` (group theo `learning_date`) |
+| Accuracy, số quiz đã hoàn thành | Quiz session đã complete + review event |
 
 ### API Endpoints
 
-| Method | Endpoint                      | Mô tả                                     | Auth    |
-| ------ | ----------------------------- | ------------------------------------------ | ------- |
-| GET    | `/progress/summary`           | Tổng quan tiến độ                          | Learner |
-| GET    | `/progress/streak`            | Chi tiết streak                             | Learner |
-| GET    | `/progress/history`           | Lịch sử hoạt động (daily/weekly/monthly)   | Learner |
-| GET    | `/progress/home-widget`       | Summary ngắn gọn cho Home screen           | Learner |
+| Method | Endpoint                      | Mô tả                                     | Màn hình | Auth    |
+| ------ | ----------------------------- | ------------------------------------------ | -------- | ------- |
+| GET    | `/progress/summary`           | Learning state counts, dueCount, accuracy, số quiz đã hoàn thành | MH-STATS-01 | Learner |
+| GET    | `/progress/streak`            | Streak hiện tại + dài nhất + `lastStudiedDate` | MH-STATS-01 | Learner |
+| GET    | `/progress/history`           | Activity theo ngày/tuần/tháng (`?period=day\|week\|month&from&to`) | MH-STATS-01 | Learner |
+| GET    | `/progress/home-widget`       | Summary ngắn gọn: saved/learned/mastered, dueCount, streak | MH-MAIN-01 | Learner |
+
+XP và Level **không** thuộc Progress — xem `/gamification/xp` (SS-13).
 
 ### Trace
 
@@ -684,35 +713,52 @@ Hệ thống tăng động lực học tập: điểm kinh nghiệm (XP), tiền
 
 | Entity            | Mô tả                                                        |
 | ----------------- | ------------------------------------------------------------- |
-| `Mission`         | Nhiệm vụ ngày/tuần/thành tựu (type, target, reward, period)  |
-| `MissionProgress` | Tiến độ nhiệm vụ của Learner (current, completed, claimedAt) |
-| `Badge`           | Định nghĩa huy hiệu (name, condition, iconUrl)               |
-| `UserBadge`       | Huy hiệu Learner đã đạt (earnedAt)                           |
-| `ExperienceLog`   | Lịch sử cộng XP (amount, source, eventKey, timestamp)        |
-| `CoinTransaction` | Lịch sử cộng/trừ coin (amount, type, eventKey, balance)      |
-| `LeaderboardEntry`| Bản ghi xếp hạng (userId, score, period, rank)               |
+| `MissionTemplate` | Template nhiệm vụ ngày trong Mission Pool (category, triggerEvent, target, reward, weight, eligibility) |
+| `UserDailyMission` | Nhiệm vụ ngày đã cấp cho Learner (slot 1–5, progress, status, claimedAt) |
+| `UserDailyMissionProgressLog` | Dedupe progress theo `(mission, sourceKey)` |
+| `UserDailyMissionClaim` | Claim reward từng mission (idempotencyKey, reward thực cấp) |
+| `UserWordCredit` | Từ (hash chuẩn hóa) đã được tính cho `ADD_5_WORDS`, một lần trọn đời |
+| `Badge`           | Định nghĩa huy hiệu (code, metric, threshold, iconKey, isActive) — [badges.md](../decisions/badges.md) §7.1 |
+| `UserBadge`       | Huy hiệu Learner đã đạt (earnedAt = createdAt, seenAt)       |
+| `UserBadgeWordCredit` | Từ khác nhau (hash chuẩn hóa) Learner từng tự thêm, cho metric `DISTINCT_WORDS_ADDED`; tách khỏi `UserWordCredit` |
+| `ExperienceLog`   | Lịch sử cộng XP (baseAmount, bonusAmount, source, eventKey, boosterActivationId, timestamp) |
+| `CoinTransaction` | Ledger coin (amount có dấu, balanceAfter, sourceType, referenceId, eventKey unique) |
+| `LeaderboardEntry`| Bản ghi xếp hạng — **chưa thiết kế** (database.md chưa có bảng) |
 
 ### Chức năng chính
 
 - **XP:** Cộng XP khi hoàn thành hoạt động học (idempotent — event key)
-- **Coin:** Cộng coin theo mission/milestone; trừ coin khi mua item
-- **Mission:** Nhiệm vụ ngày/tuần/thành tựu; tự động cập nhật progress; claim reward
-- **Badge:** Trao huy hiệu khi đạt điều kiện cụ thể
+- **Coin:** Cộng coin khi claim reward nhiệm vụ ngày; trừ coin khi mua item
+- **Mission:** Đúng 5 nhiệm vụ ngày (reset 00:00 GMT+7); progress cập nhật đồng bộ trong transaction của hành động (quiz complete, thêm từ, purchase, activate booster); manual claim reward từng nhiệm vụ. Không Chest, không thưởng tuần/tháng, không notification khi hoàn thành
+- **Badge:** 12 badge cố định theo 4 metric; ghi nhận khi app gọi sync, nhận một lần, không thu hồi, không thưởng XP/Coin, không notification ([badges.md](../decisions/badges.md))
 - **Leaderboard:** Xếp hạng theo Weekly XP; Redis sorted set / snapshot cache
-- Admin cấu hình missions, badges, XP rules
+- Admin cấu hình missions, XP rules. Badge catalog qua seed/migration trong release đầu (PD-BDG-10); release tiếp theo có Admin xem, sửa hiển thị, Bật/Tắt (PD-BDG-13a)
 
 ### API Endpoints
 
 | Method | Endpoint                              | Mô tả                                       | Auth    |
 | ------ | ------------------------------------- | -------------------------------------------- | ------- |
-| GET    | `/gamification/xp`                    | Tổng XP và lịch sử                           | Learner |
-| GET    | `/gamification/coins`                 | Balance coin và lịch sử giao dịch            | Learner |
-| GET    | `/gamification/missions`              | Danh sách missions + progress                | Learner |
-| POST   | `/gamification/missions/{id}/claim`   | Claim reward nhiệm vụ (idempotent)           | Learner |
-| GET    | `/gamification/badges`                | Danh sách badges (earned + available)        | Learner |
+| GET    | `/gamification/xp`                    | Tổng XP, level hiện tại (derive từ `users.exp` + `levels`), XP tới level kế, recent `ExperienceLog` — phục vụ MH-STATS-02 và Home. Không có endpoint `/levels/current` riêng | Learner |
+| GET    | `/me/wallet`                      | Balance coin và lịch sử giao dịch (cursor)   | Learner |
+| GET    | `/me/daily-missions`                  | 5 nhiệm vụ hôm nay + progress + reward       | Learner |
+| POST   | `/me/daily-missions/{id}/claim`       | Claim reward 1 nhiệm vụ (`Idempotency-Key`); contract: [daily_mission.md](../decisions/daily_mission.md) §8 | Learner |
+| GET    | `/me/badges`                          | Danh sách badges (earned + progress), chỉ đọc; contract: [badges.md](../decisions/badges.md) §8.1 | Learner |
+| POST   | `/me/badges/sync`                     | Ghi nhận badge đủ điều kiện + trả danh sách (§8.2) | Learner |
+| POST   | `/me/badges/seen`                     | Đánh dấu badge mới đã xem (§8.3)             | Learner |
 | GET    | `/leaderboards`                       | Bảng xếp hạng (period, type)                | Learner |
-| GET/POST/PUT/DELETE | `/admin/missions`       | Admin CRUD missions                          | Admin   |
-| GET/POST/PUT/DELETE | `/admin/badges`         | Admin CRUD badges                            | Admin   |
+| GET/POST/PATCH | `/admin/mission-templates` | Admin quản lý Mission Pool; không PUT/DELETE (tắt bằng `isActive`); contract: [daily_mission.md](../decisions/daily_mission.md) §8.3 | Admin   |
+
+Response `GET /gamification/xp` (level = bản ghi `levels` có `required_exp` lớn nhất ≤ `users.exp`):
+
+```json
+{
+  "totalXp": 2450,
+  "level": { "levelNumber": 7, "title": "Explorer", "minXp": 2000, "nextLevelXp": 3000, "progress": 0.45 },
+  "recentEvents": [{ "sourceType": "QUIZ", "amount": 30, "createdAt": "2026-10-02T08:00:00+07:00" }]
+}
+```
+
+Level cao nhất: `nextLevelXp = null`, `progress = 1`.
 
 ### Sub-components
 
@@ -720,17 +766,17 @@ Hệ thống tăng động lực học tập: điểm kinh nghiệm (XP), tiền
 Gamification
   ├── XpService             — Tính, cộng XP (idempotent event key)
   ├── CoinService           — Cộng/trừ coin, balance tracking (balance ≥ 0)
-  ├── MissionService        — CRUD mission, auto-update progress, claim
-  ├── BadgeService          — Evaluate conditions, grant badges
+  ├── MissionService        — Cấp 5 nhiệm vụ/ngày, MissionProgress.apply (gọi đồng bộ từ producer), claim từng nhiệm vụ
+  ├── BadgeService          — Sync: tính metric, cấp badge còn thiếu (gọi từ `POST /me/badges/sync`, không hook vào producer)
   ├── LeaderboardService    — Redis sorted set / snapshot cache, ranking
-  └── RewardEventHandler    — Lắng nghe learning events → trigger reward logic
+  └── (không có RewardEventHandler: Daily Mission gọi đồng bộ trong transaction, Badge ghi nhận khi sync)
 ```
 
 ### Trace
 
 - FR: FR-09
 - BF: BF-11, BF-12
-- Detail: [daily_mission.md](./daily_mission.md)
+- Detail: [daily_mission.md](../decisions/daily_mission.md), [shop.md](../decisions/shop.md) (CoinTransaction, XP Booster bonus)
 
 ### Milestone: M4
 
@@ -740,36 +786,58 @@ Gamification
 
 ### Mô tả
 
-Cửa hàng vật phẩm ảo trong ứng dụng. Learner dùng Coin mua vật phẩm (theme, avatar frame, booster). Không xử lý thanh toán tiền thật.
+Cửa hàng vật phẩm ảo trong ứng dụng. Learner dùng Coin mua `THEME`, `AVATAR_FRAME`, `XP_BOOSTER`. Không xử lý thanh toán tiền thật. Canonical: [decisions/shop.md](../decisions/shop.md).
 
 ### Entities
 
-| Entity     | Mô tả                                                           |
-| ---------- | ---------------------------------------------------------------- |
-| `ShopItem` | Vật phẩm trong cửa hàng (name, price, type, iconUrl, status)    |
-| `UserItem` | Vật phẩm Learner sở hữu/đang sử dụng (purchasedAt, equipped)   |
+| Entity              | Mô tả                                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------- |
+| `ShopItem`          | Vật phẩm (code, type, name, iconKey, status DRAFT/PUBLISHED/ARCHIVED, purchasable, price, sale window, field theo type) |
+| `UserItem`          | Sở hữu: 1 row/(Learner, ShopItem) — itemType, quantity, equipped, acquiredAt                            |
+| `BoosterActivation` | Một lần kích hoạt XP Booster (startedAt, expiresAt, idempotencyKey)                                     |
+
+"Inventory" là API resource/màn hình, không phải entity.
 
 ### Chức năng chính
 
-- Duyệt danh sách vật phẩm
-- Mua vật phẩm bằng Coin (balance ≥ price)
-- Áp dụng vật phẩm (đổi theme, avatar frame, booster)
-- Admin CRUD vật phẩm
+- Duyệt catalog đang bán (trạng thái sở hữu, `canPurchase`, `blockReason` do server tính)
+- Mua 1 đơn vị bằng Coin, idempotent (`Idempotency-Key`), kiểm tra `expectedPrice`
+- Trang bị/bỏ Theme, Avatar Frame (tối đa 1/type)
+- Kích hoạt XP Booster (×2 XP Review/Quiz, tối đa 1 active)
+- Cấp item từ reward (fallback Coin khi không cấp được)
+- Admin: tạo DRAFT, sửa, publish, archive, xóa DRAFT
 
 ### API Endpoints
 
-| Method    | Endpoint                        | Mô tả                               | Auth    |
-| --------- | ------------------------------- | ------------------------------------ | ------- |
-| GET       | `/shop/items`                   | Danh sách vật phẩm                   | Learner |
-| POST      | `/shop/items/{id}/buy`          | Mua vật phẩm                         | Learner |
-| POST      | `/shop/inventory/{id}/equip`    | Áp dụng vật phẩm                     | Learner |
-| GET       | `/shop/inventory`               | Danh sách vật phẩm sở hữu           | Learner |
-| GET/POST/PUT/DELETE | `/admin/shop-items`   | Admin CRUD vật phẩm                  | Admin   |
+| Method    | Endpoint                                  | Mô tả                                     | Auth    |
+| --------- | ----------------------------------------- | ----------------------------------------- | ------- |
+| GET       | `/shop/items`                         | Catalog + trạng thái theo Learner         | Learner |
+| POST      | `/shop/items/{itemId}/purchase`       | Mua (header `Idempotency-Key`)            | Learner |
+| GET       | `/me/items`                           | Inventory + equipped + activeBooster      | Learner |
+| PUT/DELETE | `/me/equipment/{type}`               | Trang bị / bỏ Theme, Avatar Frame         | Learner |
+| POST      | `/me/items/{itemId}/activate`         | Kích hoạt XP Booster (`Idempotency-Key`)  | Learner |
+| GET       | `/admin/shop/item-types`              | Metadata dynamic form                     | Admin   |
+| GET/POST  | `/admin/shop/items`                   | Danh sách / tạo DRAFT                     | Admin   |
+| GET/PATCH/DELETE | `/admin/shop/items/{id}`       | Chi tiết / sửa (có `version`) / xóa DRAFT | Admin   |
+| POST      | `/admin/shop/items/{id}/publish`      | DRAFT → PUBLISHED                         | Admin   |
+| POST      | `/admin/shop/items/{id}/archive`      | PUBLISHED → ARCHIVED                      | Admin   |
+
+### Sub-components
+
+```text
+Shop
+  ├── ShopCatalogService    — catalog, trạng thái theo Learner
+  ├── PurchaseService       — lock user → idempotency → validate → trừ Coin → cấp UserItem
+  ├── InventoryService      — inventory, equip/unequip, grant từ reward (fallback Coin)
+  ├── BoosterService        — activate, tra booster active cho XpService
+  └── AdminShopItemService  — DRAFT/PUBLISHED/ARCHIVED, validation, field khóa
+```
 
 ### Trace
 
 - FR: FR-09.06, FR-09.07
-- BF: BF-12
+- BF: BF-12, BF-14
+- Detail: [shop.md](../decisions/shop.md)
 
 ### Milestone: M4 (Could)
 
@@ -779,7 +847,7 @@ Cửa hàng vật phẩm ảo trong ứng dụng. Learner dùng Coin mua vật p
 
 ### Mô tả
 
-Gửi thông báo đẩy (Push) và thông báo trong ứng dụng (In-app) cho Learner: nhắc nhở ôn SRS, thông báo badge/coin, tin hệ thống.
+Gửi thông báo đẩy (Push) và thông báo trong ứng dụng (In-app) cho Learner: nhắc nhở ôn SRS, tin hệ thống. Badge mới hiện bằng modal riêng, không qua Notification trong MVP ([badges.md](../decisions/badges.md) PD-BDG-08).
 
 ### Entities
 
@@ -1051,13 +1119,13 @@ graph TD
 | Vocabulary → Flashcard | SS-08 → SS-09         | TopicItem là nguồn nạp thẻ học; Topic gán Template cấu hình render                         |
 | Vocabulary → Quiz      | SS-08 → SS-10         | TopicItem là nguồn câu hỏi quiz                                                           |
 | Flashcard → SRS        | SS-09 → SS-11         | Review session cập nhật trực tiếp FsrsRecord (card_state, due, stability, difficulty)      |
-| Quiz → SRS             | SS-10 → SS-11         | Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP)          |
+| Quiz → SRS             | SS-10 → SS-11         | Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận kết quả Quiz, progress, XP)         |
 | SRS → Progress         | SS-11 → SS-12         | FsrsRecord state/due → aggregate progress                                                  |
-| Quiz → Progress        | SS-10 → SS-12         | QuizAttempt → aggregate accuracy, XP                                                       |
+| Quiz → Progress        | SS-10 → SS-12         | Quiz complete (finalize) → aggregate accuracy, XP                                          |
 | Flashcard → Progress   | SS-09 → SS-12         | Study session → cập nhật streak, learned count                                             |
-| Progress → Gamification | SS-12 → SS-13       | Learning events trigger XP/coin/mission/badge rules                                       |
+| Progress → Gamification | SS-12 → SS-13       | Daily Mission progress gọi đồng bộ trong transaction của hành động; Badge đọc `users.longest_streak_days`, `quizzes`, `user_badge_word_credits` khi sync |
 | Gamification → Shop    | SS-13 → SS-14         | Coin balance; item purchase                                                                |
-| Gamification → Notification | SS-13 → SS-15   | Badge/mission complete → in-app + push notification                                       |
+| Gamification → Notification | SS-13 → SS-15   | Không có trong MVP: không notification khi hoàn thành Daily Mission hay đạt badge |
 | SRS → Notification     | SS-11 → SS-15         | Due review → push notification nhắc nhở                                                   |
 | Identity → Storage     | SS-03 → SS-16         | Avatar upload/access                                                                       |
 | Flashcard → Storage    | SS-09 → SS-16         | Ảnh crop flashcard từ AI                                                                    |
@@ -1066,7 +1134,7 @@ graph TD
 
 ### Ghi chú coupling
 
-- **Loose coupling qua events:** Các phân hệ nên dùng domain event nội bộ (VD: `TopicItemCreated`, `ReviewCompleted`, `QuizSubmitted`, `MissionCompleted`) để tránh coupling trực tiếp.
+- **Loose coupling qua events:** Các phân hệ nên dùng domain event nội bộ (VD: `TopicItemCreated`, `ReviewCompleted`, `QuizCompleted`) để tránh coupling trực tiếp. Ngoại lệ: Daily Mission cập nhật progress đồng bộ trong transaction của producer để không mất progress ([daily_mission.md](../decisions/daily_mission.md) §6); không có event `MissionCompleted`.
 - **Shared entities:** `TopicItem` và `FsrsRecord` được chia sẻ giữa SS-05/SS-08 (Topic & Item), SS-09 (Flashcard & Template) và SS-11 (SRS). Trách nhiệm tách rõ qua service layer.
 - **AI Service tách deploy:** SS-07 là service độc lập (Python FastAPI), giao tiếp HTTP. Không chia sẻ database với backend Spring Boot.
 - **Storage crosscutting:** SS-16 là infrastructure service, được nhiều domain sử dụng qua cùng interface.
@@ -1107,11 +1175,11 @@ vn.ptit.snapvocab
 ├── domain/                         (Entity definitions & mappings)
 │   ├── Authority, User, RefreshToken
 │   ├── Word, Definition, Translation, Pronunciation, WordDefinition, WordRelation
-│   ├── Collection, Topic, TopicItem, TopicAttributeGroup, TopicAttribute, TopicItemAttributeValue
+│   ├── Collection, Topic, TopicItem, Schema, SchemaAttributeGroup, SchemaAttribute, TopicItemAttributeGroup, TopicItemAttributeValue
 │   ├── Template, TemplateElement, TemplateField
-│   ├── FsrsRecord, Level, ShopItem, UserInventory, Notification, UserNotification
+│   ├── FsrsRecord, Level, ShopItem, UserItem, BoosterActivation, Notification, UserNotification
 │   ├── common/                    (BaseTimeEntity, BaseCreatedAtEntity)
-│   ├── enumeration/               (CardState, ReviewRating, SemanticRole, TemplateElementType, CollectionType...)
+│   ├── enumeration/               (CardState, ReviewRating, SemanticRole, CardSide, TemplateElementType, CollectionType...)
 │   └── mapper/                    (Entity mappers & DTO converters)
 ├── repository/                    (JPA Repositories cho 25 entity tables)
 ├── security/                      (JwtTokenProvider, CustomUserDetailsService, SecurityUtils)
@@ -1129,7 +1197,7 @@ vn.ptit.snapvocab
 - [x] Mỗi SS có: mô tả, entities, chức năng chính, API endpoints, trace, milestone.
 - [x] Actor đúng canonical: Guest, Learner, Admin.
 - [x] Canonical model: Collection → Topic → TopicItem + Template + FsrsRecord. Không `SavedWord`/`UserWord`/`Deck`/`Note`/`Card`.
-- [x] AI pipeline: Florence-2 + SAM + CLIP (không YOLO).
+- [x] AI pipeline: Florence-2 zero-shot (CLIP tùy chọn). Không YOLO, không SAM.
 - [x] SRS: FSRS trên FsrsRecord gắn cặp (user_id, topic_item_id).
 - [x] SS-07 (AI Service) tách deploy, giao tiếp HTTP nội bộ.
 - [x] Dependency graph + coupling notes.

@@ -356,6 +356,8 @@ flowchart TD
 - **Quick actions:** Camera Scan, Search, Flashcard, Quiz, SRS Review
 - **Recently learned:** 3–5 từ gần nhất
 
+**API:** Progress widget + SRS due + Streak → `GET /api/progress/home-widget` (M3); XP/Level → `GET /api/gamification/xp` (M4).
+
 **Hành động điều hướng:**
 
 | Hành động     | Đích         |
@@ -435,13 +437,12 @@ flowchart TD
 
 **Dữ liệu hiển thị:**
 
-- Ảnh đã scan (có bounding box overlay nếu hỗ trợ)
+- Ảnh gốc Learner đã chụp, **app tự vẽ box** theo `items[].box` (quy đổi bằng `chiều_rộng_hiển_thị / imageWidth`), tô màu theo `reliability`; chạm vào box để chọn object
 - Danh sách detected objects:
     - Object label (từ tiếng Anh)
-    - Source/Reliability badge (High/Medium/Low)
+    - Reliability badge (High/Medium/Low) theo `reliability`
     - Nghĩa tiếng Việt
     - IPA / nút phát âm
-    - Ảnh crop (nếu có cropUrl)
     - **Save** button per object → lưu vào Topic gần nhất/mặc định, có option **Đổi Topic** trước khi xác nhận
     - Trạng thái đã lưu (nếu đã có trong Topic đang chọn)
 - Topic đích hiện tại: tên Topic + action **Đổi Topic**
@@ -455,7 +456,7 @@ flowchart TD
 | No object detected | "Không nhận diện được vật thể" + CTA "Thử ảnh khác"     |
 | All low reliability| "Không tìm thấy vật thể có độ tin cậy cao" + CTA "Thử ảnh rõ hơn"        |
 | Dictionary miss    | Có label nhưng đánh dấu "Chưa có từ vựng tương ứng"     |
-| Queued / processing | "Đang xếp hàng"/"Đang nhận diện" + vị trí/thời gian chờ ước tính + nút hủy |
+| Queued / processing | "Đang xếp hàng" (`PENDING`) / "Đang nhận diện" (`PROCESSING`) + nút hủy (chỉ dừng poll; lượt vẫn tính nếu job hoàn tất) |
 | Quota exceeded     | "Bạn đã dùng hết lượt scan hôm nay" + `resetAt` + CTA quay lại học |
 | AI error / timeout | "Xử lý thất bại" + CTA "Thử lại" hoặc "Quay lại camera" |
 | Queue full         | "Hệ thống đang quá tải, thử lại sau"; không tự retry liên tục |
@@ -610,7 +611,7 @@ flowchart TD
 - Danh sách Topics:
     - Tên Topic
     - Word count (số lượng từ)
-    - Template hiện tại (CLASSIC, LISTENING...)
+    - Template hiện tại (`STANDARD`, `LISTENING`, `REVERSE`...)
     - Due count (từ đến hạn ôn)
 - "Tạo Topic mới" button
 - Empty state: "Chưa có Topic nào. Tạo Topic và bắt đầu lưu từ!"
@@ -688,17 +689,26 @@ flowchart TD
 | Feature    | F-QUIZ-01                                    |
 | BF         | BF-09                                        |
 | FR         | FR-06.01                                     |
-| Mục tiêu   | Cấu hình quiz: chọn Topic, loại quiz, số câu |
+| Mục tiêu   | Cấu hình quiz: chọn Topic, Mode, Direction, số câu |
 
 **Dữ liệu hiển thị:**
 
-- Chọn Topic (nguồn từ vựng)
-- Quiz modes: Multiple choice / Matching / Fill blank
-- Số câu hỏi (slider hoặc preset)
-- Số từ khả dụng (disable nếu < min)
-- Start Quiz CTA → MH-LEARN-03
+- **Nguồn từ vựng (Topic Selection - Hybrid Flow)**:
+  - Người học phải chọn một Topic trước khi bắt đầu Quiz.
+  - Nếu Quiz Setup được mở từ Topic Detail / bài học dở:
+    - Topic tương ứng được chọn sẵn (`params.topicId`).
+    - Người học vẫn có thể bấm vào card Topic để đổi sang Topic khác qua Bottom Sheet.
+  - Nếu mở trực tiếp từ Learn Hub / Quick Quiz:
+    - Không tự chọn Topic mặc định.
+    - Người học phải bấm "Chọn chủ đề" để mở Bottom Sheet chọn Topic.
+  - Tuyệt đối không sử dụng hard-coded fallback `topicId = 1` hoặc alias `deckId`. Nút Start Quiz bị disabled khi chưa chọn Topic.
+- Quiz Mode: `MCQ` / `MATCHING` / `FILL_BLANK` (không có LISTENING)
+- Quiz Direction: `EN_VI` / `VI_EN` (lựa chọn riêng, không phải mode). **Ẩn khi mode = `FILL_BLANK`** — direction không ảnh hưởng prompt/chấm điểm (D13), client gửi `direction = undefined`
+- Số câu hỏi: preset 5 / 10 / 20
+- Số từ khả dụng (disable nếu < min; đếm item resolve được theo SemanticRole)
+- Start Quiz CTA → MH-LEARN-03 (disabled khi `selectedTopicId === undefined` hoặc đang xử lý)
 
-**Empty state:** "Cần ít nhất X từ để tạo quiz. Lưu thêm từ!"
+**Empty state:** "Cần ít nhất X từ để tạo quiz. Lưu thêm từ!" hoặc "Chưa có chủ đề nào khả dụng".
 
 ---
 
@@ -714,12 +724,20 @@ flowchart TD
 
 **Dữ liệu hiển thị:**
 
-- Câu hỏi (từ/nghĩa/audio tùy mode)
-- Đáp án: MCQ options / Matching pairs / Fill blank input
-- Progress: câu X / Y
-- Timer (nếu có)
-- Feedback đúng/sai per câu (tùy mode)
-- Next / Submit button
+- Câu hỏi (prompt theo Direction; `AUDIO`/`IMAGE` bổ trợ nếu có)
+- Đáp án: MCQ options / Matching tiles trái-phải / Fill blank input
+- Progress: câu X / Y (Matching: số cặp đã khóa / tổng)
+- Stopwatch đếm lên (mm:ss), **UX-only** (D15): không phải countdown, không timeout, không auto-submit, không ảnh hưởng điểm; không persist, không gửi Backend
+
+**Tương tác (incremental grading — [decisions/quiz.md](../decisions/quiz.md) §2):**
+
+- MCQ: chạm một đáp án → gửi check → hiển thị đúng/sai ngay → Next.
+- FILL_BLANK: nhập đáp án → Submit câu hiện tại → hiển thị đúng/sai ngay → Next.
+- MATCHING: chọn tile trái → chọn tile phải → gửi check cặp → đúng: khóa cặp; sai: báo sai ngay, bỏ chọn, Learner tiếp tục.
+- Đúng/sai luôn lấy từ Backend; UI không tự chấm.
+- Hết câu/cặp → Complete → MH-LEARN-04. Không có nút "Submit toàn bộ bài".
+
+**Implementation status:** IMPLEMENTED — gọi API thật, đúng/sai do Backend trả (xem [decisions/quiz.md](../decisions/quiz.md) §7).
 
 ---
 
@@ -735,13 +753,37 @@ flowchart TD
 
 **Dữ liệu hiển thị:**
 
-- Score (điểm)
+- Score = `correctCount` (không có thang điểm riêng)
 - Correct / Wrong count
 - Accuracy %
-- Duration
-- Danh sách câu sai (từ + đáp án đúng)
-- XP / Coin reward (M4)
-- CTA: "Thử lại" / "Ôn từ sai" / "Về Home"
+- Duration: lấy từ `QuizResultDTO.durationSeconds` (Backend tính `completedAt - createdAt`, D15); format `mm:ss`, từ 1 giờ trở lên dùng `hh:mm:ss`. Không tự tính lại từ stopwatch
+- Danh sách câu sai (prompt + đáp án đúng + đáp án đã chọn) từ `QuizResultDTO.items` — **Review mistakes: đã hỗ trợ** (D16), không gọi API riêng, không tạo session mới
+- XP / Coin: hiển thị `+0` kèm ghi chú "kích hoạt ở bản cập nhật tiếp theo" (M4)
+- CTA hiện tại: "Trang chủ" / "Lịch sử Quiz" → MH-LEARN-04b. **Retry Mistakes** ("Ôn từ sai" / "Thử lại câu sai") defer **M4** (D16) — không hiển thị CTA active khi chưa có quy tắc question-count / reward / session-generation
+
+---
+
+### MH-LEARN-04b — Quiz History
+
+| Thuộc tính | Mô tả                                |
+| ---------- | ------------------------------------ |
+| Actor      | Learner                              |
+| Feature    | F-QUIZ-08                            |
+| BF         | BF-09                                |
+| FR         | FR-06.06                             |
+| Mục tiêu   | Xem lại các lượt quiz đã làm         |
+
+**Dữ liệu hiển thị:**
+
+- Danh sách lượt quiz (`GET /api/me/quizzes`): Topic, Mode badge, accuracy %, ngày (`completedAt` ?? `createdAt`), trạng thái
+- Filter theo trạng thái / mode (F-QUIZ-08 ghi "filter theo Topic" — chưa implement, filter hiện theo mode/status)
+- Item `COMPLETED` → "Xem lại" → MH-LEARN-04
+- Item `IN_PROGRESS` (còn trong 24h) → "Làm tiếp" → MH-LEARN-03 với `quizId` cũ
+- Item `EXPIRED` → badge "Hết hạn", **không có CTA "Làm tiếp"** (D17); `CANCELLED` giữ hành vi xem lại hiện tại
+
+**Empty state:** "Chưa có bài Quiz nào."
+
+> **Resume/expire (D17):** thoát qua modal → `CANCELLED`. Bị ngắt ngoài ý muốn (app đóng, back cứng) → giữ `IN_PROGRESS`, resume được trong 24h kể từ `createdAt`; quá hạn Backend chuyển `EXPIRED` và mọi thao tác làm bài (resume/check/attempt/complete/cancel) trả `QUIZ_SESSION_EXPIRED` (410); xem Result vẫn trả 200 với `status = EXPIRED`, không có điểm. Khi đang làm bài mà nhận lỗi này, mobile dừng quiz, báo "Phiên quiz đã hết hạn" và điều hướng về Quiz Setup.
 
 ---
 
@@ -780,11 +822,11 @@ flowchart TD
 
 **Dữ liệu hiển thị:**
 
-- System templates (read-only): CLASSIC, REVERSE, LISTENING, IMAGE_VOCAB, SPELLING, CONTEXT
+- System templates (read-only): đã seed `STANDARD`, `LISTENING`, `REVERSE`; IMAGE_VOCAB, SPELLING, CONTEXT: PLANNED
 - Custom templates (CRUD): tên, interaction type, số phần tử giao diện
 - "Tạo Template mới" → template builder:
-    - Cấu hình TemplateElement (FIELD, DIVIDER, BUTTON, order_index, flex, alignment)
-    - Cấu hình TemplateField với SemanticRole (FRONT, BACK, EXAMPLE, AUDIO, IMAGE, PHONETIC, TRANSLATION, HINT, TAG, EXTRA)
+    - Cấu hình TemplateElement (`FIELD`, `SECTION_BREAK`, `COLUMN_BREAK`; `position`; mặt thẻ `side` = `FRONT`/`BACK`)
+    - Cấu hình TemplateField: chọn `SchemaAttribute`, gán SemanticRole (`TARGET_WORD`, `DEFINITION`, `NATIVE_TRANSLATION`, `EXAMPLE_SENTENCE`, `AUDIO`, `IMAGE`) hoặc để trống, styling
     - Chọn Interaction type: Flip / Type-in / Tap-to-reveal
     - Preview (dùng từ mẫu)
     - Save
@@ -809,8 +851,12 @@ flowchart TD
 - Streak: current + longest
 - Accuracy: quiz + review tổng hợp
 - Activity heatmap / chart: daily / weekly / monthly
-- Review count, quiz attempts
+- Review count, số Quiz đã hoàn thành
 - Daily goal progress (Could)
+
+> "Đang ôn" = `reviewingCount` (learning state). "Cần ôn hôm nay" = `dueCount` (workload). Hai số không dùng thay nhau.
+
+**API (M3):** `GET /api/progress/summary`, `GET /api/progress/streak`, `GET /api/progress/history`.
 
 ---
 
@@ -831,6 +877,8 @@ flowchart TD
 - XP progress bar
 - Recent XP events (source + amount)
 - Level benefits (nếu có)
+
+**API (M4):** `GET /api/gamification/xp` — trả totalXp, level (current / next / progress), recentEvents. Không có `/api/levels/current`.
 
 ---
 
@@ -860,20 +908,23 @@ flowchart TD
 | Thuộc tính | Mô tả                                 |
 | ---------- | ------------------------------------- |
 | Actor      | Learner                               |
-| Feature    | F-GAME-03, F-GAME-04, F-GAME-10       |
+| Feature    | F-GAME-03, F-GAME-10                  |
 | BF         | BF-12                                 |
 | FR         | FR-09.03                              |
-| Mục tiêu   | Xem nhiệm vụ ngày/tuần và nhận thưởng |
+| Mục tiêu   | Xem nhiệm vụ ngày và nhận thưởng từng nhiệm vụ |
 
 **Dữ liệu hiển thị:**
 
-- **Daily missions** (3–5 missions): tên, progress bar (VD: 7/10), reward (coin + XP)
-- **Weekly stamps** (hoàn thành all daily → stamp → rương tuần)
-- Claim button (COMPLETED → CLAIMED)
-- Go-to-task CTA (deep link tới hoạt động liên quan)
+- **Daily missions** (đúng 5 missions): tên, mô tả, progress bar (VD: 7/10), reward riêng (coin + XP, item nếu có), trạng thái `Đang làm` / `Hoàn thành` / `Đã nhận thưởng`
+- Claim button trên từng mission (COMPLETED → CLAIMED); không có rương/thưởng tổng khi đủ 5/5, không có thưởng tuần/tháng
+- Cảnh báo mission đã hoàn thành nhưng chưa claim sẽ hết hạn lúc reset
+- Lỗi `503 MISSION_POOL_INSUFFICIENT`: trạng thái lỗi tạm thời, không hiển thị danh sách thiếu
+- Contract render/claim/invalidation: [daily_mission.md](../decisions/daily_mission.md) §9
+- Go-to-task CTA theo `triggerEvent` ([daily_mission.md](../decisions/daily_mission.md) §9): thêm từ → `/collections` (chọn collection, FAB "Thêm từ" truyền `topicId`); quiz → `/study/quiz-setup`; mua → Shop; booster → Inventory
+- Phụ thuộc DEP-DM-01: màn thêm từ (`/collections/add-word`) điền `main.translation` từ Quick Lookup khi field còn trống, để từ dùng được cho quiz
 - Reset countdown (thời gian đến 00:00)
 
-**Detail:** Xem [daily_mission.md](./daily_mission.md)
+**Detail:** Xem [daily_mission.md](../decisions/daily_mission.md)
 
 ---
 
@@ -889,9 +940,12 @@ flowchart TD
 
 **Dữ liệu hiển thị:**
 
-- Badge grid: icon, name, locked/unlocked state
-- Tap badge → detail: điều kiện, date earned, rarity
-- Progress towards locked badges
+- Header: `Đã đạt {earnedCount}/{totalCount}` (từ API, không viết cứng)
+- Kệ theo chuỗi (mỗi metric một kệ): huy chương, tên, trạng thái. Badge chưa đạt vẫn hiện tên + điều kiện; mốc kế tiếp hiện `min(currentValue, threshold)/threshold`, mốc xa hiện ngưỡng. Tổng số huy hiệu lấy từ API, không viết cứng 12
+- Tap badge → detail: điều kiện, date earned hoặc progress. **Không** có rarity/tier
+- Badge mới được giới thiệu ngay trên màn (không modal); modal gộp ở các màn khác, không bật ở quiz, flashcard, kết quả quiz
+
+**Detail:** Xem [badges.md](../decisions/badges.md) §2, §9 và [achievements_ui.md](../ui/achievements_ui.md)
 
 ---
 
@@ -921,13 +975,17 @@ flowchart TD
 | FR         | FR-09.06               |
 | Mục tiêu   | Mua vật phẩm bằng Coin |
 
-**Dữ liệu hiển thị:**
+**Dữ liệu hiển thị** (từ `GET /api/shop/items`, xem [shop.md](../decisions/shop.md) §10–§11):
 
-- ShopItem list: icon, name, price, category (theme/avatar frame/booster)
-- Coin balance (header)
-- Owned badge (nếu đã sở hữu)
-- Buy button (disabled nếu balance < price)
-- Confirm modal: "Mua X với Y Coin?"
+- Card: icon, name, description, price, type, `config` (themeKey / frameUrl / ×2 · duration · maxQuantity), `owned`, `quantity`, `equipped`, `canPurchase`, `blockReason`
+- Coin balance (header); bộ lọc `Tất cả` · `Bổ trợ` · `Khung Avatar` · `Chủ đề`
+- CTA theo type:
+  - THEME: `Xem trước` (bắt buộc) → `Mua · price` → `Đã sở hữu` / `Đang dùng`; sau mua: `Dùng ngay`
+  - AVATAR_FRAME: preview trên avatar của Learner → `Mua · price` → `Đã sở hữu` / `Đang dùng`; sau mua: `Trang bị ngay`
+  - XP_BOOSTER: `Mua · price` + "Đang có n/max"; đạt max → `Đã đạt tối đa` (disabled); sau mua: `Dùng ngay` (nếu chưa có booster active)
+- Thiếu Coin: nút mờ nhưng bấm được → Out-of-coin modal gợi ý nhiệm vụ
+- Confirm modal: "Mua X với Y Coin?"; `PRICE_CHANGED` → cập nhật giá, xác nhận lại
+- Ẩn THEME có `themeKey` mà bản app chưa hỗ trợ
 
 ---
 
@@ -936,12 +994,18 @@ flowchart TD
 | Thuộc tính | Mô tả                             |
 | ---------- | --------------------------------- |
 | Actor      | Learner                           |
-| Feature    | F-GAME-08                         |
+| Feature    | F-GAME-08a, F-GAME-08b            |
 | BF         | BF-12                             |
 | FR         | FR-09.07                          |
 | Mục tiêu   | Xem và áp dụng vật phẩm đã sở hữu |
 
-**Dữ liệu:** UserItem list, active/equipped state, expiry (nếu có), Apply/Remove CTA.
+**Dữ liệu** (từ `GET /api/me/items`):
+
+- Booster Chip đầu màn khi có `activeBooster` (`×2 · mm:ss`, đếm theo `expiresAt` + `serverNow`)
+- Cosmetic: `Dùng`/`Trang bị` ↔ `Đang dùng` + `Bỏ`/`Tháo`; item đã ngừng bán vẫn dùng được
+- XP Booster: số lượng + `Dùng`; khi đang có booster active → "Chờ booster hiện tại kết thúc" (disabled); ẩn khi `quantity = 0` và không active
+- THEME với `themeKey` app chưa hỗ trợ → "Cần cập nhật ứng dụng"
+- Empty state: CTA `Đến Cửa hàng`
 
 > **Ghi chú:** MVP không xử lý thanh toán tiền thật. Premium screen (nếu có) chỉ mô tả quyền lợi, không tích hợp payment gateway.
 
@@ -964,7 +1028,7 @@ flowchart TD
 - Avatar (+ avatar frame nếu equip)
 - Display name, email
 - Streak, learned words count, level/XP
-- Badges nổi bật (3–5 badges)
+- 3 badge đạt gần nhất (theo `earnedAt` giảm dần, rồi `sortOrder`, `id` giảm dần; không ghim — [badges.md](../decisions/badges.md) §2.4); dòng Thành tựu hiện `earnedCount/totalCount` và chấm đỏ khi có badge mới
 - Shortcut: Edit Profile, Settings, Achievements, Inventory, Wallet
 
 ---
@@ -1002,7 +1066,7 @@ flowchart TD
 - **Account:** Change password, Biometric login toggle
 - **Notifications:** Push on/off, quiet hours (nếu hỗ trợ)
 - **Learning:** Daily goal (Could), SRS reminder time
-- **App:** Language, Theme (nếu có shop theme)
+- **App:** Language, Giao diện (Sáng/Tối/Hệ thống), mục "Chủ đề" chỉ là link sang Inventory (Theme equip ở MH-ECONOMY-03)
 - **Logout** button
 - App version
 
@@ -1021,7 +1085,7 @@ flowchart TD
 **Dữ liệu hiển thị:**
 
 - Notification list:
-    - Icon theo type (SRS reminder, Badge, Mission, System)
+    - Icon theo type (SRS reminder, System). Badge và Daily Mission không tạo notification trong MVP
     - Title + body
     - Read/unread state (bold/dimmed)
     - Created time (relative: "2 giờ trước")
@@ -1154,7 +1218,7 @@ flowchart TD
 - [x] MH-LEARN-06 (Template Management)
 - [x] Detection Result thể hiện đủ states: success, no-object, low-reliability, dictionary miss, AI error.
 - [x] Vocabulary screens chuẩn hóa theo Collection/Topic/TopicItem/Template, không dùng model cũ (Deck/Note/Card, SavedWord).
-- [x] AI pipeline = Florence-2 + SAM + CLIP, không YOLO.
+- [x] AI pipeline: Florence-2 zero-shot (CLIP tùy chọn). Không YOLO, không SAM.
 - [x] SRS = FSRS trên FsrsRecord (theo topic_item_id).
 - [x] Actor: Guest, Learner, Admin (CMS web riêng).
 - [x] Ma trận MH ↔ BF và MH ↔ Feature Area đầy đủ.

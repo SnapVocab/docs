@@ -35,12 +35,17 @@ Các tài liệu trong thư mục này cần bám theo các quyết định cano
 ```text
 docs/
 ├── README.md
-├── design.md
 ├── db/
 │   └── database.md
 ├── decisions/
+│   ├── badges.md
 │   ├── custom_card.md
-│   └── daily_mission.md
+│   ├── daily_mission.md
+│   ├── quiz.md
+│   └── shop.md
+├── ui/
+│   └── collection_creation_flow_ui.md
+├── ke_hoach_phan_chia_cong_viec.xlsx
 ├── sa/
 │   ├── sa.md
 │   ├── server.md
@@ -76,12 +81,15 @@ docs/
 ### 4. Decision records
 
 - [decisions/custom_card.md](./decisions/custom_card.md): thiết kế hệ thống Template cho Topic, thành phần TemplateElement và TemplateField mang SemanticRole ánh xạ thuộc tính EAV thành thẻ học.
-- [decisions/daily_mission.md](./decisions/daily_mission.md): thiết kế Daily Mission, Daily Chest, Weekly Milestone, mission pool, event tracking và reward idempotency.
-- [decisions/fsrs_and_gamification_architecture.md](./decisions/fsrs_and_gamification_architecture.md): kiến trúc xử lý học FSRS bất đồng bộ và kiểm tra nhiệm vụ qua Redisson Stream (Zero Message Loss & High Throughput).
+- [decisions/quiz.md](./decisions/quiz.md): quyết định kiến trúc Quiz — base path `/api`, incremental grading (MCQ/Fill Blank từng câu, Matching từng cặp), resolve dữ liệu theo SemanticRole, QuizMode vs QuizDirection.
+- [decisions/daily_mission.md](./decisions/daily_mission.md): thiết kế Daily Mission (5 nhiệm vụ/ngày, reward theo từng nhiệm vụ), mission pool, event tracking và reward idempotency.
+- [decisions/badges.md](./decisions/badges.md): Badges canonical — catalog 12 badge / 4 metric, ghi nhận khi app đồng bộ, nhận một lần không thu hồi, không thưởng, schema, API, mobile. PD-BDG duyệt 2026-10-07.
+- [decisions/shop.md](./decisions/shop.md): Shop canonical — `THEME`/`AVATAR_FRAME`/`XP_BOOSTER`, UserItem ownership + equip, XP Booster ×2, purchase idempotency/concurrency, Admin boundary, API, schema.
+- [decisions/fsrs_and_gamification_architecture.md](./decisions/fsrs_and_gamification_architecture.md): kiến trúc xử lý học FSRS bất đồng bộ và kiểm tra nhiệm vụ qua Redisson Stream.
 
 ### 5. Design
 
-- [design.md](./design.md): tài liệu thiết kế UI/UX. File hiện là nơi dự kiến tổng hợp guideline giao diện, design system, màu sắc, typography, component và screen states.
+- [snapVocab-frontend/docs/design.md](../snapVocab-frontend/docs/design.md): design tokens/component (nguồn design duy nhất, được [shop.md](./decisions/shop.md) tham chiếu). File nằm trong thư mục prototype nhưng nội dung là ACTIVE.
 
 ## Milestone triển khai
 

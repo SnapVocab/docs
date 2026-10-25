@@ -269,73 +269,74 @@
 ### Precondition
 
 - Learner đã đăng nhập.
-- AI service (FastAPI + Florence-2 + SAM + CLIP) đang hoạt động.
-- Hàng đợi recognition còn nhận job mới.
+- AI service (FastAPI + Florence-2) đang hoạt động và đã nạp xong model.
+- Hàng đợi scan còn chỗ nhận job mới.
 - Learner còn quota scan trong ngày.
 - Mobile có quyền truy cập camera/thư viện.
 
 ### Happy Path
 
-| Bước | Actor   | Hành động                                                                                                                |
-| ---- | ------- | ------------------------------------------------------------------------------------------------------------------------ |
-| 1    | Learner | Mở tab Camera hoặc chức năng upload ảnh.                                                                                 |
-| 2    | Learner | Chụp ảnh mới bằng camera **hoặc** chọn ảnh từ thư viện thiết bị.                                                        |
-| 3    | Mobile  | Validate MIME (ảnh) và kích thước (≤ 10MB) phía client.                                                                  |
-| 4    | Mobile  | Gọi API cấp presigned URL và upload ảnh trực tiếp lên Object Storage.                                                                    |
-| 5    | System  | Mobile gọi POST /recognition/scan (truyền objectKey). Backend kiểm tra quota scan/ngày và trả `QUOTA_EXCEEDED` nếu đã hết lượt.         |
-| 6    | System  | Backend tạo `ScanRequest` (trạng thái `PENDING`), trừ lượt scan, đẩy job vào in-process queue và trả `202 Accepted` kèm `requestId`, `status = PENDING`. |
-| 7    | Mobile  | Hiển thị trạng thái chờ và poll định kỳ GET /recognition/results/{requestId} (mỗi 2-3s, timeout giao diện 90s).                          |
-| 8    | System  | Background worker (Spring `@Async` + Bounded Executor) lấy job, đổi trạng thái thành `PROCESSING` và gọi FastAPI AI service.             |
-| 9    | AI      | Pipeline xử lý: Florence-2 (OD + Dense Region + Self-grounding + Tiled OD) → lọc ngôn ngữ (WordNet + từ điển) → CLIP xác thực → SAM cắt nền. |
-| 10   | AI      | Trả danh sách object: `label` (thuộc từ điển), `detectionSource`, `clipScore`, `boundingBox`, `cropUrl` (tùy chọn).                      |
-| 11   | System  | Backend lọc theo cặp (source, clipScore) (cấu hình được). Gom trùng label (nhiều box cùng label → 1 từ).                     |
-| 12   | System  | Ánh xạ label sang Word trong database (tra cứu trực tiếp + bảng mapping/synonym).                                      |
-| 13   | System  | Cập nhật `ScanRequest = DONE` kèm danh sách từ vựng. Ở lần poll tiếp theo, mobile nhận kết quả này.                                      |
-| 14   | Learner | Xem danh sách đối tượng trên màn hình kết quả. Chọn từ muốn lưu.                                                       |
+| Bước | Actor   | Hành động |
+| ---- | ------- | --------- |
+| 1    | Learner | Mở tab Camera hoặc chức năng upload ảnh. |
+| 2    | Learner | Chụp ảnh mới bằng camera **hoặc** chọn ảnh từ thư viện thiết bị. |
+| 3    | Mobile  | Validate MIME (`image/jpeg`, `image/png`, `image/webp`) và kích thước (≤ 10MB) phía client. |
+| 4    | Mobile  | Gọi `POST /api/scan/upload-url` với `contentType` → nhận presigned URL và `objectName` dạng `scans/{userId}/{uuid}.{ext}`; upload ảnh thẳng lên Object Storage bằng `PUT` với đúng `Content-Type` đã khai. |
+| 5    | System  | Mobile gọi `POST /api/scan` với `objectKey`. Backend kiểm tra key thuộc đúng Learner, ảnh đã được upload và không quá 10MB — **trước** khi tính quota, nên ảnh lỗi không tốn lượt. |
+| 6    | System  | Dưới khóa theo từng Learner, backend đếm lượt đã dùng trong ngày và tạo `ScanRequest` (`PENDING`); hết lượt thì trả `QUOTA_EXCEEDED`. Job được đẩy vào hàng đợi trong bộ nhớ; backend trả `202 Accepted` kèm `requestId`, `status = PENDING`. |
+| 7    | Mobile  | Hiển thị trạng thái chờ và poll `GET /api/scan/{requestId}` mỗi 2–3s (timeout giao diện 90s). |
+| 8    | System  | Worker (1 luồng/GPU) lấy job, đổi sang `PROCESSING`, tải ảnh từ storage và gọi AI service `POST /api/v1/detect` (route nội bộ của Python AI service, không thuộc public API `/api` của Backend; kèm `X-Request-Id` = `requestId`). |
+| 9    | AI      | Xoay ảnh theo EXIF → Florence-2 `<OD>` + self-grounding → loại box quá nhỏ/quá lớn → lọc nhãn theo từ điển (WordNet) → khử box trùng, mỗi nhãn giữ 1 box. |
+| 10   | AI      | Trả danh sách object: `label`, `headword`, `source`, `reliability` (HIGH/MEDIUM/LOW), `box`, cùng `image_width`/`image_height` là hệ toạ độ của box. |
+| 11   | System  | Backend lọc lần cuối theo `reliability` tối thiểu (cấu hình được) và lưu các box vào `ScanRequest` (`DONE`). |
+| 12   | System  | Khi mobile poll, backend ánh xạ label sang Word: tra nguyên nhãn trước (`coffee mug`), không có thì tra `headword` (`mug`). |
+| 13   | Mobile  | Hiển thị ảnh gốc và **tự vẽ box** theo toạ độ (nhân với `chiều_rộng_hiển_thị / imageWidth`), tô màu theo `reliability`. |
+| 14   | Learner | Xem danh sách đối tượng, chạm vào box hoặc danh sách để chọn từ muốn lưu. |
 | 15   | Learner | Nhấn **Lưu** → chọn Topic cá nhân hoặc dùng Topic gần nhất/mặc định → tạo TopicItem và khởi tạo FsrsRecord với `source = SCAN` (xem BF-07). |
 
 ### Alternative Flow
 
-| Mã      | Điều kiện                          | Xử lý                                                                      |
-| ------- | ---------------------------------- | --------------------------------------------------------------------------- |
-| AF-06.1 | Ảnh không hợp lệ (MIME/size)       | Client hoặc server trả lỗi validation, gợi ý chọn ảnh khác.               |
-| AF-06.2 | Không nhận diện được đối tượng     | Trả thông báo "Không nhận diện được vật thể, hãy thử ảnh rõ hơn." + CTA.  |
-| AF-06.3 | Tất cả object có độ tin cậy thấp (Medium/Low) | Tương tự AF-06.2, thông báo dễ hiểu.                                     |
-| AF-06.4 | Label không map được sang dictionary | Trả kết quả nhận diện, đánh dấu "Chưa có từ vựng tương ứng". Hiển thị nút "Báo từ thiếu" để đẩy nhãn từ này vào Feedback Queue cho Admin (Trace: FR-02.05, FR-13). Learner không thể lưu từ này cho đến khi Admin cập nhật từ điển. |
-| AF-06.5 | Nhiều box cùng label               | Backend gom trùng label → hiển thị 1 từ duy nhất cho mỗi label.           |
-| AF-06.6 | Nút nổi Android (Bubble)          | Learner dùng overlay widget chụp màn hình từ app khác → pipeline tương tự. |
-| AF-06.7 | Hết quota scan trong ngày         | Backend trả `QUOTA_EXCEEDED`, `remainingScansToday = 0`, `resetAt`; mobile hiển thị lượt reset và CTA quay lại học từ đã lưu. |
-| AF-06.8 | Job đang chờ hoặc đang xử lý      | Backend trả `PENDING`/`PROCESSING`; mobile tiếp tục hiển thị tiến trình (tối đa 90s) và cho phép hủy. |
+| Mã      | Điều kiện | Xử lý |
+| ------- | --------- | ----- |
+| AF-06.1 | Ảnh không hợp lệ (MIME/size), chưa upload, hoặc key không thuộc Learner | Backend trả `INVALID_IMAGE`, **không** trừ lượt; gợi ý chọn ảnh khác. |
+| AF-06.2 | Không nhận diện được đối tượng | Job vẫn `DONE` với danh sách rỗng (không phải lỗi); mobile hiển thị "Không nhận diện được vật thể, hãy thử ảnh rõ hơn." + CTA. Lượt này **có** tính quota. |
+| AF-06.3 | Tất cả object có `reliability` thấp | Hiển thị kết quả kèm cảnh báo độ tin cậy thấp; có thể nâng `scan.min-reliability` để backend tự lọc. |
+| AF-06.4 | Label không map được sang dictionary | Item có `word = null`: hiển thị nhãn, đánh dấu "Chưa có từ vựng tương ứng". Nút "Báo từ thiếu" đẩy nhãn vào Feedback Queue (Trace: FR-02.05, FR-13). Vì từ vựng được tra lúc đọc kết quả, khi Admin bổ sung từ thì kết quả cũ cũng hiện từ mới. |
+| AF-06.5 | Nhiều box cùng label | AI chỉ giữ 1 box cho mỗi label (box có điểm cao nhất). |
+| AF-06.6 | Nút nổi Android (Bubble) | Learner dùng overlay widget chụp màn hình từ app khác → pipeline tương tự. |
+| AF-06.7 | Hết quota scan trong ngày | Backend trả `429 QUOTA_EXCEEDED`, `data = {limit, used, remaining = 0, resetAt}`; mobile hiển thị giờ reset và CTA quay lại học từ đã lưu. |
+| AF-06.8 | Job đang chờ hoặc đang xử lý | Poll trả `PENDING`/`PROCESSING`; mobile tiếp tục hiển thị tiến trình (tối đa 90s) và cho phép hủy. |
 
 ### Exception
 
-| Mã      | Lỗi                                | Xử lý                                                                 |
-| ------- | ----------------------------------- | ---------------------------------------------------------------------- |
-| EX-06.1 | AI worker timeout (> 60s mặc định)  | Backend đặt request `FAILED`, trả error code cụ thể, mobile hiển thị "Xử lý quá lâu, thử lại." |
-| EX-06.2 | AI service unavailable              | Backend giữ/hủy job theo cấu hình retry, trả lỗi nghiệp vụ thân thiện, gợi ý thử lại sau. |
-| EX-06.3 | Upload storage lỗi                  | Mobile hiển thị "Upload thất bại", retry button.                       |
-| EX-06.4 | Model error (invalid image input)   | AI trả error có cấu trúc, backend forward message phù hợp.           |
-| EX-06.5 | Hàng đợi quá tải                    | Backend không nhận thêm job, trả `AI_QUEUE_FULL` kèm message thử lại sau; không trừ quota nếu job chưa được nhận. |
+| Mã      | Lỗi | Xử lý |
+| ------- | --- | ----- |
+| EX-06.1 | AI không trả lời trong `ai-service.read-timeout-ms` (mặc định 60s) | Job `FAILED` với `errorCode = AI_TIMEOUT`, không tính lượt; mobile hiển thị "Xử lý quá lâu, thử lại." |
+| EX-06.2 | AI service không kết nối được hoặc đang nạp model | Job `FAILED` với `AI_UNAVAILABLE`, không tính lượt; gợi ý thử lại sau. |
+| EX-06.3 | Upload storage lỗi | Mobile hiển thị "Upload thất bại", nút thử lại; chưa gọi `POST /api/scan` nên không tốn lượt. |
+| EX-06.4 | Lỗi model hoặc ảnh không giải mã được | AI trả `{"error": {"code", "message"}}`; backend ghi `AI_ERROR` hoặc `INVALID_IMAGE` vào job, không tính lượt. |
+| EX-06.5 | Hàng đợi đầy | Backend trả `503 AI_QUEUE_FULL`; job được đánh dấu `FAILED` ngay nên không tính lượt. |
+| EX-06.6 | Backend khởi động lại hoặc job quá thời gian tối đa | Job bị đánh dấu `FAILED` với `INTERRUPTED`, không tính lượt; mobile poll nhận trạng thái này và cho phép thử lại. |
 
 ### Post-condition
 
 - Learner đã xem danh sách từ vựng nhận diện được từ ảnh hoặc trạng thái lỗi/chờ xử lý rõ ràng.
 - Hệ thống **không** tự động lưu toàn bộ kết quả — chỉ lưu khi Learner xác nhận.
-- Recognition request được log: requestId, status, queue wait time, thời gian xử lý, số object, lỗi nếu có.
+- Mỗi lượt scan có một bản ghi `scan_requests`: `requestId`, trạng thái, `errorCode`, `modelVersion`, số object, thời gian xử lý của AI, thời điểm bắt đầu/kết thúc.
 - App không crash ở mọi trường hợp lỗi.
 
 ### Business Rules
 
-1. Nhãn từ AI service đã thuộc từ điển (chuỗi lọc ngôn ngữ + cổng từ điển cuối trong pipeline).
-2. Backend giữ thêm điều kiện lọc bằng cặp (source allowlist, clipScore floor) cấu hình được làm lớp bảo vệ cuối.
-3. Gom trùng label để tránh trả từ vựng lặp.
-4. Quota mặc định 20 scan/ngày/Learner, cấu hình được; ảnh không hợp lệ hoặc hàng đợi từ chối job không trừ lượt.
-5. Recognition phải xử lý qua hàng đợi FIFO hoặc ưu tiên tương đương, giới hạn worker theo GPU (mặc định 1 worker/GPU) để tránh nhiều request đồng thời vượt timeout.
-6. Mobile không giữ kết nối đồng bộ; dùng `requestId` để poll kết quả với các trạng thái `PENDING`/`PROCESSING`/`DONE`/`FAILED`.
+1. Nhãn từ AI service đã qua lọc từ điển (WordNet) phía AI; backend ánh xạ sang Word theo nhãn rồi theo `headword`.
+2. Backend giữ thêm một lớp lọc theo `reliability` tối thiểu (`scan.min-reliability`, mặc định `LOW` = giữ tất cả).
+3. Mỗi label chỉ trả 1 box để tránh từ vựng lặp.
+4. Quota mặc định 20 scan/ngày/Learner (`scan.quota-per-day`), reset lúc 0h giờ `Asia/Ho_Chi_Minh`. Quota được **đếm từ bảng `scan_requests`**: mọi bản ghi có trạng thái khác `FAILED` tính 1 lượt, nên mọi lượt lỗi tự động không bị tính. Endpoint đồng bộ cũ cũng đi qua quota.
+5. Hàng đợi trong bộ nhớ, 1 worker/GPU, tối đa 3 job chờ (`scan.queue-capacity`) để job cuối vẫn xong trong 90s chờ của giao diện. Hàng đợi mất khi restart; giả định chạy **một** instance backend.
+6. Mobile không giữ kết nối đồng bộ; dùng `requestId` để poll với các trạng thái `PENDING`/`PROCESSING`/`DONE`/`FAILED`.
 7. Không tự động lưu kết quả scan nếu Learner chưa xác nhận.
-8. Ảnh scan chỉ lưu nếu cần cho lịch sử/debug, phải tuân thủ quyền riêng tư (bucket private).
-9. Timeout worker→AI cấu hình được (mặc định 60s).
-10. Mọi lỗi AI trả `error.code` + message, app không crash.
+8. Ảnh scan lưu trong bucket private dưới `scans/{userId}/`; key chứa userId để backend kiểm tra quyền sở hữu. Chưa có job dọn ảnh cũ.
+9. Timeout backend → AI cấu hình được (mặc định 60s); job chạy quá timeout + 30s, hoặc chờ quá (số job phía trước × timeout) + 30s, bị đánh dấu `INTERRUPTED`.
+10. Mọi lỗi scan có mã (`INVALID_IMAGE`, `QUOTA_EXCEEDED`, `AI_QUEUE_FULL`, `AI_UNAVAILABLE`, `AI_TIMEOUT`, `AI_ERROR`, `INTERRUPTED`), trả trong `RestResponse.error` hoặc `errorCode` khi poll; app không crash.
 
 ---
 
@@ -412,9 +413,9 @@
 | ---- | ------- | --------------------------------------------------------------------------------------------------- |
 | 1    | Learner | Mở Topic → chọn **Học Flashcard** hoặc vào study session từ Home.                                   |
 | 2    | System  | Lấy danh sách mục từ cần học (`card_state = NEW` hoặc `due <= now`). Tải cấu hình `Template` của Topic (danh sách `TemplateElement` và `TemplateField` theo `position ASC`). |
-| 3    | Learner | Xem mặt trước (Front) của thẻ: các trường có `semantic_role` là `FRONT`, kèm `PHONETIC`, `AUDIO` (nếu có). |
+| 3    | Learner | Xem mặt trước (Front) của thẻ: các `TemplateElement` có `side = FRONT` (`CardSide`), theo `position`. |
 | 4    | Learner | Tương tác: lật thẻ, nghe phát âm.                                                                   |
-| 5    | System  | Hiển thị mặt sau (Back): các trường có `semantic_role` là `BACK`, `TRANSLATION`, `EXAMPLE`...       |
+| 5    | System  | Hiển thị mặt sau (Back): các `TemplateElement` có `side = BACK`. `SemanticRole` quyết định hành vi (VD: `AUDIO` → phát âm), không quyết định mặt thẻ. |
 | 6    | Learner | Đánh giá mức độ nhớ theo FSRS (Again, Hard, Good, Easy).                                           |
 | 7    | System  | Cập nhật tham số FSRS trên `FsrsRecord` (`stability`, `difficulty`, `due`, `reps`, `lapses`, `card_state`). |
 | 8    | System  | Chuyển sang mục từ tiếp theo. Lặp lại bước 3–7.                                                     |
@@ -445,50 +446,62 @@
 ## BF-09 — Quiz & Kiểm tra
 
 **Actor:** Learner  
-**Trace:** FR-06 · SS-10 · MH: Quiz / Quiz Result  
-**Milestone:** M3
+**Trace:** FR-06 · SS-10 · MH: Quiz Setup / Quiz Play / Quiz Result\
+**Milestone:** M3\
+**Canonical:** [decisions/quiz.md](../decisions/quiz.md) (lifecycle, SemanticRole resolution; contract thực tế: `QuizController`)\
+**Implementation:** Backend Quiz IMPLEMENTED (`QuizController` base `/api`); mobile Quiz IMPLEMENTED — gọi API thật, đúng/sai do Backend trả (xem [decisions/quiz.md](../decisions/quiz.md) §7).
 
 ### Precondition
 
-- Learner có đủ TopicItem trong Topic để sinh quiz (hệ thống cần số lượng tối thiểu cho đáp án nhiễu).
+- Learner có đủ TopicItem hợp lệ trong Topic để sinh quiz: ≥ số câu đã chọn (5, 10 hoặc 20). Item hợp lệ được xác định bằng dữ liệu resolve theo `SemanticRole` của active Template.
 
 ### Happy Path
 
 | Bước | Actor   | Hành động                                                                                           |
 | ---- | ------- | --------------------------------------------------------------------------------------------------- |
-| 1    | Learner | Mở Quiz từ Topic hoặc từ Home. Chọn loại quiz (multiple choice, matching, fill blank).             |
-| 2    | System  | Sinh bộ câu hỏi từ TopicItem. Tạo đáp án đúng + đáp án nhiễu (lấy cùng Topic/POS, không trùng).     |
-| 3    | Learner | Trả lời từng câu hỏi.                                                                               |
-| 4    | System  | Sau mỗi câu: phản hồi đúng/sai (tuỳ mode). Sau quiz: tính điểm, tỷ lệ chính xác.                 |
-| 5    | System  | Lưu QuizAttempt: điểm, số câu đúng/sai, thời gian làm, timestamp.                                 |
-| 6    | System  | Cập nhật Progress (XP, accuracy). Kiểm tra Mission nếu M4 bật.                                      |
+| 1    | Learner | Mở Quiz từ Topic hoặc Home. Chọn Topic, Quiz Mode (`MCQ` / `MATCHING` / `FILL_BLANK`), Quiz Direction (`EN_VI` / `VI_EN` — **không áp dụng cho `FILL_BLANK`**, xem D13), số câu. |
+| 2    | System  | Create Quiz: sinh session từ TopicItem, resolve dữ liệu theo `SemanticRole` (`TARGET_WORD`, `NATIVE_TRANSLATION`, `EXAMPLE_SENTENCE`...). Trả câu hỏi/cặp ghép, không kèm đáp án. |
+| 3a   | Learner | **MCQ:** chọn một đáp án → check câu đó.                                                           |
+| 3b   | Learner | **FILL_BLANK:** nhập đáp án → submit câu hiện tại.                                                  |
+| 3c   | Learner | **MATCHING:** chọn item trái → chọn item phải → check cặp đó (per-pair attempt).                   |
+| 4    | System  | Chấm ngay interaction vừa gửi, trả Correct / Incorrect; ghi nhận kết quả. UI phản hồi trước khi sang câu/cặp tiếp theo. Matching: cặp đúng được khóa; cặp sai không khóa, Learner tiếp tục. |
+| 5    | Learner | Lặp bước 3–4 đến hết các câu/cặp.                                                                   |
+| 6    | System  | Complete Quiz: finalize session — tổng hợp số câu đúng/sai, accuracy từ các kết quả đã chấm (không chấm lại). |
+| 7    | System  | Hiển thị Result (số câu đúng/sai, accuracy, danh sách câu sai). Progress được ghi nhận; XP/Coin/Mission **chưa kích hoạt** — UI hiển thị `+0` cho tới M4 (FR-06.07). |
 
 ### Alternative Flow
 
 | Mã      | Điều kiện                        | Xử lý                                                                   |
 | ------- | -------------------------------- | ------------------------------------------------------------------------ |
-| AF-09.1 | Số TopicItem chưa đủ sinh quiz   | Hiển thị CTA "Lưu thêm từ trước khi tạo quiz."                         |
-| AF-09.2 | Learner thoát giữa chừng        | Hủy bỏ, không ghi QuizAttempt chưa hoàn thành.                                         |
-| AF-09.3 | Retry quiz (cùng attempt)        | Idempotent submit — retry không cộng trùng điểm/XP (dùng event key).    |
+| AF-09.1 | Số TopicItem hợp lệ chưa đủ      | Hiển thị CTA "Lưu thêm từ trước khi tạo quiz."                         |
+| AF-09.2 | Learner thoát giữa chừng qua modal thoát | Cancel session; không lưu draft, không thưởng, không tính mission.      |
+| AF-09.4 | Session dở dang không qua modal (app đóng, back cứng, crash) | Session giữ `IN_PROGRESS` và resume được trong **24h** kể từ `createdAt` (Quiz History → "Làm tiếp"). Quá 24h: Backend chuyển `EXPIRED` (lazy, không cron), không resume/answer/complete được, History không hiển thị "Làm tiếp" (D17). |
+| AF-09.3 | Retry request (lỗi mạng)         | Gửi lại cùng `Idempotency-Key` — không chấm lại, không cộng trùng điểm/XP. |
 
 ### Exception
 
-| Mã      | Lỗi              | Xử lý                                        |
-| ------- | ----------------- | --------------------------------------------- |
-| EX-09.1 | API lỗi khi submit | Trả error code, mobile giữ answer local để retry. |
+| Mã      | Lỗi                        | Xử lý                                                                 |
+| ------- | -------------------------- | --------------------------------------------------------------------- |
+| EX-09.1 | API lỗi khi check/complete | Trả error code; mobile giữ interaction đang chờ và retry với cùng key. |
+| EX-09.2 | Thao tác làm bài (resume/check/attempt/complete/cancel) với session đã hết hạn | Trả `QUIZ_SESSION_EXPIRED` (HTTP 410 Gone); mobile dừng quiz, báo "Phiên quiz đã hết hạn. Vui lòng tạo bài mới." và điều hướng về Quiz Setup (D17). |
 
 ### Post-condition
 
-- QuizAttempt đã được ghi nhận.
-- Progress, XP, accuracy được cập nhật.
-- Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP).
+- Kết quả từng câu/cặp đã được Backend ghi nhận; session ở trạng thái `COMPLETED`.
+- Progress và accuracy được cập nhật. XP/Coin: M4 (xem [decisions/quiz.md](../decisions/quiz.md) §5).
+- `durationSeconds` = `completedAt - createdAt` do Backend tính, trả trong Result (D15); stopwatch trên Quiz Play chỉ là UX.
+- Kết quả quiz không cập nhật thông số FSRS.
 
 ### Business Rules
 
-1. Đáp án nhiễu lấy từ TopicItem cùng Topic/POS, không trùng nghĩa.
-2. Submit quiz idempotent (event key, retry không cộng trùng).
-3. Kết quả quiz không cập nhật thông số FSRS (chỉ ghi nhận QuizAttempt, progress, XP).
-4. Yêu cầu số TopicItem tối thiểu để sinh quiz.
+1. Grading incremental: MCQ và FILL_BLANK check từng câu; MATCHING check từng cặp. Không có submit toàn bộ bài; không check theo cả round.
+2. `complete` chỉ finalize session sau khi các interaction đã được check.
+3. Đáp án nhiễu lấy từ TopicItem cùng Topic, không trùng nghĩa.
+4. Dữ liệu câu hỏi resolve theo `SemanticRole`, không theo tên `SchemaAttribute`.
+5. Kết quả quiz không cập nhật thông số FSRS.
+6. Số câu ∈ {5, 10, 20}; số TopicItem hợp lệ < số câu đã chọn → Create Quiz lỗi `QUIZ_INSUFFICIENT_ELIGIBLE_ITEMS`, không tạo Quiz nhỏ hơn.
+7. Eligibility (D12): item thiếu role mà mode/direction yêu cầu bị loại; không fallback `NATIVE_TRANSLATION` → `DEFINITION`; pool không đủ → Create Quiz lỗi. FILL_BLANK: che `TARGET_WORD` trong `EXAMPLE_SENTENCE`, đáp án `TARGET_WORD` (D13).
+8. Chưa quyết định (xem [decisions/quiz.md](../decisions/quiz.md) §2.3): giới hạn thử lại và cách tính điểm Matching.
 
 ---
 
@@ -557,7 +570,7 @@
 | 1    | Learner | Mở Home screen → xem progress summary widget: số từ đã lưu, đã học, đang ôn, mastered theo learning-state map. |
 | 2    | Learner | Mở màn hình Progress chi tiết.                                                                         |
 | 3    | System  | Hiển thị: streak (chuỗi ngày liên tiếp), accuracy (quiz/review), lịch sử hoạt động ngày/tuần/tháng.  |
-| 4    | System  | Tổng hợp dữ liệu từ FsrsRecord, LearningEvent, QuizAttempt, số lượng TopicItem.                        |
+| 4    | System  | Tổng hợp dữ liệu từ FsrsRecord, LearningEvent, Quiz session đã complete, số lượng TopicItem.                        |
 
 ### Happy Path — Leaderboard
 
@@ -589,47 +602,77 @@
 ### Precondition
 
 - Module gamification đã bật (M4).
-- Admin đã cấu hình Missions, Badges, Shop Items.
+- Mission Pool đã được seed (hoặc Admin cấu hình khi có Admin CRUD — PD-DM-06); Badge catalog đã seed ([badges.md](../decisions/badges.md) §7.4); Shop Items đã cấu hình.
 
 ### Happy Path — Nhiệm vụ & Phần thưởng
 
 | Bước | Actor   | Hành động                                                                                                    |
 | ---- | ------- | ------------------------------------------------------------------------------------------------------------ |
-| 1    | Learner | Mở màn hình Missions → xem danh sách nhiệm vụ ngày/tuần/thành tựu.                                        |
-| 2    | System  | Hiển thị tiến độ từng nhiệm vụ (VD: "Ôn 10 từ hôm nay: 7/10").                                             |
-| 3    | Learner | Hoàn thành hoạt động học → hệ thống tự động cập nhật MissionProgress.                                       |
-| 4    | System  | Khi mission hoàn thành → trao reward: XP, Coin, Badge (theo rule). Ghi ExperienceLog, CoinTransaction.     |
-| 5    | System  | Gửi In-app Notification "Bạn đã hoàn thành nhiệm vụ X, nhận Y coin!"                                      |
+| 1    | Learner | Mở màn hình Missions, hoặc thực hiện hành động học/mua đầu tiên trong ngày → hệ thống cấp (nếu chưa có) đúng 5 nhiệm vụ ngày (reset 00:00 GMT+7), xét điều kiện trên trạng thái trước hành động. |
+| 2    | System  | Hiển thị tiến độ và reward riêng của từng nhiệm vụ (VD: "Thêm 5 từ mới có nghĩa: 3/5 · 15 Coin, 25 XP").         |
+| 3    | Learner | Thêm từ / hoàn thành quiz / mua / kích hoạt booster → tiến độ `UserDailyMission` được cập nhật trong **cùng transaction** với hành động; đạt target → `COMPLETED`. |
+| 4    | Learner | Nhấn `Nhận thưởng` trên từng nhiệm vụ → System cộng Coin/XP/item của nhiệm vụ đó, ghi claim log, ExperienceLog, CoinTransaction (idempotent), chuyển `CLAIMED`. |
+| 5    | System  | Không có thưởng thêm khi đủ 5/5, theo tuần hay theo tháng. Nhiệm vụ chưa claim trước reset được coi là hết hạn (suy ra theo ngày, không lưu trạng thái), mất thưởng. |
 
-### Happy Path — Cửa hàng vật phẩm
+### Happy Path — Mua vật phẩm
 
-| Bước | Actor   | Hành động                                                                                          |
-| ---- | ------- | -------------------------------------------------------------------------------------------------- |
-| 1    | Learner | Mở Shop → duyệt danh sách vật phẩm (theme, avatar frame, booster).                               |
-| 2    | Learner | Chọn mua vật phẩm bằng Coin.                                                                      |
-| 3    | System  | Kiểm tra balance Coin ≥ giá. Trừ coin (CoinTransaction). Tạo UserItem.                           |
-| 4    | Learner | Áp dụng vật phẩm (VD: đổi theme, đổi avatar frame).                                              |
+Chi tiết canonical: [decisions/shop.md](../decisions/shop.md) §7.
+
+| Bước | Actor   | Hành động                                                                                                     |
+| ---- | ------- | ------------------------------------------------------------------------------------------------------------- |
+| 1    | Learner | Mở Shop → duyệt vật phẩm đang bán (`THEME`, `AVATAR_FRAME`, `XP_BOOSTER`); xem trước Theme/Avatar Frame.      |
+| 2    | Learner | Xác nhận "Mua X với Y Coin?". Mobile gửi `Idempotency-Key` + `expectedPrice`.                                 |
+| 3    | System  | Lock Learner; kiểm tra item đang bán, giá khớp, chưa sở hữu cosmetic / chưa đạt `maxQuantity`, balance ≥ giá. |
+| 4    | System  | Trong một transaction: trừ Coin, ghi `CoinTransaction` (`SHOP_PURCHASE`), tạo `UserItem` hoặc `quantity + 1`. |
+| 5    | System  | Trong cùng transaction: cập nhật mission `BUY_SHOP_ITEM` (nếu có). Sau commit: phát event `SHOP_ITEM_PURCHASED`. Trả balance + quantity mới. |
+
+### Happy Path — Trang bị Theme / Avatar Frame
+
+| Bước | Actor   | Hành động                                                                                        |
+| ---- | ------- | ------------------------------------------------------------------------------------------------ |
+| 1    | Learner | Mở Inventory → chọn Theme/Avatar Frame đã sở hữu → `Dùng`/`Trang bị`.                            |
+| 2    | System  | Trong một transaction: bỏ equip item cùng type đang dùng, equip item mới (tối đa 1/type).        |
+| 3    | Learner | App áp theme / hiển thị frame. `Bỏ`/`Tháo` → quay về mặc định.                                   |
+
+### Happy Path — Kích hoạt XP Booster
+
+| Bước | Actor   | Hành động                                                                                                         |
+| ---- | ------- | ----------------------------------------------------------------------------------------------------------------- |
+| 1    | Learner | Inventory → chọn XP Booster → `Dùng` (mobile gửi `Idempotency-Key`).                                              |
+| 2    | System  | Kiểm tra `quantity ≥ 1` và chưa có XP Booster active. Trừ 1, tạo `BoosterActivation` (`expiresAt = now + duration`); cập nhật mission `USE_XP_BOOSTER` trong cùng transaction. |
+| 3    | System  | Trong thời gian active: XP từ Flashcard/SRS Review và Quiz được ×2 tại thời điểm ghi XP; bonus tính Weekly XP.    |
+| 4    | System  | Hết `expiresAt` (server time, kể cả khi app đóng) → booster tự hết hiệu lực.                                      |
 
 ### Happy Path — Huy hiệu
 
 | Bước | Actor   | Hành động                                                                                |
 | ---- | ------- | ---------------------------------------------------------------------------------------- |
-| 1    | System  | Khi Learner đạt điều kiện cụ thể (VD: streak 30 ngày, 100 lượt scan có lưu từ) → trao Badge.      |
-| 2    | System  | Tạo UserBadge. Gửi In-app Notification.                                                  |
-| 3    | Learner | Xem danh sách Badge đã đạt trong Profile / Badge Gallery.                                |
+| 1    | Learner | Mở app, quay lại app, hoặc hoàn thành quiz / thêm từ → app gọi đồng bộ badge (`POST /api/me/badges/sync`).    |
+| 2    | System  | Tính 4 metric (streak dài nhất, số quiz hoàn thành, số quiz 100%, số từ khác nhau tự thêm); tạo UserBadge cho mỗi badge đã đủ ngưỡng mà chưa có. Không thưởng XP/Coin, không gửi notification. |
+| 3    | Learner | Thấy modal "badge mới" (gộp nếu nhiều badge), không bật giữa lúc đang làm quiz/flashcard; đóng modal → đánh dấu đã xem. |
+| 4    | Learner | Xem gallery (đã đạt + điều kiện và tiến độ của badge chưa đạt) và 3 badge gần nhất trên Profile.          |
+
+Chi tiết canonical: [decisions/badges.md](../decisions/badges.md).
 
 ### Alternative Flow
 
 | Mã      | Điều kiện                        | Xử lý                                                              |
 | ------- | -------------------------------- | ------------------------------------------------------------------- |
 | AF-12.1 | Coin không đủ mua vật phẩm      | Hiển thị "Bạn không đủ Coin", gợi ý hoàn thành nhiệm vụ.          |
-| AF-12.2 | Mission đã hoàn thành            | Trạng thái COMPLETED, không claim lại. Chờ reset (daily/weekly).   |
+| AF-12.2 | Mission đã claim                 | Trạng thái CLAIMED, không claim lại. Chờ reset ngày (00:00 GMT+7). |
 | AF-12.3 | Retry claim reward               | Idempotent — event key đảm bảo không cộng trùng XP/Coin.          |
+| AF-12.4 | Retry mua cùng `Idempotency-Key` (double tap, timeout, mất response) | Trả kết quả cũ (`replayed = true`), không trừ Coin lần 2. |
+| AF-12.5 | Giá đổi giữa lúc xem và lúc mua  | `PRICE_CHANGED` → hiển thị giá mới, Learner xác nhận lại.          |
+| AF-12.6 | Vật phẩm ngừng bán / ngoài thời gian bán | `ITEM_NOT_AVAILABLE`, không trừ Coin.                       |
+| AF-12.7 | Mua lại Theme/Avatar Frame đã sở hữu | `ITEM_ALREADY_OWNED`, không trừ Coin.                          |
+| AF-12.8 | XP Booster đã đạt `maxQuantity`  | `MAX_QUANTITY_REACHED`, không trừ Coin.                            |
+| AF-12.9 | Kích hoạt XP Booster khi đang có booster active | `BOOSTER_ALREADY_ACTIVE`, không trừ vật phẩm, không cộng dồn thời gian. |
+| AF-12.10 | Reward cấp cosmetic đã sở hữu hoặc XP Booster vượt `maxQuantity` | Cộng `fallbackCoin` cấu hình trong reward. |
 
 ### Post-condition
 
 - XP/Coin đã được cập nhật theo rule.
-- Badge/UserItem đã được ghi nhận.
+- UserBadge/UserItem/BoosterActivation đã được ghi nhận.
 - CoinTransaction và ExperienceLog đã được log.
 
 ### Business Rules
@@ -637,6 +680,7 @@
 1. Reward có rule rõ ràng, idempotent (event key, retry không cộng trùng).
 2. Coin chỉ là đơn vị trong ứng dụng, không quy đổi tiền thật.
 3. Balance Coin ≥ 0 tại mọi thời điểm.
+4. Shop, equip, XP Booster: theo [decisions/shop.md](../decisions/shop.md) (S1–S19).
 
 ---
 
@@ -655,7 +699,7 @@
 
 | Bước | Actor   | Hành động                                                                                               |
 | ---- | ------- | ------------------------------------------------------------------------------------------------------- |
-| 1    | System  | Khi có sự kiện cần thông báo (SRS due, Badge mới, Mission hoàn thành):                                 |
+| 1    | System  | Khi có sự kiện cần thông báo (SRS due, tin hệ thống). Không gửi thông báo khi hoàn thành Daily Mission ([daily_mission.md](../decisions/daily_mission.md) §1.2) hay đạt badge ([badges.md](../decisions/badges.md) PD-BDG-08) trong MVP: |
 | 2    | System  | **Push Notification:** Gửi qua Expo Push / Firebase FCM nếu Learner bật nhận thông báo.                |
 | 3    | System  | **In-app Notification:** Lưu vào database để Learner xem lại khi mở app.                               |
 | 4    | Learner | Mở app → xem danh sách In-app Notification. Đánh dấu đã đọc.                                          |
@@ -709,7 +753,7 @@
 
 | Bước | Actor | Hành động                                                                            |
 | ---- | ----- | ------------------------------------------------------------------------------------ |
-| 1    | Admin | Cấu hình Missions (ngày/tuần/thành tựu), Badges, điểm XP, vật phẩm Shop.           |
+| 1    | Admin | Cấu hình Mission Pool (template nhiệm vụ ngày, target, reward, weight), điểm XP, vật phẩm Shop. Badges: release đầu chỉ seed/migration; release tiếp theo có Admin xem, sửa hiển thị, Bật/Tắt — [badges.md](../decisions/badges.md) PD-BDG-10, PD-BDG-13a. |
 | 2    | Admin | Quản lý System Card Template (Classic, Listening, Spelling, Image Vocab...).         |
 
 ### Happy Path — Thống kê
@@ -722,7 +766,8 @@
 
 1. Tất cả API quản trị yêu cầu `ROLE_ADMIN`.
 2. CMS chạy độc lập, không nằm trong mobile app.
-3. Xóa từ vựng: soft-delete để không hỏng Note/Card của Learner.
+3. Xóa từ vựng: soft-delete để không hỏng TopicItem/FsrsRecord của Learner.
+4. Shop item: Admin tạo `DRAFT` → publish → archive; chỉ chọn type/`themeKey` có sẵn, tham số trong giới hạn developer; field hiệu ứng khóa sau publish ([decisions/shop.md](../decisions/shop.md) §8).
 4. Admin không can thiệp vào tiến độ học tập cá nhân cụ thể của Learner.
 
 ---
@@ -806,7 +851,7 @@ flowchart TD
 - [x] BF truy vết về FR trong [specs.md](./specs.md).
 - [x] Actor đúng theo canonical: Guest, Learner, Admin.
 - [x] Canonical model: Collection → Topic → TopicItem + FsrsRecord (không `SavedWord`/`UserWord`).
-- [x] AI pipeline: Florence-2 + SAM + CLIP (không YOLO).
+- [x] AI pipeline: Florence-2 zero-shot (CLIP tùy chọn). Không YOLO, không SAM.
 - [x] SRS: FSRS trên FsrsRecord (fsrs_records).
 - [x] Milestone mapping M1–M4.
 - [x] FR IDs khớp specs (Game=FR-09, Noti=FR-10, Storage=FR-11, OpenAPI=FR-12, Admin=FR-13).

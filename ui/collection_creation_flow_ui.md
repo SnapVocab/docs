@@ -7,19 +7,19 @@ Tài liệu này tổng hợp toàn bộ thiết kế giao diện Mobile (chuẩ
 ## 1. Trực Quan Toàn Bộ Luồng 7 Màn Hình
 
 ````carousel
-![Bước 1: Danh sách Bộ sưu tập](C:\Users\Thanh\.gemini\antigravity-cli\brain\d42d488a-599a-4519-b060-4202049f3a8f\screen_1_collections.png)
+*(Ảnh minh họa: Bước 1: Danh sách Bộ sưu tập — ảnh gốc nằm trên máy tác giả, chưa đưa vào repo)*
 <!-- slide -->
-![Bước 2: Modal tạo bộ sưu tập (Tối giản)](C:\Users\Thanh\.gemini\antigravity-cli\brain\d42d488a-599a-4519-b060-4202049f3a8f\screen_2_create_modal.png)
+*(Ảnh minh họa: Bước 2: Modal tạo bộ sưu tập (Tối giản) — ảnh gốc nằm trên máy tác giả, chưa đưa vào repo)*
 <!-- slide -->
-![Bước 3: Chi tiết bộ sưu tập trống (Linh vật Cáo)](C:\Users\Thanh\.gemini\antigravity-cli\brain\d42d488a-599a-4519-b060-4202049f3a8f\screen_3_empty_state.png)
+*(Ảnh minh họa: Bước 3: Chi tiết bộ sưu tập trống (Linh vật Cáo) — ảnh gốc nằm trên máy tác giả, chưa đưa vào repo)*
 <!-- slide -->
-![Bước 4: Thêm chủ đề mới (Thuần form điền)](C:\Users\Thanh\.gemini\antigravity-cli\brain\d42d488a-599a-4519-b060-4202049f3a8f\screen_4_create_topic.png)
+*(Ảnh minh họa: Bước 4: Thêm chủ đề mới (Thuần form điền) — ảnh gốc nằm trên máy tác giả, chưa đưa vào repo)*
 <!-- slide -->
-![Bước 5: Bố cục thẻ từ vựng (Template Builder tối ưu Mobile)](C:\Users\Thanh\.gemini\antigravity-cli\brain\d42d488a-599a-4519-b060-4202049f3a8f\screen_5_card_layout.png)
+*(Ảnh minh họa: Bước 5: Bố cục thẻ từ vựng (Template Builder tối ưu Mobile) — ảnh gốc nằm trên máy tác giả, chưa đưa vào repo)*
 <!-- slide -->
-![Bước 6: Tùy chỉnh chi tiết trường dữ liệu (Field Settings Bottom Sheet)](C:\Users\Thanh\.gemini\antigravity-cli\brain\d42d488a-599a-4519-b060-4202049f3a8f\screen_6_field_settings.png)
+*(Ảnh minh họa: Bước 6: Tùy chỉnh chi tiết trường dữ liệu (Field Settings Bottom Sheet) — ảnh gốc nằm trên máy tác giả, chưa đưa vào repo)*
 <!-- slide -->
-![Bước 7: Cài đặt phần hiển thị (Section Settings Bottom Sheet)](C:\Users\Thanh\.gemini\antigravity-cli\brain\d42d488a-599a-4519-b060-4202049f3a8f\screen_7_section_settings.png)
+*(Ảnh minh họa: Bước 7: Cài đặt phần hiển thị (Section Settings Bottom Sheet) — ảnh gốc nằm trên máy tác giả, chưa đưa vào repo)*
 ````
 
 ---
