@@ -668,7 +668,7 @@ Kế thừa `BaseTimeEntity`. Danh mục vật phẩm. Canonical: [shop.md](../d
 | :--- | :--- | :--- | :--- |
 | `id` | BIGINT | Khóa chính (PK), AUTO_INCREMENT | ID vật phẩm |
 | `code` | VARCHAR(64) | UNIQUE, NOT NULL | Mã ổn định (VD `XP_BOOSTER_X2_30M`); reward tham chiếu bằng mã này; khóa sau publish |
-| `type` | VARCHAR(30) | NOT NULL | `THEME`, `AVATAR_FRAME`, `XP_BOOSTER` |
+| `type` | VARCHAR(30) | NOT NULL | `AVATAR_FRAME`, `XP_BOOSTER` |
 | `name` | VARCHAR(100) | NOT NULL | Tên vật phẩm |
 | `description` | VARCHAR(500) | NULL | Mô tả công dụng |
 | `icon_key` | VARCHAR(255) | NULL (bắt buộc khi publish) | Object key icon |
@@ -678,7 +678,6 @@ Kế thừa `BaseTimeEntity`. Danh mục vật phẩm. Canonical: [shop.md](../d
 | `available_from` | DATETIME(6) | NULL | Bắt đầu bán |
 | `available_until` | DATETIME(6) | NULL | Kết thúc bán |
 | `sort_order` | INT | NOT NULL, DEFAULT 0 | Thứ tự hiển thị |
-| `theme_key` | VARCHAR(50) | UNIQUE, NULL | Chỉ `THEME`; giá trị thuộc theme registry |
 | `frame_asset_key` | VARCHAR(255) | NULL | Chỉ `AVATAR_FRAME` |
 | `boost_duration_minutes` | INT | NULL | Chỉ `XP_BOOSTER` (5–180, mặc định 30) |
 | `max_quantity` | INT | NULL | Chỉ `XP_BOOSTER` (1–10, mặc định 5) |
@@ -766,8 +765,8 @@ Append-only, tồn tại suốt đời tài khoản. Mỗi từ (chuẩn hóa, c
 - `experience_logs`: Unique `event_key`; index `(user_id, created_at)`.
 - `levels`: Unique index trên `level_number`.
 - `users`: CHECK `coin >= 0`. Không có cột equip trên `users`.
-- `shop_items`: Unique `code`, unique `theme_key`, unique `(id, type)`; index `(status, purchasable, type, sort_order)`; CHECK `NOT purchasable OR price IS NOT NULL`.
-- `user_items`: Composite FK `(shop_item_id, item_type) -> shop_items(id, type)` (DB enforce `user_items.item_type == shop_items.type`); Unique `(user_id, shop_item_id)`; Unique `(user_id, equipped_slot)` ⇒ tối đa 1 `THEME` và 1 `AVATAR_FRAME` equipped/user.
+- `shop_items`: Unique `code`, unique `(id, type)`; index `(status, purchasable, type, sort_order)`; CHECK `NOT purchasable OR price IS NOT NULL`.
+- `user_items`: Composite FK `(shop_item_id, item_type) -> shop_items(id, type)` (DB enforce `user_items.item_type == shop_items.type`); Unique `(user_id, shop_item_id)`; Unique `(user_id, equipped_slot)` ⇒ tối đa 1 `AVATAR_FRAME` equipped/user.
 - `booster_activations`: Unique `(user_id, idempotency_key)`; index `(user_id, expires_at)`.
 - `coin_transactions`: Unique `event_key`; index `(user_id, created_at)`.
 - Leaderboard: chưa có bảng/code. Weekly XP = tổng `experience_logs.amount` trong cửa sổ tuần của FR-09.05 ([specs.md](../spec/specs.md)); `users.exp` là XP trọn đời (Level), **không** phải Weekly XP. Có tính `MISSION_REWARD` hay không: PD-LB-01 ([daily_mission.md](../decisions/daily_mission.md) §0).

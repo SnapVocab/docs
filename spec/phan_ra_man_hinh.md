@@ -977,15 +977,14 @@ flowchart TD
 
 **Dữ liệu hiển thị** (từ `GET /api/shop/items`, xem [shop.md](../decisions/shop.md) §10–§11):
 
-- Card: icon, name, description, price, type, `config` (themeKey / frameUrl / ×2 · duration · maxQuantity), `owned`, `quantity`, `equipped`, `canPurchase`, `blockReason`
-- Coin balance (header); bộ lọc `Tất cả` · `Bổ trợ` · `Khung Avatar` · `Chủ đề`
+- Card: icon, name, description, price, type, `config` (frameUrl / ×2 · duration · maxQuantity), `owned`, `quantity`, `equipped`, `canPurchase`, `blockReason`
+- Coin balance (header); bộ lọc `Tất cả` · `Bổ trợ` · `Đóng băng chuỗi` · `Khung Avatar`
 - CTA theo type:
-  - THEME: `Xem trước` (bắt buộc) → `Mua · price` → `Đã sở hữu` / `Đang dùng`; sau mua: `Dùng ngay`
   - AVATAR_FRAME: preview trên avatar của Learner → `Mua · price` → `Đã sở hữu` / `Đang dùng`; sau mua: `Trang bị ngay`
   - XP_BOOSTER: `Mua · price` + "Đang có n/max"; đạt max → `Đã đạt tối đa` (disabled); sau mua: `Dùng ngay` (nếu chưa có booster active)
 - Thiếu Coin: nút mờ nhưng bấm được → Out-of-coin modal gợi ý nhiệm vụ
 - Confirm modal: "Mua X với Y Coin?"; `PRICE_CHANGED` → cập nhật giá, xác nhận lại
-- Ẩn THEME có `themeKey` mà bản app chưa hỗ trợ
+- Ẩn loại vật phẩm mà bản app chưa hỗ trợ
 
 ---
 
@@ -1002,9 +1001,8 @@ flowchart TD
 **Dữ liệu** (từ `GET /api/me/items`):
 
 - Booster Chip đầu màn khi có `activeBooster` (`×2 · mm:ss`, đếm theo `expiresAt` + `serverNow`)
-- Cosmetic: `Dùng`/`Trang bị` ↔ `Đang dùng` + `Bỏ`/`Tháo`; item đã ngừng bán vẫn dùng được
+- Cosmetic: `Trang bị` ↔ `Đang dùng` + `Tháo`; item đã ngừng bán vẫn dùng được
 - XP Booster: số lượng + `Dùng`; khi đang có booster active → "Chờ booster hiện tại kết thúc" (disabled); ẩn khi `quantity = 0` và không active
-- THEME với `themeKey` app chưa hỗ trợ → "Cần cập nhật ứng dụng"
 - Empty state: CTA `Đến Cửa hàng`
 
 > **Ghi chú:** MVP không xử lý thanh toán tiền thật. Premium screen (nếu có) chỉ mô tả quyền lợi, không tích hợp payment gateway.
@@ -1066,7 +1064,7 @@ flowchart TD
 - **Account:** Change password, Biometric login toggle
 - **Notifications:** Push on/off, quiet hours (nếu hỗ trợ)
 - **Learning:** Daily goal (Could), SRS reminder time
-- **App:** Language, Giao diện (Sáng/Tối/Hệ thống), mục "Chủ đề" chỉ là link sang Inventory (Theme equip ở MH-ECONOMY-03)
+- **App:** Language, Giao diện (Sáng/Tối/Hệ thống)
 - **Logout** button
 - App version
 

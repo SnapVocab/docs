@@ -620,19 +620,19 @@ Chi tiết canonical: [decisions/shop.md](../decisions/shop.md) §7.
 
 | Bước | Actor   | Hành động                                                                                                     |
 | ---- | ------- | ------------------------------------------------------------------------------------------------------------- |
-| 1    | Learner | Mở Shop → duyệt vật phẩm đang bán (`THEME`, `AVATAR_FRAME`, `XP_BOOSTER`); xem trước Theme/Avatar Frame.      |
+| 1    | Learner | Mở Shop → duyệt vật phẩm đang bán (`AVATAR_FRAME`, `XP_BOOSTER`); xem trước Avatar Frame.                     |
 | 2    | Learner | Xác nhận "Mua X với Y Coin?". Mobile gửi `Idempotency-Key` + `expectedPrice`.                                 |
 | 3    | System  | Lock Learner; kiểm tra item đang bán, giá khớp, chưa sở hữu cosmetic / chưa đạt `maxQuantity`, balance ≥ giá. |
 | 4    | System  | Trong một transaction: trừ Coin, ghi `CoinTransaction` (`SHOP_PURCHASE`), tạo `UserItem` hoặc `quantity + 1`. |
 | 5    | System  | Trong cùng transaction: cập nhật mission `BUY_SHOP_ITEM` (nếu có). Sau commit: phát event `SHOP_ITEM_PURCHASED`. Trả balance + quantity mới. |
 
-### Happy Path — Trang bị Theme / Avatar Frame
+### Happy Path — Trang bị Avatar Frame
 
 | Bước | Actor   | Hành động                                                                                        |
 | ---- | ------- | ------------------------------------------------------------------------------------------------ |
-| 1    | Learner | Mở Inventory → chọn Theme/Avatar Frame đã sở hữu → `Dùng`/`Trang bị`.                            |
+| 1    | Learner | Mở Inventory → chọn Avatar Frame đã sở hữu → `Trang bị`.                                         |
 | 2    | System  | Trong một transaction: bỏ equip item cùng type đang dùng, equip item mới (tối đa 1/type).        |
-| 3    | Learner | App áp theme / hiển thị frame. `Bỏ`/`Tháo` → quay về mặc định.                                   |
+| 3    | Learner | App hiển thị frame. `Tháo` → quay về mặc định.                                                   |
 
 ### Happy Path — Kích hoạt XP Booster
 
@@ -664,7 +664,7 @@ Chi tiết canonical: [decisions/badges.md](../decisions/badges.md).
 | AF-12.4 | Retry mua cùng `Idempotency-Key` (double tap, timeout, mất response) | Trả kết quả cũ (`replayed = true`), không trừ Coin lần 2. |
 | AF-12.5 | Giá đổi giữa lúc xem và lúc mua  | `PRICE_CHANGED` → hiển thị giá mới, Learner xác nhận lại.          |
 | AF-12.6 | Vật phẩm ngừng bán / ngoài thời gian bán | `ITEM_NOT_AVAILABLE`, không trừ Coin.                       |
-| AF-12.7 | Mua lại Theme/Avatar Frame đã sở hữu | `ITEM_ALREADY_OWNED`, không trừ Coin.                          |
+| AF-12.7 | Mua lại Avatar Frame đã sở hữu | `ITEM_ALREADY_OWNED`, không trừ Coin.                          |
 | AF-12.8 | XP Booster đã đạt `maxQuantity`  | `MAX_QUANTITY_REACHED`, không trừ Coin.                            |
 | AF-12.9 | Kích hoạt XP Booster khi đang có booster active | `BOOSTER_ALREADY_ACTIVE`, không trừ vật phẩm, không cộng dồn thời gian. |
 | AF-12.10 | Reward cấp cosmetic đã sở hữu hoặc XP Booster vượt `maxQuantity` | Cộng `fallbackCoin` cấu hình trong reward. |
@@ -767,7 +767,7 @@ Chi tiết canonical: [decisions/badges.md](../decisions/badges.md).
 1. Tất cả API quản trị yêu cầu `ROLE_ADMIN`.
 2. CMS chạy độc lập, không nằm trong mobile app.
 3. Xóa từ vựng: soft-delete để không hỏng TopicItem/FsrsRecord của Learner.
-4. Shop item: Admin tạo `DRAFT` → publish → archive; chỉ chọn type/`themeKey` có sẵn, tham số trong giới hạn developer; field hiệu ứng khóa sau publish ([decisions/shop.md](../decisions/shop.md) §8).
+4. Shop item: Admin tạo `DRAFT` → publish → archive; chỉ chọn type có sẵn, tham số trong giới hạn developer; field hiệu ứng khóa sau publish ([decisions/shop.md](../decisions/shop.md) §8).
 4. Admin không can thiệp vào tiến độ học tập cá nhân cụ thể của Learner.
 
 ---

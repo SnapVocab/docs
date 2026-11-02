@@ -4,11 +4,12 @@
 > **Implementation (cập nhật 2026-10-18):**
 > - Backend learner API (§10.1) IMPLEMENTED 2026-09-24 — `shop/` (ShopController, ShopService, InventoryService, WalletService, ShopRewardService) + `xp/XpService`. Backend Admin API (§10.2) IMPLEMENTED 2026-09-25 — `AdminShopController`, `AdminShopService`.
 > - Caller thật: Quiz (`QuizService` → XpService, nguồn `QUIZ`), Daily Mission (`DailyMissionService` → XpService/ShopRewardService) và Review/FSRS (`StudyService` → XpService, nguồn `FLASHCARD_REVIEW`, 2026-10-18; §5 bước 7) đã nối.
-> - Mobile `SnapVocab/src/features/shop` gọi API thật cho Shop/Inventory/Wallet (§11), copy qua i18n (`shop.*` trong `translations/{vi,en}.json`). `GET /api/users/me` trả `equipped`/`activeBooster` (2026-10-18); mobile lưu cùng user nên theme, frame và hậu tố `×2` ở Profile có ngay khi mở app (§11.3). Admin Shop (`snapAdmin/src/domains/shop`) gọi API thật.
+> - Mobile `SnapVocab/src/features/shop` gọi API thật cho Shop/Inventory/Wallet (§11), copy qua i18n (`shop.*` trong `translations/{vi,en}.json`). `GET /api/users/me` trả `equipped`/`activeBooster` (2026-10-18); mobile lưu cùng user nên frame và hậu tố `×2` ở Profile có ngay khi mở app (§11.3). Admin Shop (`snapAdmin/src/domains/shop`) gọi API thật.
 > - Đã xóa `DAILY_CHEST`/`WEEKLY_CHEST` khỏi `CoinSourceType`/`XpSourceType` và mobile (2026-10-18; DB local clone 0 row). Cột MySQL `source_type` (ENUM do Hibernate tạo) vẫn còn 2 giá trị cũ, vô hại. Còn lại: các mock Admin còn nội dung ngoài scope (§13).
 > - Audit mobile Shop: [mobile_shop_audit_2026-10-06.md](../reviews/mobile_shop_audit_2026-10-06.md).
 > **Traceability:** FR-09.06, FR-09.07 ([specs.md](../spec/specs.md)) → BF-12 ([buss_mainflow.md](../spec/buss_mainflow.md)) → SS-13, SS-14 ([phan_ra_phan_he_he_thong.md](../spec/phan_ra_phan_he_he_thong.md)) → F-GAME-02, F-GAME-07, F-GAME-08a, F-GAME-08b, F-GAME-09 ([phan_ra_tinh_nang.md](../spec/phan_ra_tinh_nang.md)) → DB ([database.md](../db/database.md) §Gamification & Shop) → Screen MH-ECONOMY-01/02/03, MH-PROFILE-01/03 ([phan_ra_man_hinh.md](../spec/phan_ra_man_hinh.md)).
 > **Source of truth:** Nếu tài liệu khác mâu thuẫn với file này về Shop/Item/Inventory/Coin purchase/XP Booster, file này thắng; [specs.md](../spec/specs.md) chỉ giữ requirement tóm tắt và trỏ về đây.
+> - 2026-11-02: gỡ loại `THEME` khỏi backend, mobile, Admin, DB (§6).
 
 ---
 
@@ -17,16 +18,16 @@
 | # | Quyết định | Nội dung canonical |
 | :--- | :--- | :--- |
 | S1 | Tiền tệ | Chỉ **Coin** nội bộ. Không Gems, không thanh toán tiền thật. |
-| S2 | Item types | `ShopItemType` = `THEME` \| `AVATAR_FRAME` \| `XP_BOOSTER`. Enum do developer kiểm soát. Không có `BOOSTER` chung, `CONSUMABLE`, `STREAK_FREEZE`, `COIN_BOOSTER`, `RETRY_TOKEN`. |
+| S2 | Item types | `ShopItemType` = `AVATAR_FRAME` \| `XP_BOOSTER`. `THEME` đã gỡ 2026-11-02 (§6). Enum do developer kiểm soát. Không có `BOOSTER` chung, `CONSUMABLE`, `STREAK_FREEZE`, `COIN_BOOSTER`, `RETRY_TOKEN`. |
 | S3 | Type vs Effect | **Không** tách `ItemEffectType`. Mỗi type là một runtime behavior do developer viết code; Admin chỉ cấu hình tham số trong giới hạn của type. |
 | S4 | Ownership | `UserItem` = bản ghi **sở hữu**: 1 row / (user, shopItem), có `quantity`. Không phải instance. "Inventory" chỉ là tên API resource/màn hình, **không** phải entity. |
-| S5 | Cosmetic | `THEME`, `AVATAR_FRAME`: `quantity` luôn = 1; mua lại → `ITEM_ALREADY_OWNED`. |
+| S5 | Cosmetic | `AVATAR_FRAME`: `quantity` luôn = 1; mua lại → `ITEM_ALREADY_OWNED`. |
 | S6 | XP Booster | ×2 XP (hằng số developer), `durationMinutes` cấu hình theo item (mặc định 30). Áp dụng cho XP từ **Flashcard/SRS Review** và **Quiz**. Không áp dụng cho Mission reward, Admin adjustment, Save word hay reward thụ động. Bonus XP **có** tính vào Weekly XP/Leaderboard. |
 | S7 | Booster concurrency | Tối đa **1** XP Booster active/user. Không stack, không queue, không extend. Kích hoạt khi đang active → `BOOSTER_ALREADY_ACTIVE`, không trừ item. |
 | S8 | Booster time | Wall-clock theo server time; vẫn trôi khi app đóng. Hết hạn **lazy** (`now >= expiresAt`), không cron, không cột status. |
 | S9 | Inventory limit | `XP_BOOSTER` có `maxQuantity` cấu hình theo item (mặc định 5, giới hạn developer 1–10). Mua khi đã đạt → `MAX_QUANTITY_REACHED`. |
-| S10 | Equip | Trạng thái equip nằm trên `UserItem.equipped`. Mỗi user tối đa 1 `THEME` và 1 `AVATAR_FRAME` equipped; equip item mới cùng type tự unequip item cũ **trong cùng transaction**. Enforce ở DB bằng `UNIQUE(user_id, equipped_slot)` (§9). Không thêm cột equip vào `users`. |
-| S11 | Theme | Theme definition nằm trong **mobile code** (design tokens + theme registry). Theme chỉ override token bề mặt (§6). Admin chỉ chọn `themeKey` có sẵn. |
+| S10 | Equip | Trạng thái equip nằm trên `UserItem.equipped`. Mỗi user tối đa 1 `AVATAR_FRAME` equipped; equip item mới cùng type tự unequip item cũ **trong cùng transaction**. Enforce ở DB bằng `UNIQUE(user_id, equipped_slot)` (§9). Không thêm cột equip vào `users`. |
+| S11 | Theme | **Đã gỡ 2026-11-02** (§6). App chỉ còn chế độ Sáng/Tối/Hệ thống. |
 | S12 | Avatar Frame | Asset ảnh do Admin upload (PNG/WebP nền trong suốt, vuông 512×512, ≤ 300 KB). Hành vi runtime chung cho mọi frame: overlay lên avatar. |
 | S13 | Purchase | 1 đơn vị / request. Header `Idempotency-Key` bắt buộc; body `expectedPrice`. Trừ Coin + ghi `CoinTransaction` + cấp `UserItem` trong **một** DB transaction (§7.1). |
 | S14 | Purchase history | Không có bảng Purchase/Order riêng. `CoinTransaction` (source `SHOP_PURCHASE`) là biên lai và anchor idempotency; Wallet hiển thị lịch sử. |
@@ -46,13 +47,11 @@
 
 | Type | Behavior | Stackable | Equip slot | Field cấu hình bắt buộc | Runtime |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `THEME` | EQUIP | Không | `THEME` | `themeKey` | Mobile áp theme từ registry |
 | `AVATAR_FRAME` | EQUIP | Không | `AVATAR_FRAME` | `frameAssetKey` | Mobile overlay frame lên avatar |
 | `XP_BOOSTER` | ACTIVATE | Có | — | `boostDurationMinutes`, `maxQuantity` | Backend nhân XP ×2 trong thời gian hiệu lực |
 
 ```java
 enum ShopItemType {
-    THEME(Behavior.EQUIP, false),
     AVATAR_FRAME(Behavior.EQUIP, false),
     XP_BOOSTER(Behavior.ACTIVATE, true);
 
@@ -69,13 +68,11 @@ enum Behavior { EQUIP, ACTIVATE }
 
 ```java
 enum ShopItemStatus { DRAFT, PUBLISHED, ARCHIVED }                 // developer-controlled
-enum ThemeKey { /* registry, đồng bộ với mobile theme registry */ } // developer-controlled
 enum CoinSourceType { MISSION_REWARD, SHOP_PURCHASE, ADMIN_ADJUSTMENT }
 enum XpSourceType   { FLASHCARD_REVIEW, QUIZ, SAVE_WORD, MISSION_REWARD, ADMIN_ADJUSTMENT }
 ```
 
 - Booster chỉ áp dụng khi `XpSourceType ∈ {FLASHCARD_REVIEW, QUIZ}`.
-- `ThemeKey` khởi đầu 2–3 giá trị (tên và palette do design chốt trong `design.md`); giá trị `DEFAULT` là theme mặc định của app, **không** phải ShopItem.
 - Không có enum `EquipSlot`: slot = `ShopItemType` có `behavior == EQUIP`.
 
 ### 2.3. Giới hạn tham số (developer-defined)
@@ -106,7 +103,6 @@ User     1 ─── N CoinTransaction
 ```text
 id, code, type, name, description, iconKey,
 status, purchasable, price, availableFrom, availableUntil, sortOrder,
-themeKey            (chỉ THEME)
 frameAssetKey       (chỉ AVATAR_FRAME)
 boostDurationMinutes, maxQuantity   (chỉ XP_BOOSTER)
 publishedAt, version, createdAt, updatedAt
@@ -114,12 +110,11 @@ publishedAt, version, createdAt, updatedAt
 
 Business rules:
 
-- `code` unique, dạng `UPPER_SNAKE_CASE` (VD `XP_BOOSTER_X2_30M`, `FRAME_GOLDEN_WORDSMITH`, `THEME_OCEAN`); sửa được khi `DRAFT`, bất biến sau publish. Reward tham chiếu item bằng `code`.
+- `code` unique, dạng `UPPER_SNAKE_CASE` (VD `XP_BOOSTER_X2_30M`, `FRAME_GOLDEN_WORDSMITH`); sửa được khi `DRAFT`, bất biến sau publish. Reward tham chiếu item bằng `code`.
 - Field cấu hình phải khớp type: field của type khác phải `NULL`.
 - `purchasable = true` ⇒ `price` NOT NULL.
 - Hiển thị trong Shop ⇔ `status = PUBLISHED` ∧ `purchasable` ∧ (`availableFrom` null hoặc ≤ now) ∧ (`availableUntil` null hoặc > now).
 - `PUBLISHED` + `purchasable = false` = item chỉ nhận qua reward.
-- `themeKey` unique giữa các ShopItem (một theme chỉ bán bằng một item).
 
 ### 3.2. UserItem
 
@@ -172,7 +167,6 @@ Business rules:
 | Inventory / UserInventory | API resource `/api/me/items` + màn hình MH-ECONOMY-03 |
 | Purchase / Order | `CoinTransaction` source `SHOP_PURCHASE` |
 | ItemEffect | Không tồn tại; behavior gắn với `ShopItemType` |
-| Theme definition | Mobile theme registry |
 | Item ledger (nhập/xuất item) | Không cần: mua → CoinTransaction; dùng → BoosterActivation; reward → claim log của mission |
 
 ---
@@ -232,50 +226,9 @@ Expire (lazy, now ≥ expiresAt)
 
 ---
 
-## 6. Theme
+## 6. Theme (đã gỡ)
 
-### 6.1. Kiến trúc
-
-```text
-Design tokens (snapVocab-frontend/docs/design.md §03)
-  → ThemeDefinition(themeKey, light, dark) trong mobile theme registry
-  → ThemeProvider (đọc themeKey equipped; fallback DEFAULT)
-  → Component chỉ đọc semantic token
-```
-
-### 6.2. Token
-
-| Được theme override | Cố định (không theme nào được đổi) |
-| :--- | :--- |
-| `background`, `card`, `muted`, `border`, `input` | `foreground`, `card-foreground`, `muted-foreground` |
-| `header-background`, `header-border`, hero/header gradient | `primary-*` (CTA, đúng, progress) |
-| `tab-bar-background`, `tab-bar-border`, `tab-bar-inactive` | `reward-*` (XP, Coin, Badge) |
-| | `mascot-*` (Snapy, streak) |
-| | `error-soft`/sai, `danger-*`, `warning-*`, `info-*`, `destructive`, `ring` |
-
-- Mỗi ThemeDefinition phải khai báo cả `light` và `dark`.
-- Accessibility do developer bảo đảm lúc build: test tự động contrast ≥ 4.5:1 của `foreground`/`muted-foreground` trên `background`, `card`, `muted`, `header-background`, `tab-bar-background` cho mọi theme × mode. Admin không chạm được token nên không thể phá contrast.
-- Theme **không** thay thế chế độ Sáng/Tối/Hệ thống; hai trục độc lập.
-
-### 6.4. Phạm vi áp dụng (quyết định 2026-10-06)
-
-| Hạng mục | Quyết định |
-| :--- | :--- |
-| Phạm vi theme | Chỉ khu Cửa hàng: Shop, Kho đồ, Ví Coin **và mọi modal của các luồng này** (xem thử, xác nhận mua, mua thành công, thiếu Coin, kích hoạt booster). Màn khác, header điều hướng gốc và **tab bar** giữ token mặc định; `tab-bar-*` không bị override trong giai đoạn này. |
-| Tên nhóm | `Giao diện cửa hàng` (tránh nhầm với chủ đề từ vựng và với Cài đặt → Giao diện Sáng/Tối). |
-| Cam kết trước khi mua | Preview và modal xác nhận hiện: "Áp dụng cho Cửa hàng, Kho đồ và Ví Coin." |
-| Preview | Màn mẫu dùng token thật của theme theo chế độ Sáng/Tối hiện tại: header, card có chữ + chữ phụ + nút, dòng giao dịch. Không có tab bar. |
-| Sáng/Tối | Luôn theo lựa chọn của người dùng trên toàn app; theme chỉ đổi bề mặt (`background`, `surface`, `surfaceMuted`, `border`, `headerBg`); `text`/`textMuted` cố định theo chế độ. |
-| Nền tảng mở rộng | Component dùng chung đọc token vai trò qua `useSurface()` (`components/ui/surface.tsx`); mặc định là `DEFAULT_SURFACE`. Mở rộng theme sang khu vực khác = bọc khu vực đó bằng `SurfaceProvider`, không sửa mã màu từng component. |
-| Quyền lợi người mua | Tại 2026-10-06 DB clone từ remote có 1 ShopItem `THEME` (`THEME_MIDNIGHT_NEON`, 150 Coin) nhưng chưa ai sở hữu, nên chưa ai mua theo phạm vi cũ. Nếu sau này mở rộng/thu hẹp phạm vi khi đã có người mua, phải xử lý quyền lợi trước khi đổi mô tả. |
-
-### 6.3. Tương thích phiên bản app
-
-- `GET /api/shop/items` trả `themeKey`; mobile ẩn item THEME có `themeKey` không có trong registry của bản app đang chạy.
-- Inventory: THEME đã sở hữu nhưng app không biết `themeKey` → hiện "Cần cập nhật ứng dụng", CTA disabled; nếu nó đang equipped → áp `DEFAULT`.
-- Quy trình phát hành theme mới: thêm ThemeDefinition vào mobile → phát hành app → thêm giá trị vào `ThemeKey` backend → Admin tạo item.
-
----
+**2026-11-02:** gỡ hẳn loại `THEME` (Bộ màu). App chưa phát hành, chưa ai mua theme nên không hoàn Coin. App chỉ còn chế độ Sáng/Tối/Hệ thống (Cài đặt → Giao diện), không thuộc Shop. Dữ liệu cũ xóa bằng `snap-vocab-backend/migration/migration_remove_theme_v1.sql` (xóa item/ownership THEME, bỏ cột `shop_items.theme_key`). Vật phẩm thay thế dự kiến: khung flashcard (chưa có quyết định).
 
 ## 7. Transaction, idempotency, concurrency
 
@@ -342,7 +295,7 @@ COMMIT → publish BOOSTER_USED
 
 ### 7.4. Equip / Unequip
 
-`PUT /api/me/equipment/{type}` body `{ "itemId": 12 }` · `DELETE /api/me/equipment/{type}`; `type ∈ {THEME, AVATAR_FRAME}`.
+`PUT /api/me/equipment/{type}` body `{ "itemId": 12 }` · `DELETE /api/me/equipment/{type}`; `type ∈ {AVATAR_FRAME}`.
 
 ```text
 BEGIN
@@ -379,14 +332,14 @@ grant(userId, itemCode, quantity, fallbackCoin, eventKey):
 
 ### 8.1. Admin được phép
 
-Tạo item (chọn type có sẵn), sửa field mở, upload icon/frame qua flow presign, chọn `themeKey` từ danh sách backend trả, cấu hình `price`, `purchasable`, sale window, `boostDurationMinutes`, `maxQuantity`, `sortOrder`; publish; archive; xóa DRAFT.
+Tạo item (chọn type có sẵn), sửa field mở, upload icon/frame qua flow presign, cấu hình `price`, `purchasable`, sale window, `boostDurationMinutes`, `maxQuantity`, `sortOrder`; publish; archive; xóa DRAFT.
 
 ### 8.2. Field khóa
 
 | Field | DRAFT | PUBLISHED | ARCHIVED |
 | :--- | :--- | :--- | :--- |
 | `code`, `type` | sửa | khóa | khóa |
-| `themeKey`, `frameAssetKey`, `boostDurationMinutes` | sửa | khóa | khóa |
+| `frameAssetKey`, `boostDurationMinutes` | sửa | khóa | khóa |
 | `name`, `description`, `iconKey`, `sortOrder` | sửa | sửa | sửa |
 | `price`, `purchasable`, `availableFrom`, `availableUntil`, `maxQuantity` | sửa | sửa | khóa (`purchasable = false`) |
 
@@ -396,22 +349,21 @@ Sửa field khóa → `409 FIELD_LOCKED`. Giảm `maxQuantity` không thu hồi 
 
 - `name` 1–100 ký tự; `description` ≤ 500; `code` `^[A-Z][A-Z0-9_]{2,63}$` unique.
 - Tham số trong giới hạn §2.3; field của type khác phải null.
-- Publish yêu cầu: `iconKey` đã upload; THEME có `themeKey` ∈ `ThemeKey` và chưa được item khác dùng; AVATAR_FRAME có `frameAssetKey` đạt spec asset; XP_BOOSTER có `boostDurationMinutes`, `maxQuantity`; nếu `purchasable` thì có `price`; `availableFrom < availableUntil` nếu cả hai có.
+- Publish yêu cầu: `iconKey` đã upload; AVATAR_FRAME có `frameAssetKey` đạt spec asset; XP_BOOSTER có `boostDurationMinutes`, `maxQuantity`; nếu `purchasable` thì có `price`; `availableFrom < availableUntil` nếu cả hai có.
 - Optimistic lock: mọi PATCH gửi `version`; lệch → `409 VERSION_CONFLICT`.
 
 ### 8.4. Dynamic form
 
-`GET /api/admin/shop/item-types` trả, cho từng type: field bắt buộc, giới hạn, giá trị mặc định và (THEME) danh sách `themeKey` còn trống. Form hiện field theo type:
+`GET /api/admin/shop/item-types` trả, cho từng type: field bắt buộc, giới hạn, giá trị mặc định. Form hiện field theo type:
 
 | Type | Field riêng | Preview |
 | :--- | :--- | :--- |
-| THEME | `themeKey` (dropdown) | ảnh preview tĩnh theo `themeKey` |
 | AVATAR_FRAME | upload frame | frame trên avatar mẫu |
 | XP_BOOSTER | `boostDurationMinutes`, `maxQuantity` | "×2 XP · 30 phút" |
 
 ### 8.5. Admin KHÔNG được
 
-Nhập chuỗi type/effect/themeKey tùy ý; nhập màu/CSS/token; đổi multiplier; tạo tiền tệ khác; sửa field khóa; cộng/trừ Coin hoặc cấp item cho user (ngoài scope; khi làm phải qua `ADMIN_ADJUSTMENT` có ledger).
+Nhập chuỗi type/effect tùy ý; nhập màu/CSS/token; đổi multiplier; tạo tiền tệ khác; sửa field khóa; cộng/trừ Coin hoặc cấp item cho user (ngoài scope; khi làm phải qua `ADMIN_ADJUSTMENT` có ledger).
 
 ---
 
@@ -431,7 +383,6 @@ shop_items
   available_from         DATETIME(6)  NULL
   available_until        DATETIME(6)  NULL
   sort_order             INT          NOT NULL DEFAULT 0
-  theme_key              VARCHAR(50)  NULL UNIQUE         -- chỉ THEME
   frame_asset_key        VARCHAR(255) NULL                -- chỉ AVATAR_FRAME
   boost_duration_minutes INT          NULL                -- chỉ XP_BOOSTER
   max_quantity           INT          NULL                -- chỉ XP_BOOSTER
@@ -504,12 +455,12 @@ Envelope/error theo NFR API Standard ([specs.md](../spec/specs.md) §8). Mọi e
 | GET | `/api/shop/items?type=` | Catalog đang bán + trạng thái theo user. Không phân trang (catalog nhỏ). |
 | POST | `/api/shop/items/{itemId}/purchase` | Mua 1 đơn vị. Header `Idempotency-Key`; body `{expectedPrice}` |
 | GET | `/api/me/items` | Inventory: item sở hữu, equipped, activeBooster |
-| PUT | `/api/me/equipment/{type}` | Equip `{itemId}`; `type ∈ {THEME, AVATAR_FRAME}` |
+| PUT | `/api/me/equipment/{type}` | Equip `{itemId}`; `type ∈ {AVATAR_FRAME}` |
 | DELETE | `/api/me/equipment/{type}` | Unequip → mặc định |
 | POST | `/api/me/items/{itemId}/activate` | Kích hoạt XP Booster. Header `Idempotency-Key` |
 | GET | `/api/me/wallet?cursor=&size=` | Balance + CoinTransaction mới nhất trước (cursor) |
 
-`GET /api/users/me` (và response của `PUT /api/users/me`) bổ sung `equipped: { themeKey, avatarFrameUrl }` (field `null` = slot dùng mặc định) và `activeBooster` (shape như `GET /api/me/items`, `null` khi không có) để mobile áp theme/frame ngay khi mở app. Response đăng nhập không có hai field này.
+`GET /api/users/me` (và response của `PUT /api/users/me`) bổ sung `equipped: { avatarFrameUrl }` (field `null` = slot dùng mặc định) và `activeBooster` (shape như `GET /api/me/items`, `null` khi không có) để mobile áp frame ngay khi mở app. Response đăng nhập không có hai field này.
 
 Response `GET /api/shop/items` (mỗi phần tử):
 
@@ -524,7 +475,7 @@ Response `GET /api/shop/items` (mỗi phần tử):
 }
 ```
 
-- `config`: THEME `{themeKey}`; AVATAR_FRAME `{frameUrl}`; XP_BOOSTER như trên.
+- `config`: AVATAR_FRAME `{frameUrl}`; XP_BOOSTER như trên.
 - `blockReason ∈ {INSUFFICIENT_COINS, ALREADY_OWNED, MAX_QUANTITY_REACHED}`; server tính sẵn, client không tự suy.
 
 Response purchase:
@@ -585,8 +536,7 @@ Upload icon/frame dùng flow presign của Storage (SS-16) với purpose `SHOP_A
 | `BOOSTER_ALREADY_ACTIVE` | 409 | Đang có XP Booster active; `details.expiresAt` |
 | `VALIDATION_ERROR` | 400 | Admin: field sai, kèm danh sách lỗi theo field |
 | `SHOP_ITEM_CODE_EXISTS` | 409 | Admin: `code` đã được item khác dùng |
-| `INVALID_SHOP_ITEM_CONFIG` | 400 | Admin: field theo type thiếu/sai/ngoài giới hạn, field của type khác khác null, `themeKey` đã được item khác dùng, asset sai |
-| `INVALID_THEME_KEY` | 400 | Admin: `themeKey` ngoài registry hoặc `DEFAULT` |
+| `INVALID_SHOP_ITEM_CONFIG` | 400 | Admin: field theo type thiếu/sai/ngoài giới hạn, field của type khác khác null, asset sai |
 | `INVALID_PRICE` | 400 | Admin: `price` ngoài 1–100 000 hoặc thiếu khi `purchasable` |
 | `INVALID_AVAILABILITY_WINDOW` | 400 | Admin: `availableFrom ≥ availableUntil` |
 | `FIELD_LOCKED` | 409 | Admin sửa field bị khóa; `details.fields` |
@@ -602,7 +552,6 @@ Upload icon/frame dùng flow presign của Storage (SS-16) với purpose `SHOP_A
 
 | Type | CTA | Sau khi mua |
 | :--- | :--- | :--- |
-| THEME | `Xem trước` (sheet preview bắt buộc) → `Mua · {price}` · đã sở hữu: `Đã sở hữu` / `Đang dùng` | Modal thành công + `Dùng ngay` (gọi equip) |
 | AVATAR_FRAME | Preview trên avatar của chính user → `Mua · {price}` · đã sở hữu: `Đã sở hữu` / `Đang dùng` | Modal + `Trang bị ngay` |
 | XP_BOOSTER | `Mua · {price}` + "Đang có: n/max" · đạt max: `Đã đạt tối đa` (disabled) | Modal + `Dùng ngay` (ẩn nếu đang có booster active) |
 
@@ -618,7 +567,7 @@ Upload icon/frame dùng flow presign của Storage (SS-16) với purpose `SHOP_A
 - Đầu màn: Booster Chip khi có `activeBooster` (`×2 · mm:ss`, design.md §6.9). Đếm ngược tính từ `expiresAt` và độ lệch `serverNow`; về 0 → refetch.
 - Cosmetic: `Dùng`/`Trang bị` ↔ `Đang dùng` + `Bỏ`/`Tháo`. Item archived vẫn hiển thị và dùng được.
 - XP_BOOSTER: số lượng + `Dùng`; khi có booster active, item đang chạy hiện "Đang chạy", các booster khác hiện "Chờ booster kết thúc" (cả hai disabled). Booster được coi là hết hạn ngay khi đếm ngược về 0 theo giờ server, kể cả trước khi refetch về; refetch một lần, không lặp mỗi giây.
-- Ẩn XP_BOOSTER `quantity = 0` không active. THEME với `themeKey` lạ → "Cần cập nhật ứng dụng".
+- Ẩn XP_BOOSTER `quantity = 0` không active.
 - Empty state: CTA `Đến Cửa hàng`.
 
 ### 11.3. Nơi khác
@@ -626,7 +575,6 @@ Upload icon/frame dùng flow presign của Storage (SS-16) với purpose `SHOP_A
 - MH-PROFILE-01: avatar hiển thị frame equipped của chính user.
 - MH-PROFILE-03 Settings: "Giao diện" = Sáng/Tối/Hệ thống; mục "Giao diện cửa hàng" chỉ là link sang Inventory.
 - XP Badge hiện hậu tố `×2` khi `activeBooster` tồn tại (design.md §6.5).
-- Mobile cache `equipped.themeKey` cục bộ để áp theme ngay lúc khởi động; server là nguồn đúng sau khi `GET /api/users/me` trả về.
 
 ---
 
@@ -638,13 +586,13 @@ Upload icon/frame dùng flow presign của Storage (SS-16) với purpose `SHOP_A
 4. Mua lại cosmetic đã sở hữu → `ITEM_ALREADY_OWNED`, coin không đổi.
 5. XP_BOOSTER đạt `maxQuantity` → `MAX_QUANTITY_REACHED`.
 6. Admin đổi giá giữa lúc xem và lúc mua → `PRICE_CHANGED`, coin không đổi.
-7. Equip THEME/AVATAR_FRAME mới → item cũ cùng type tự unequip trong cùng transaction; DB không thể có 2 row equipped cùng type.
+7. Equip AVATAR_FRAME mới → item cũ cùng type tự unequip trong cùng transaction; DB không thể có 2 row equipped cùng type.
 8. Kích hoạt booster khi đang có booster active → `BOOSTER_ALREADY_ACTIVE`, quantity không đổi.
 9. Review/Quiz ghi XP trong thời gian active → `bonusAmount = baseAmount`; Mission reward/Save word → `bonusAmount = 0`; XP ghi sau `expiresAt` → không bonus.
 10. Bonus XP xuất hiện trong Weekly XP/Leaderboard.
 11. Booster vẫn hết hạn đúng `expiresAt` khi app bị đóng/khởi động lại.
 12. Mission reward cấp cosmetic đã sở hữu → cộng `fallbackCoin` theo reward config.
-13. Admin không thể publish item thiếu field theo type, `themeKey` ngoài registry, hoặc tham số ngoài giới hạn; không sửa được field khóa sau publish.
+13. Admin không thể publish item thiếu field theo type, hoặc tham số ngoài giới hạn; không sửa được field khóa sau publish.
 14. Item archived: không xuất hiện trong Shop; người đã sở hữu vẫn equip/activate được.
 
 ---

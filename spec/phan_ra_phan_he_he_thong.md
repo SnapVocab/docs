@@ -786,7 +786,7 @@ Gamification
 
 ### Mô tả
 
-Cửa hàng vật phẩm ảo trong ứng dụng. Learner dùng Coin mua `THEME`, `AVATAR_FRAME`, `XP_BOOSTER`. Không xử lý thanh toán tiền thật. Canonical: [decisions/shop.md](../decisions/shop.md).
+Cửa hàng vật phẩm ảo trong ứng dụng. Learner dùng Coin mua `AVATAR_FRAME`, `XP_BOOSTER`. Không xử lý thanh toán tiền thật. Canonical: [decisions/shop.md](../decisions/shop.md).
 
 ### Entities
 
@@ -802,7 +802,7 @@ Cửa hàng vật phẩm ảo trong ứng dụng. Learner dùng Coin mua `THEME`
 
 - Duyệt catalog đang bán (trạng thái sở hữu, `canPurchase`, `blockReason` do server tính)
 - Mua 1 đơn vị bằng Coin, idempotent (`Idempotency-Key`), kiểm tra `expectedPrice`
-- Trang bị/bỏ Theme, Avatar Frame (tối đa 1/type)
+- Trang bị/tháo Avatar Frame (tối đa 1)
 - Kích hoạt XP Booster (×2 XP Review/Quiz, tối đa 1 active)
 - Cấp item từ reward (fallback Coin khi không cấp được)
 - Admin: tạo DRAFT, sửa, publish, archive, xóa DRAFT
@@ -814,7 +814,7 @@ Cửa hàng vật phẩm ảo trong ứng dụng. Learner dùng Coin mua `THEME`
 | GET       | `/shop/items`                         | Catalog + trạng thái theo Learner         | Learner |
 | POST      | `/shop/items/{itemId}/purchase`       | Mua (header `Idempotency-Key`)            | Learner |
 | GET       | `/me/items`                           | Inventory + equipped + activeBooster      | Learner |
-| PUT/DELETE | `/me/equipment/{type}`               | Trang bị / bỏ Theme, Avatar Frame         | Learner |
+| PUT/DELETE | `/me/equipment/{type}`               | Trang bị / tháo Avatar Frame              | Learner |
 | POST      | `/me/items/{itemId}/activate`         | Kích hoạt XP Booster (`Idempotency-Key`)  | Learner |
 | GET       | `/admin/shop/item-types`              | Metadata dynamic form                     | Admin   |
 | GET/POST  | `/admin/shop/items`                   | Danh sách / tạo DRAFT                     | Admin   |
