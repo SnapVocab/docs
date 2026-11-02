@@ -10,6 +10,7 @@
 > **Traceability:** FR-09.06, FR-09.07 ([specs.md](../spec/specs.md)) → BF-12 ([buss_mainflow.md](../spec/buss_mainflow.md)) → SS-13, SS-14 ([phan_ra_phan_he_he_thong.md](../spec/phan_ra_phan_he_he_thong.md)) → F-GAME-02, F-GAME-07, F-GAME-08a, F-GAME-08b, F-GAME-09 ([phan_ra_tinh_nang.md](../spec/phan_ra_tinh_nang.md)) → DB ([database.md](../db/database.md) §Gamification & Shop) → Screen MH-ECONOMY-01/02/03, MH-PROFILE-01/03 ([phan_ra_man_hinh.md](../spec/phan_ra_man_hinh.md)).
 > **Source of truth:** Nếu tài liệu khác mâu thuẫn với file này về Shop/Item/Inventory/Coin purchase/XP Booster, file này thắng; [specs.md](../spec/specs.md) chỉ giữ requirement tóm tắt và trỏ về đây.
 > - 2026-11-02: gỡ loại `THEME` khỏi backend, mobile, Admin, DB (§6).
+> - 2026-11-02: thêm `CARD_FRAME` (Khung thẻ, §6) ở backend, mobile, Admin; chưa phát hành.
 
 ---
 
@@ -18,15 +19,15 @@
 | # | Quyết định | Nội dung canonical |
 | :--- | :--- | :--- |
 | S1 | Tiền tệ | Chỉ **Coin** nội bộ. Không Gems, không thanh toán tiền thật. |
-| S2 | Item types | `ShopItemType` = `AVATAR_FRAME` \| `XP_BOOSTER`. `THEME` đã gỡ 2026-11-02 (§6). Enum do developer kiểm soát. Không có `BOOSTER` chung, `CONSUMABLE`, `STREAK_FREEZE`, `COIN_BOOSTER`, `RETRY_TOKEN`. |
+| S2 | Item types | `ShopItemType` = `AVATAR_FRAME` \| `CARD_FRAME` (thêm 2026-11-02, §6) \| `XP_BOOSTER`. `THEME` đã gỡ 2026-11-02 (§6). Enum do developer kiểm soát. Không có `BOOSTER` chung, `CONSUMABLE`, `STREAK_FREEZE`, `COIN_BOOSTER`, `RETRY_TOKEN`. |
 | S3 | Type vs Effect | **Không** tách `ItemEffectType`. Mỗi type là một runtime behavior do developer viết code; Admin chỉ cấu hình tham số trong giới hạn của type. |
 | S4 | Ownership | `UserItem` = bản ghi **sở hữu**: 1 row / (user, shopItem), có `quantity`. Không phải instance. "Inventory" chỉ là tên API resource/màn hình, **không** phải entity. |
-| S5 | Cosmetic | `AVATAR_FRAME`: `quantity` luôn = 1; mua lại → `ITEM_ALREADY_OWNED`. |
+| S5 | Cosmetic | `AVATAR_FRAME`, `CARD_FRAME`: `quantity` luôn = 1; mua lại → `ITEM_ALREADY_OWNED`. |
 | S6 | XP Booster | ×2 XP (hằng số developer), `durationMinutes` cấu hình theo item (mặc định 30). Áp dụng cho XP từ **Flashcard/SRS Review** và **Quiz**. Không áp dụng cho Mission reward, Admin adjustment, Save word hay reward thụ động. Bonus XP **có** tính vào Weekly XP/Leaderboard. |
 | S7 | Booster concurrency | Tối đa **1** XP Booster active/user. Không stack, không queue, không extend. Kích hoạt khi đang active → `BOOSTER_ALREADY_ACTIVE`, không trừ item. |
 | S8 | Booster time | Wall-clock theo server time; vẫn trôi khi app đóng. Hết hạn **lazy** (`now >= expiresAt`), không cron, không cột status. |
 | S9 | Inventory limit | `XP_BOOSTER` có `maxQuantity` cấu hình theo item (mặc định 5, giới hạn developer 1–10). Mua khi đã đạt → `MAX_QUANTITY_REACHED`. |
-| S10 | Equip | Trạng thái equip nằm trên `UserItem.equipped`. Mỗi user tối đa 1 `AVATAR_FRAME` equipped; equip item mới cùng type tự unequip item cũ **trong cùng transaction**. Enforce ở DB bằng `UNIQUE(user_id, equipped_slot)` (§9). Không thêm cột equip vào `users`. |
+| S10 | Equip | Trạng thái equip nằm trên `UserItem.equipped`. Mỗi user tối đa 1 `AVATAR_FRAME` và 1 `CARD_FRAME` equipped; equip item mới cùng type tự unequip item cũ **trong cùng transaction**. Enforce ở DB bằng `UNIQUE(user_id, equipped_slot)` (§9). Không thêm cột equip vào `users`. |
 | S11 | Theme | **Đã gỡ 2026-11-02** (§6). App chỉ còn chế độ Sáng/Tối/Hệ thống. |
 | S12 | Avatar Frame | Asset ảnh do Admin upload (PNG/WebP nền trong suốt, vuông 512×512, ≤ 300 KB). Hành vi runtime chung cho mọi frame: overlay lên avatar. |
 | S13 | Purchase | 1 đơn vị / request. Header `Idempotency-Key` bắt buộc; body `expectedPrice`. Trừ Coin + ghi `CoinTransaction` + cấp `UserItem` trong **một** DB transaction (§7.1). |
@@ -48,11 +49,13 @@
 | Type | Behavior | Stackable | Equip slot | Field cấu hình bắt buộc | Runtime |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `AVATAR_FRAME` | EQUIP | Không | `AVATAR_FRAME` | `frameAssetKey` | Mobile overlay frame lên avatar |
+| `CARD_FRAME` | EQUIP | Không | `CARD_FRAME` | `frameAssetKey` | Mobile đặt thẻ học vào cửa sổ của khung (§6) |
 | `XP_BOOSTER` | ACTIVATE | Có | — | `boostDurationMinutes`, `maxQuantity` | Backend nhân XP ×2 trong thời gian hiệu lực |
 
 ```java
 enum ShopItemType {
     AVATAR_FRAME(Behavior.EQUIP, false),
+    CARD_FRAME(Behavior.EQUIP, false),
     XP_BOOSTER(Behavior.ACTIVATE, true);
 
     final Behavior behavior;   // không lưu DB
@@ -103,7 +106,7 @@ User     1 ─── N CoinTransaction
 ```text
 id, code, type, name, description, iconKey,
 status, purchasable, price, availableFrom, availableUntil, sortOrder,
-frameAssetKey       (chỉ AVATAR_FRAME)
+frameAssetKey       (AVATAR_FRAME, CARD_FRAME)
 boostDurationMinutes, maxQuantity   (chỉ XP_BOOSTER)
 publishedAt, version, createdAt, updatedAt
 ```
@@ -226,9 +229,21 @@ Expire (lazy, now ≥ expiresAt)
 
 ---
 
-## 6. Theme (đã gỡ)
+## 6. Khung thẻ (`CARD_FRAME`) — thay Theme
 
-**2026-11-02:** gỡ hẳn loại `THEME` (Bộ màu). App chưa phát hành, chưa ai mua theme nên không hoàn Coin. App chỉ còn chế độ Sáng/Tối/Hệ thống (Cài đặt → Giao diện), không thuộc Shop. Dữ liệu cũ xóa bằng `snap-vocab-backend/migration/migration_remove_theme_v1.sql` (xóa item/ownership THEME, bỏ cột `shop_items.theme_key`). Vật phẩm thay thế dự kiến: khung flashcard (chưa có quyết định).
+**Theme đã gỡ (2026-11-02).** Gỡ hẳn loại `THEME` (Bộ màu). App chưa phát hành, chưa ai mua theme nên không hoàn Coin. App chỉ còn chế độ Sáng/Tối/Hệ thống (Cài đặt → Giao diện), không thuộc Shop. Dữ liệu cũ xóa bằng `snap-vocab-backend/migration/migration_remove_theme_v1.sql` (xóa item/ownership THEME, bỏ cột `shop_items.theme_key`). Vật phẩm thay thế dự kiến: khung flashcard (chưa có quyết định).
+
+**Khung thẻ (PO chốt PD-CF-01…07 ngày 2026-11-02; kế hoạch và nghiệm thu: [card_frame_plan.md](../../plan/shop-item/card_frame_plan.md)).** Ảnh trang trí kiểu photobooth với một cửa sổ trong suốt; khi trang bị, thẻ học hiện bên trong khung.
+
+| Quy tắc | Nội dung |
+| :--- | :--- |
+| Phạm vi | Màn học mới và ôn tập; xem trước trong Cửa hàng và Kho đồ. Không áp cho xem trước chủ đề, Quiz, trình dựng template. |
+| Hình dạng | Có khung: thẻ 3:4, thu nhỏ theo chiều rộng và chiều cao khả dụng, không kéo giãn ảnh. Không khung: thẻ giữ nguyên như cũ. |
+| Cửa sổ | Một chuẩn chung, hằng số developer: `{ x: 0.09, y: 0.09, width: 0.82, height: 0.82 }` (tương đối theo khung, gốc trên-trái). Backend trả trong `GET /api/admin/shop/item-types` → `fixed`; mobile `card-renderer/card-frame.ts` và Admin `artwork.ts` giữ bản sao. |
+| Asset | PNG/WebP có alpha, đúng 1080×1440, ≤ 500 KB, cửa sổ trong suốt hoàn toàn (file mẫu `plan/shop-item/card_frame/template_guide.png`). |
+| Hai mặt | Cùng một khung trên mặt trước và sau, đúng chiều khi lật. Ảnh khung không nhận chạm. |
+| Lỗi asset | Thẻ vẫn học được ngay; ảnh lỗi ⇒ ẩn khung, tải lại `GET /api/users/me` tối đa 1 lần cho mỗi URL. |
+| Giá | Admin cấu hình (mặc định đề xuất 500 Coin, bậc Phổ thông §8.6). |
 
 ## 7. Transaction, idempotency, concurrency
 
@@ -295,7 +310,7 @@ COMMIT → publish BOOSTER_USED
 
 ### 7.4. Equip / Unequip
 
-`PUT /api/me/equipment/{type}` body `{ "itemId": 12 }` · `DELETE /api/me/equipment/{type}`; `type ∈ {AVATAR_FRAME}`.
+`PUT /api/me/equipment/{type}` body `{ "itemId": 12 }` · `DELETE /api/me/equipment/{type}`; `type ∈ {AVATAR_FRAME, CARD_FRAME}`.
 
 ```text
 BEGIN
@@ -349,7 +364,7 @@ Sửa field khóa → `409 FIELD_LOCKED`. Giảm `maxQuantity` không thu hồi 
 
 - `name` 1–100 ký tự; `description` ≤ 500; `code` `^[A-Z][A-Z0-9_]{2,63}$` unique.
 - Tham số trong giới hạn §2.3; field của type khác phải null.
-- Publish yêu cầu: `iconKey` đã upload; AVATAR_FRAME có `frameAssetKey` đạt spec asset; XP_BOOSTER có `boostDurationMinutes`, `maxQuantity`; nếu `purchasable` thì có `price`; `availableFrom < availableUntil` nếu cả hai có.
+- Publish yêu cầu: `iconKey` đã upload; AVATAR_FRAME và CARD_FRAME có `frameAssetKey` đạt spec asset của loại; XP_BOOSTER có `boostDurationMinutes`, `maxQuantity`; nếu `purchasable` thì có `price`; `availableFrom < availableUntil` nếu cả hai có.
 - Optimistic lock: mọi PATCH gửi `version`; lệch → `409 VERSION_CONFLICT`.
 
 ### 8.4. Dynamic form
@@ -359,6 +374,7 @@ Sửa field khóa → `409 FIELD_LOCKED`. Giảm `maxQuantity` không thu hồi 
 | Type | Field riêng | Preview |
 | :--- | :--- | :--- |
 | AVATAR_FRAME | upload frame | frame trên avatar mẫu |
+| CARD_FRAME | upload khung thẻ (1080×1440) | thẻ học mẫu trong khung (tab "Học") |
 | XP_BOOSTER | `boostDurationMinutes`, `maxQuantity` | "×2 XP · 30 phút" |
 
 ### 8.5. Admin KHÔNG được
@@ -383,7 +399,7 @@ shop_items
   available_from         DATETIME(6)  NULL
   available_until        DATETIME(6)  NULL
   sort_order             INT          NOT NULL DEFAULT 0
-  frame_asset_key        VARCHAR(255) NULL                -- chỉ AVATAR_FRAME
+  frame_asset_key        VARCHAR(255) NULL                -- AVATAR_FRAME, CARD_FRAME
   boost_duration_minutes INT          NULL                -- chỉ XP_BOOSTER
   max_quantity           INT          NULL                -- chỉ XP_BOOSTER
   published_at           DATETIME(6)  NULL
@@ -455,12 +471,12 @@ Envelope/error theo NFR API Standard ([specs.md](../spec/specs.md) §8). Mọi e
 | GET | `/api/shop/items?type=` | Catalog đang bán + trạng thái theo user. Không phân trang (catalog nhỏ). |
 | POST | `/api/shop/items/{itemId}/purchase` | Mua 1 đơn vị. Header `Idempotency-Key`; body `{expectedPrice}` |
 | GET | `/api/me/items` | Inventory: item sở hữu, equipped, activeBooster |
-| PUT | `/api/me/equipment/{type}` | Equip `{itemId}`; `type ∈ {AVATAR_FRAME}` |
+| PUT | `/api/me/equipment/{type}` | Equip `{itemId}`; `type ∈ {AVATAR_FRAME, CARD_FRAME}` |
 | DELETE | `/api/me/equipment/{type}` | Unequip → mặc định |
 | POST | `/api/me/items/{itemId}/activate` | Kích hoạt XP Booster. Header `Idempotency-Key` |
 | GET | `/api/me/wallet?cursor=&size=` | Balance + CoinTransaction mới nhất trước (cursor) |
 
-`GET /api/users/me` (và response của `PUT /api/users/me`) bổ sung `equipped: { avatarFrameUrl }` (field `null` = slot dùng mặc định) và `activeBooster` (shape như `GET /api/me/items`, `null` khi không có) để mobile áp frame ngay khi mở app. Response đăng nhập không có hai field này.
+`GET /api/users/me` (và response của `PUT /api/users/me`) bổ sung `equipped: { avatarFrameUrl, cardFrameUrl }` (field `null` = slot dùng mặc định) và `activeBooster` (shape như `GET /api/me/items`, `null` khi không có) để mobile áp frame ngay khi mở app. Response đăng nhập không có hai field này.
 
 Response `GET /api/shop/items` (mỗi phần tử):
 
@@ -475,7 +491,7 @@ Response `GET /api/shop/items` (mỗi phần tử):
 }
 ```
 
-- `config`: AVATAR_FRAME `{frameUrl}`; XP_BOOSTER như trên.
+- `config`: AVATAR_FRAME và CARD_FRAME `{frameUrl}`; XP_BOOSTER như trên.
 - `blockReason ∈ {INSUFFICIENT_COINS, ALREADY_OWNED, MAX_QUANTITY_REACHED}`; server tính sẵn, client không tự suy.
 
 Response purchase:
@@ -553,6 +569,7 @@ Upload icon/frame dùng flow presign của Storage (SS-16) với purpose `SHOP_A
 | Type | CTA | Sau khi mua |
 | :--- | :--- | :--- |
 | AVATAR_FRAME | Preview trên avatar của chính user → `Mua · {price}` · đã sở hữu: `Đã sở hữu` / `Đang dùng` | Modal + `Trang bị ngay` |
+| CARD_FRAME | Preview thẻ mẫu trong khung, lật được → `Mua · {price}` · đã sở hữu: `Trang bị` / `Đang dùng` | Modal + `Trang bị ngay` |
 | XP_BOOSTER | `Mua · {price}` + "Đang có: n/max" · đạt max: `Đã đạt tối đa` (disabled) | Modal + `Dùng ngay` (ẩn nếu đang có booster active) |
 
 - Thiếu Coin: nút hiển thị tone cảnh báo nhưng **bấm được** → `OutOfCoinModal` gợi ý làm nhiệm vụ (AF-12.1). Quy tắc này thắng [design.md](../../snapVocab-frontend/docs/design.md) §10.2 (bản cũ ghi disabled). Không hiện số Coin còn thiếu khi số dư cục bộ chưa khớp server.
@@ -586,7 +603,7 @@ Upload icon/frame dùng flow presign của Storage (SS-16) với purpose `SHOP_A
 4. Mua lại cosmetic đã sở hữu → `ITEM_ALREADY_OWNED`, coin không đổi.
 5. XP_BOOSTER đạt `maxQuantity` → `MAX_QUANTITY_REACHED`.
 6. Admin đổi giá giữa lúc xem và lúc mua → `PRICE_CHANGED`, coin không đổi.
-7. Equip AVATAR_FRAME mới → item cũ cùng type tự unequip trong cùng transaction; DB không thể có 2 row equipped cùng type.
+7. Equip AVATAR_FRAME/CARD_FRAME mới → item cũ cùng type tự unequip trong cùng transaction; DB không thể có 2 row equipped cùng type.
 8. Kích hoạt booster khi đang có booster active → `BOOSTER_ALREADY_ACTIVE`, quantity không đổi.
 9. Review/Quiz ghi XP trong thời gian active → `bonusAmount = baseAmount`; Mission reward/Save word → `bonusAmount = 0`; XP ghi sau `expiresAt` → không bonus.
 10. Bonus XP xuất hiện trong Weekly XP/Leaderboard.

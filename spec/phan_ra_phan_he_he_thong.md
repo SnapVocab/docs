@@ -786,7 +786,7 @@ Gamification
 
 ### Mô tả
 
-Cửa hàng vật phẩm ảo trong ứng dụng. Learner dùng Coin mua `AVATAR_FRAME`, `XP_BOOSTER`. Không xử lý thanh toán tiền thật. Canonical: [decisions/shop.md](../decisions/shop.md).
+Cửa hàng vật phẩm ảo trong ứng dụng. Learner dùng Coin mua `AVATAR_FRAME`, `CARD_FRAME`, `XP_BOOSTER`. Không xử lý thanh toán tiền thật. Canonical: [decisions/shop.md](../decisions/shop.md).
 
 ### Entities
 

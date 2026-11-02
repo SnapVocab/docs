@@ -84,7 +84,7 @@ docs/
 - [decisions/quiz.md](./decisions/quiz.md): quyết định kiến trúc Quiz — base path `/api`, incremental grading (MCQ/Fill Blank từng câu, Matching từng cặp), resolve dữ liệu theo SemanticRole, QuizMode vs QuizDirection.
 - [decisions/daily_mission.md](./decisions/daily_mission.md): thiết kế Daily Mission (5 nhiệm vụ/ngày, reward theo từng nhiệm vụ), mission pool, event tracking và reward idempotency.
 - [decisions/badges.md](./decisions/badges.md): Badges canonical — catalog 12 badge / 4 metric, ghi nhận khi app đồng bộ, nhận một lần không thu hồi, không thưởng, schema, API, mobile. PD-BDG duyệt 2026-10-07.
-- [decisions/shop.md](./decisions/shop.md): Shop canonical — `AVATAR_FRAME`/`XP_BOOSTER` (THEME gỡ 2026-11-02), UserItem ownership + equip, XP Booster ×2, purchase idempotency/concurrency, Admin boundary, API, schema.
+- [decisions/shop.md](./decisions/shop.md): Shop canonical — `AVATAR_FRAME`/`CARD_FRAME`/`XP_BOOSTER` (THEME gỡ, Khung thẻ thêm 2026-11-02), UserItem ownership + equip, XP Booster ×2, purchase idempotency/concurrency, Admin boundary, API, schema.
 
 ### 5. Design
 

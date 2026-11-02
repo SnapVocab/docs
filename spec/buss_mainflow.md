@@ -620,7 +620,7 @@ Chi tiết canonical: [decisions/shop.md](../decisions/shop.md) §7.
 
 | Bước | Actor   | Hành động                                                                                                     |
 | ---- | ------- | ------------------------------------------------------------------------------------------------------------- |
-| 1    | Learner | Mở Shop → duyệt vật phẩm đang bán (`AVATAR_FRAME`, `XP_BOOSTER`); xem trước Avatar Frame.                     |
+| 1    | Learner | Mở Shop → duyệt vật phẩm đang bán (`AVATAR_FRAME`, `CARD_FRAME`, `XP_BOOSTER`); xem trước khung.                 |
 | 2    | Learner | Xác nhận "Mua X với Y Coin?". Mobile gửi `Idempotency-Key` + `expectedPrice`.                                 |
 | 3    | System  | Lock Learner; kiểm tra item đang bán, giá khớp, chưa sở hữu cosmetic / chưa đạt `maxQuantity`, balance ≥ giá. |
 | 4    | System  | Trong một transaction: trừ Coin, ghi `CoinTransaction` (`SHOP_PURCHASE`), tạo `UserItem` hoặc `quantity + 1`. |

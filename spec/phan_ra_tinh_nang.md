@@ -244,7 +244,7 @@
 | ~~F-GAME-04~~ | ~~Weekly mission/stamps~~ | — | **Đã loại khỏi scope (2026-10-03):** không có Activity Stamp, Daily/Weekly Chest, thưởng tuần/tháng |
 | F-GAME-05 | Badges                | S   | 12 huy hiệu cố định theo 4 metric (streak dài nhất, quiz hoàn thành, quiz 100%, từ khác nhau tự thêm); ghi nhận khi app đồng bộ, nhận một lần, không thưởng; báo bằng modal, không notification. Badge scan hoãn. Canonical: [badges.md](../decisions/badges.md) |
 | F-GAME-06 | Leaderboard           | S   | Xếp hạng theo Weekly XP; Redis sorted set hoặc snapshot cache; hiển thị top N + vị trí user |
-| F-GAME-07 | Shop browse + buy     | C   | Catalog `AVATAR_FRAME`/`XP_BOOSTER`/`STREAK_FREEZE`; mua 1 đơn vị, `Idempotency-Key` + `expectedPrice`; trừ Coin + CoinTransaction + UserItem cùng transaction; cosmetic không mua trùng; XP Booster ≤ `maxQuantity` |
+| F-GAME-07 | Shop browse + buy     | C   | Catalog `AVATAR_FRAME`/`CARD_FRAME`/`XP_BOOSTER`/`STREAK_FREEZE`; mua 1 đơn vị, `Idempotency-Key` + `expectedPrice`; trừ Coin + CoinTransaction + UserItem cùng transaction; cosmetic không mua trùng; XP Booster ≤ `maxQuantity` |
 | F-GAME-08a | Equip cosmetic       | C   | Trang bị/tháo Avatar Frame; `UserItem.equipped`; tối đa 1 equipped/type, equip mới tự bỏ item cũ trong cùng transaction |
 | F-GAME-08b | Activate XP Booster  | C   | ×2 XP Review/Quiz, mặc định 30 phút server time; tối đa 1 active; không stack/queue/extend; `BoosterActivation` |
 | F-GAME-09 | Admin config          | S   | Admin CRUD: Mission templates (nhiệm vụ ngày), Badges, Shop Items, XP reward rules (Badges: release đầu chỉ seed/migration, release tiếp theo có Admin xem, sửa hiển thị, Bật/Tắt — [badges.md](../decisions/badges.md) PD-BDG-10, PD-BDG-13a) |

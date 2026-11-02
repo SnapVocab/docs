@@ -981,6 +981,7 @@ flowchart TD
 - Coin balance (header); bộ lọc `Tất cả` · `Bổ trợ` · `Đóng băng chuỗi` · `Khung Avatar`
 - CTA theo type:
   - AVATAR_FRAME: preview trên avatar của Learner → `Mua · price` → `Đã sở hữu` / `Đang dùng`; sau mua: `Trang bị ngay`
+  - CARD_FRAME: preview thẻ học mẫu trong khung (lật được) → `Mua · price` → `Trang bị` / `Đang dùng`; sau mua: `Trang bị ngay`
   - XP_BOOSTER: `Mua · price` + "Đang có n/max"; đạt max → `Đã đạt tối đa` (disabled); sau mua: `Dùng ngay` (nếu chưa có booster active)
 - Thiếu Coin: nút mờ nhưng bấm được → Out-of-coin modal gợi ý nhiệm vụ
 - Confirm modal: "Mua X với Y Coin?"; `PRICE_CHANGED` → cập nhật giá, xác nhận lại

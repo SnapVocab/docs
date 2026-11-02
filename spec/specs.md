@@ -411,7 +411,7 @@ Business rules:
 | FR-09.03 | Mission             | Hệ thống cung cấp 5 nhiệm vụ ngày; Learner claim reward từng nhiệm vụ | Should  |
 | FR-09.04 | Badge               | Learner nhận huy hiệu khi đạt điều kiện cụ thể (12 badge cố định, nhận một lần, không thưởng XP/Coin — [badges.md](../decisions/badges.md)) | Should  |
 | FR-09.05 | Leaderboard cá nhân | Learner xem xếp hạng theo XP tuần (Weekly XP). Lượng XP tổng kết từ 00:00 Thứ Hai đến 23:59 Chủ Nhật (theo múi giờ cấu hình của server). Có tính XP `MISSION_REWARD` hay không: PD-LB-01 ([daily_mission.md](../decisions/daily_mission.md) §0). | Should  |
-| FR-09.06 | Shop item           | Learner dùng coin mua vật phẩm trong cửa hàng (`AVATAR_FRAME`, `XP_BOOSTER`) | Could   |
+| FR-09.06 | Shop item           | Learner dùng coin mua vật phẩm trong cửa hàng (`AVATAR_FRAME`, `CARD_FRAME`, `XP_BOOSTER`) | Could   |
 | FR-09.07 | Apply item          | Learner trang bị avatar frame hoặc kích hoạt XP Booster đã sở hữu | Could   |
 
 Business rules:
@@ -419,9 +419,9 @@ Business rules:
 - Reward phải có rule rõ ràng để tránh cộng trùng khi retry API.
 - Coin chỉ là đơn vị trong ứng dụng, không quy đổi thành tiền thật trong phạm vi đồ án.
 - Shop canonical: [decisions/shop.md](../decisions/shop.md). Tóm tắt:
-  - `ShopItemType` = `AVATAR_FRAME` | `XP_BOOSTER` (developer-controlled); Admin chỉ tạo item và cấu hình tham số trong giới hạn của type.
+  - `ShopItemType` = `AVATAR_FRAME` | `CARD_FRAME` | `XP_BOOSTER` (developer-controlled); Admin chỉ tạo item và cấu hình tham số trong giới hạn của type.
   - Mua 1 đơn vị/request, bắt buộc `Idempotency-Key`; trừ Coin + ghi `CoinTransaction` + cấp `UserItem` trong một transaction; cosmetic không mua trùng; XP Booster giới hạn `maxQuantity` theo item (mặc định 5).
-  - Mỗi Learner tối đa 1 `AVATAR_FRAME` equipped; equip item mới tự bỏ item cũ cùng type.
+  - Mỗi Learner tối đa 1 `AVATAR_FRAME` và 1 `CARD_FRAME` equipped; equip item mới tự bỏ item cũ cùng type.
   - XP Booster: ×2 XP cho Flashcard/SRS Review và Quiz (không áp dụng Mission reward/Admin/Save word), mặc định 30 phút theo server time, tối đa 1 active, không stack/queue/extend; bonus XP tính vào Weekly XP.
 - Leaderboard nên dùng Redis/cache khi dữ liệu tăng hoặc cần cập nhật thường xuyên.
 - Daily missions reset lúc 00:00 múi giờ Asia/Ho_Chi_Minh.
@@ -571,7 +571,7 @@ Business rules:
 | UserBadgeWordCredit | Từ khác nhau Learner từng tự thêm, tính cho badge nhóm "từ" (một lần trọn đời) |
 | CoinTransaction  | Ledger cộng/trừ coin (amount có dấu, balanceAfter, eventKey unique) |
 | ExperienceLog    | Lịch sử cộng XP (base + bonus từ XP Booster)                        |
-| ShopItem         | Vật phẩm trong cửa hàng (type `AVATAR_FRAME`/`XP_BOOSTER`)  |
+| ShopItem         | Vật phẩm trong cửa hàng (type `AVATAR_FRAME`/`CARD_FRAME`/`XP_BOOSTER`) |
 | UserItem         | Quyền sở hữu: 1 row/(Learner, ShopItem), `quantity`, `equipped`     |
 | BoosterActivation| Một lần kích hoạt XP Booster (`startedAt`, `expiresAt`)             |
 | LeaderboardEntry | Bản ghi xếp hạng cá nhân — **chưa thiết kế** (không có bảng trong database.md) |
