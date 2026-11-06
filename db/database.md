@@ -1,5 +1,13 @@
 # Database Schema
 
+## Personal vocabulary (`user_words`)
+
+`UserWord` stores `id` (BIGINT identity), `user_id` (FK users), `word_id`
+(FK words), and `created_at` (DATETIME(6)). Unique `(user_id, word_id)` ensures
+each user can save a dictionary word only once. Membership is independent of
+TopicItem and scan jobs. See [API and behavior](../decisions/personal_vocabulary.md)
+and [migration](../../migration/migration_user_words.sql).
+
 Tài liệu này mô tả kiến trúc cơ sở dữ liệu của hệ thống SnapVocab.
 
 ## Quy chuẩn thiết kế (Conventions)
